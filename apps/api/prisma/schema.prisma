@@ -1,9 +1,19 @@
 // Samadhaan database schema.
 //
-// Scope note: identity only. `User` (Prompt 1) and `Session` (Prompt 3) are
-// modelled here. Problems, organisations, comments, suggestions, resolution
-// rooms, impact points and the vector/geo columns arrive in later milestones —
-// see docs/DATABASE.md.
+// Organised as: identity -> organisations -> problem -> problem satellites ->
+// platform. `Problem` is the central entity; everything downstream attaches to
+// it rather than extending it, so a new capability adds a table instead of
+// reshaping the one every query touches.
+//
+// Conventions used throughout:
+//   - UUID primary keys; `publicId` carries the human-readable identifier
+//   - `@db.Timestamptz(3)` everywhere, so instants are unambiguous
+//   - soft delete (`deletedAt`) on anything with historical value
+//   - `onDelete: Restrict` on authored content, `Cascade` only on parts that
+//     have no meaning without their parent
+//   - enums for controlled vocabularies, JSON only for genuinely dynamic data
+//
+// See docs/DATABASE.md for the ERD, lifecycle and index rationale.
 
 generator client {
   // Prisma 7 generator. Emits an ESM client, matching the API's module setup.
@@ -26,6 +36,10 @@ datasource db {
   //   pg_trgm  - fuzzy text matching on problem titles
   extensions = [postgis, vector, pg_trgm]
 }
+
+// ===========================================================================
+// IDENTITY
+// ===========================================================================
 
 /// Platform role. Drives authorisation and which dashboards a user can reach.
 enum UserRole {
@@ -52,27 +66,40 @@ model User {
   /// Argon2id hash. Null for accounts created through a future OAuth provider.
   passwordHash String?
 
+  /// Single field rather than first/last: many Indian names do not split
+  /// cleanly in two, and nothing in the product needs the halves separately.
   fullName    String
   /// Public handle used in mentions and on the leaderboard.
   displayName String? @unique
   phone       String? @unique
   avatarUrl   String?
+  /// Short self-description shown on the public profile.
+  bio         String?
 
   role   UserRole   @default(CITIZEN)
   status UserStatus @default(PENDING_VERIFICATION)
 
-  emailVerifiedAt DateTime?
-  lastLoginAt     DateTime?
+  emailVerifiedAt DateTime? @db.Timestamptz(3)
+  lastLoginAt     DateTime? @db.Timestamptz(3)
 
-  sessions Session[]
+  sessions            Session[]
+  organizationMembers OrganizationMember[]
+  reportedProblems    Problem[]                   @relation("ProblemReporter")
+  votes               ProblemVote[]
+  follows             ProblemFollow[]
+  comments            ProblemComment[]
+  suggestions         ProblemSuggestion[]
+  reviewedSuggestions ProblemSuggestion[]         @relation("SuggestionReviewer")
+  duplicateReviews    ProblemDuplicateCandidate[] @relation("DuplicateReviewer")
+  auditEvents         AuditLog[]
 
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
+  createdAt DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime  @updatedAt @db.Timestamptz(3)
   /// Soft delete. Every query filters on `deletedAt: null` so a removed account
   /// keeps its authored problems and comments referentially intact.
-  deletedAt DateTime?
+  deletedAt DateTime? @db.Timestamptz(3)
 
-  /// Partial-style lookup for the common "active users of role X" query.
+  /// Serves "active users of role X" — organisation discovery runs it often.
   @@index([role, status])
   @@index([deletedAt])
   @@index([createdAt])
@@ -103,16 +130,762 @@ model Session {
   userAgent String?
   ipAddress String?
 
-  expiresAt DateTime
+  expiresAt DateTime  @db.Timestamptz(3)
   /// Set when the session is revoked — by logout, by a password change, or by
   /// refresh-token reuse detection. Kept rather than deleted so the audit
   /// trail survives; every lookup filters on it.
-  revokedAt DateTime?
+  revokedAt DateTime? @db.Timestamptz(3)
 
-  createdAt  DateTime @default(now())
-  lastUsedAt DateTime @default(now())
+  createdAt  DateTime @default(now()) @db.Timestamptz(3)
+  lastUsedAt DateTime @default(now()) @db.Timestamptz(3)
 
   @@index([userId])
   @@index([expiresAt])
   @@map("sessions")
+}
+
+// ===========================================================================
+// ORGANISATIONS
+// ===========================================================================
+
+/// What kind of body an organisation is. Separate from `UserRole`: a user's
+/// role says what they may do on the platform, this says what the organisation
+/// *is*. A government department is an organisation too, which is why
+/// GOVERNMENT appears in both.
+enum OrganizationType {
+  NGO
+  UNIVERSITY
+  INDUSTRY
+  GOVERNMENT
+}
+
+/// Whether Samadhaan has confirmed the organisation is genuine.
+///
+/// Unverified organisations can exist but must not be allocated problems —
+/// allocation is the point at which public work is handed over, and that
+/// requires a checked identity.
+enum VerificationStatus {
+  PENDING
+  VERIFIED
+  REJECTED
+  SUSPENDED
+}
+
+/// A member's authority *within* an organisation.
+///
+/// Deliberately distinct from `UserRole`. One user can hold different
+/// membership roles in different organisations, which a single column on `User`
+/// could never express.
+enum OrganizationMemberRole {
+  OWNER
+  ADMIN
+  MEMBER
+}
+
+/// Membership lifecycle — invitations and removals both need a state.
+enum MembershipStatus {
+  INVITED
+  ACTIVE
+  SUSPENDED
+  LEFT
+}
+
+/// An NGO, university, industry partner or government department.
+model Organization {
+  id String @id @default(uuid()) @db.Uuid
+
+  name String
+  /// URL-safe identifier for public pages: /organizations/clean-city-foundation
+  slug String @unique
+
+  type        OrganizationType
+  description String?
+  logoUrl     String?
+  websiteUrl  String?
+
+  email String?
+  phone String?
+
+  // --- Registered address -------------------------------------------------
+  address    String?
+  city       String?
+  state      String?
+  country    String? @default("India")
+  postalCode String?
+
+  /// Decimal rather than float: coordinates are compared and grouped, and
+  /// binary floating point makes both subtly unreliable. 9,6 gives ~11 cm.
+  latitude  Decimal? @db.Decimal(9, 6)
+  longitude Decimal? @db.Decimal(9, 6)
+
+  /// PostGIS point, derived from latitude/longitude by a database trigger.
+  /// Prisma cannot express this type, so it is declared `Unsupported` and never
+  /// written by the client — see `problems_location_sync` in the migration.
+  location Unsupported("geography(Point, 4326)")?
+
+  verificationStatus VerificationStatus @default(PENDING)
+  /// When verification last changed, for the admin queue.
+  verifiedAt         DateTime?          @db.Timestamptz(3)
+
+  isActive Boolean @default(true)
+
+  members     OrganizationMember[]
+  suggestions ProblemSuggestion[]
+
+  createdAt DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime  @updatedAt @db.Timestamptz(3)
+  deletedAt DateTime? @db.Timestamptz(3)
+
+  /// Discovery filters by type and verification together.
+  @@index([type, verificationStatus])
+  /// The admin verification queue.
+  @@index([verificationStatus])
+  /// Regional listings and analytics.
+  @@index([state, city])
+  @@index([deletedAt])
+  @@index([location], map: "organizations_location_gist", type: Gist)
+  @@map("organizations")
+}
+
+/// Links a user to an organisation.
+///
+/// A join table rather than a column on `User`, because membership is
+/// many-to-many: a researcher may belong to a university and advise an NGO, and
+/// each membership carries its own role and status.
+model OrganizationMember {
+  id String @id @default(uuid()) @db.Uuid
+
+  organizationId String       @db.Uuid
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  /// Restrict, not Cascade: removing a person from the platform must not
+  /// silently rewrite an organisation's membership history.
+  userId String @db.Uuid
+  user   User   @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  membershipRole OrganizationMemberRole @default(MEMBER)
+  status         MembershipStatus       @default(INVITED)
+
+  /// Set when the invitation is accepted; null while still INVITED.
+  joinedAt DateTime? @db.Timestamptz(3)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  /// One membership per person per organisation. Enforced by the database, so
+  /// a duplicate invitation cannot slip through a race between two requests.
+  @@unique([organizationId, userId])
+  @@index([userId])
+  @@index([organizationId, status])
+  @@map("organization_members")
+}
+
+// ===========================================================================
+// PROBLEM — the central domain entity
+// ===========================================================================
+
+/// The full lifecycle a report moves through.
+///
+/// Ordered as it progresses. DUPLICATE and REJECTED are terminal side exits
+/// rather than stages; ARCHIVED removes a resolved problem from active views
+/// without deleting the civic record.
+enum ProblemStatus {
+  DRAFT
+  SUBMITTED
+  UNDER_REVIEW
+  VERIFIED
+  IN_PROGRESS
+  RESOLVED
+  REJECTED
+  DUPLICATE
+  ARCHIVED
+}
+
+/// How bad the problem is. Paired with urgency, which is a different question.
+enum ProblemSeverity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+/// How soon it must be dealt with.
+///
+/// Distinct from severity on purpose: a collapsed footpath is severe but not
+/// urgent at 3am; a live electrical cable is both. Collapsing them into one
+/// number is what makes triage queues wrong.
+enum ProblemUrgency {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+/// Controlled taxonomy for problem classification.
+///
+/// An enum rather than a lookup table, deliberately: the AI classifier must
+/// emit a closed set, and the database checking that is worth more than the
+/// flexibility of rows. If municipalities later need their own categories, the
+/// migration path is a `categories` table with this enum seeded into it and
+/// `Problem.categoryId` alongside — documented in docs/DATABASE.md.
+enum ProblemCategory {
+  ROADS
+  POTHOLES
+  STREETLIGHTS
+  WATER
+  DRAINAGE
+  SANITATION
+  GARBAGE
+  TRAFFIC
+  PUBLIC_SAFETY
+  POLLUTION
+  ELECTRICITY
+  PUBLIC_TRANSPORT
+  PARKS
+  PUBLIC_INFRASTRUCTURE
+  OTHER
+}
+
+/// A civic problem reported by a citizen.
+///
+/// The centre of the domain. Everything downstream — AI analysis, duplicate
+/// detection, votes, comments, allocation, resolution — attaches to this row
+/// through its own table rather than widening it, so adding a capability never
+/// means migrating the table every query already touches.
+model Problem {
+  id String @id @default(uuid()) @db.Uuid
+
+  /// Human-readable reference such as `SAM-1023`, shown in the UI and quoted
+  /// in correspondence. Generated by a PostgreSQL sequence default, so two
+  /// concurrent reports cannot collide — see the migration.
+  /// Not the primary key: a guessable sequential id in a URL leaks total
+  /// volume and invites enumeration, so the UUID stays authoritative.
+  /// `dbgenerated("")` is Prisma's escape hatch for a default it cannot
+  /// express: the client omits the column on insert and PostgreSQL supplies
+  /// `'SAM-' || nextval(...)`. Writing the expression out instead would make
+  /// the field required in the create input, which defeats the point.
+  publicId String @unique @default(dbgenerated())
+
+  /// Restrict: a citizen leaving the platform must not erase the civic record
+  /// they created. Users are soft-deleted; their reports survive.
+  reporterId String @db.Uuid
+  reporter   User   @relation("ProblemReporter", fields: [reporterId], references: [id], onDelete: Restrict)
+
+  title       String
+  description String
+
+  /// Human-assigned at report time; the AI's opinion lives in
+  /// `ProblemAiAnalysis`, so the two are never confused.
+  category    ProblemCategory
+  /// Free text within a category, e.g. "blocked stormwater drain".
+  subcategory String?
+
+  status   ProblemStatus   @default(DRAFT)
+  severity ProblemSeverity @default(MEDIUM)
+  urgency  ProblemUrgency  @default(MEDIUM)
+
+  /// Composite triage score, 0–100. Maintained by the priority system in a
+  /// later milestone; 0 until then. Constrained non-negative in the database.
+  priorityScore Decimal @default(0) @db.Decimal(6, 2)
+
+  // --- Location -----------------------------------------------------------
+  address    String?
+  city       String?
+  state      String?
+  country    String? @default("India")
+  postalCode String?
+
+  /// Required: a civic problem without a place cannot be routed to anyone.
+  /// Range-checked in the database (-90..90 / -180..180).
+  latitude  Decimal @db.Decimal(9, 6)
+  longitude Decimal @db.Decimal(9, 6)
+
+  /// PostGIS point maintained by a trigger from latitude/longitude, with a
+  /// GiST index. Radius and clustering queries use this; the decimal columns
+  /// remain the writable source of truth. See docs/DATABASE.md.
+  location Unsupported("geography(Point, 4326)")?
+
+  /// Reported GPS accuracy in metres, when the device supplied it. Duplicate
+  /// detection widens its match radius when accuracy is poor.
+  locationAccuracyM Int?
+
+  // --- Denormalised counters ---------------------------------------------
+  /// Maintained transactionally alongside the vote/comment rows. The feed sorts
+  /// and filters on these, and counting rows per problem per request does not
+  /// survive contact with a real feed.
+  voteCount    Int @default(0)
+  commentCount Int @default(0)
+  followCount  Int @default(0)
+
+  // --- Relations ----------------------------------------------------------
+  images      ProblemImage[]
+  aiAnalyses  ProblemAiAnalysis[]
+  embeddings  ProblemEmbedding[]
+  votes       ProblemVote[]
+  follows     ProblemFollow[]
+  comments    ProblemComment[]
+  suggestions ProblemSuggestion[]
+
+  /// Pairs where this problem is the newer report being checked.
+  duplicateCandidates ProblemDuplicateCandidate[] @relation("DuplicateSource")
+  /// Pairs where this problem is the older one being matched against.
+  duplicateMatches    ProblemDuplicateCandidate[] @relation("DuplicateTarget")
+
+  /// Set when this problem is confirmed to duplicate an earlier one. The
+  /// canonical problem accumulates the supporters of everything merged into it.
+  duplicateOfId String?   @db.Uuid
+  duplicateOf   Problem?  @relation("ProblemDuplicates", fields: [duplicateOfId], references: [id], onDelete: Restrict)
+  duplicates    Problem[] @relation("ProblemDuplicates")
+
+  submittedAt DateTime? @db.Timestamptz(3)
+  resolvedAt  DateTime? @db.Timestamptz(3)
+
+  createdAt DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime  @updatedAt @db.Timestamptz(3)
+  deletedAt DateTime? @db.Timestamptz(3)
+
+  /// The default feed: newest active problems first.
+  @@index([status, createdAt])
+  /// Organisation discovery filters by category, then status.
+  @@index([category, status])
+  /// Government triage queue ordering.
+  @@index([status, priorityScore])
+  /// "My problems".
+  @@index([reporterId, createdAt])
+  /// Regional dashboards and analytics.
+  @@index([state, city, status])
+  @@index([severity, urgency])
+  @@index([deletedAt])
+  @@index([duplicateOfId])
+  /// Radius search and clustering. GiST, because a B-tree on lat/lng cannot
+  /// answer "within 2 km of here" — declared here so Prisma owns it and a
+  /// later `migrate dev` does not propose dropping it.
+  @@index([location], map: "problems_location_gist", type: Gist)
+  /// Fuzzy title matching, complementing vector search during deduplication.
+  @@index([title(ops: raw("gin_trgm_ops"))], map: "problems_title_trgm", type: Gin)
+  @@map("problems")
+}
+
+// ===========================================================================
+// PROBLEM SATELLITES — media, AI, duplicates
+// ===========================================================================
+
+/// What a photo is evidence of.
+///
+/// Distinguishing these now is what lets resolution verification later compare
+/// a BEFORE against an AFTER; retrofitting the distinction onto untyped images
+/// would mean guessing from timestamps.
+enum ProblemImageKind {
+  BEFORE
+  PROGRESS
+  AFTER
+  EVIDENCE
+}
+
+/// A photo attached to a problem.
+///
+/// Only metadata and an object-store key live here. Binary data in PostgreSQL
+/// bloats the table, defeats its cache, and makes every backup enormous — the
+/// bytes belong in object storage.
+model ProblemImage {
+  id String @id @default(uuid()) @db.Uuid
+
+  problemId String  @db.Uuid
+  problem   Problem @relation(fields: [problemId], references: [id], onDelete: Cascade)
+
+  /// Object-store key — the authoritative reference.
+  storageKey String  @unique
+  /// Resolved public or signed URL. Derived from `storageKey`, cached here to
+  /// avoid re-signing on every feed render; may be regenerated at any time.
+  url        String?
+
+  originalFileName String?
+  mimeType         String
+  /// Bytes. Constrained positive in the database.
+  fileSize         Int
+  width            Int?
+  height           Int?
+
+  kind      ProblemImageKind @default(BEFORE)
+  /// Display order within the problem's gallery.
+  sortOrder Int              @default(0)
+  /// The card thumbnail. At most one per problem, enforced by a partial unique
+  /// index in the migration.
+  isPrimary Boolean          @default(false)
+
+  /// Perceptual hash, for cheap near-identical detection before any model runs.
+  perceptualHash String?
+
+  createdAt DateTime  @default(now()) @db.Timestamptz(3)
+  deletedAt DateTime? @db.Timestamptz(3)
+
+  @@index([problemId, sortOrder])
+  @@index([problemId, kind])
+  @@map("problem_images")
+}
+
+/// Which question the model was asked.
+enum AnalysisType {
+  INITIAL_ANALYSIS
+  REANALYSIS
+  DUPLICATE_ANALYSIS
+  SEVERITY_ANALYSIS
+  VERIFICATION_ANALYSIS
+}
+
+/// Lifecycle of an analysis job.
+enum ProcessingStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+/// One AI analysis of one problem.
+///
+/// A separate table, not columns on `Problem`, for three reasons: analyses are
+/// re-run and must not overwrite their predecessors; every result carries its
+/// own confidence and model version, which a flattened column cannot; and a
+/// machine opinion must stay visibly distinct from the human-entered values on
+/// `Problem`, because a reviewer has to be able to disagree with it.
+///
+/// Together these rows are also the training set for any future custom model.
+model ProblemAiAnalysis {
+  id String @id @default(uuid()) @db.Uuid
+
+  problemId String  @db.Uuid
+  problem   Problem @relation(fields: [problemId], references: [id], onDelete: Cascade)
+
+  /// Recorded so a regression can be traced to the model that caused it, and
+  /// so results from different models are never silently compared.
+  modelName    String
+  modelVersion String
+
+  analysisType AnalysisType
+
+  // --- Findings. Null until the job completes. ----------------------------
+  category      ProblemCategory?
+  subcategory   String?
+  severity      ProblemSeverity?
+  urgency       ProblemUrgency?
+  /// 0–10 with one decimal, the finer-grained score behind the severity band.
+  severityScore Decimal?         @db.Decimal(4, 2)
+  /// One or two plain sentences, shown to citizens.
+  summary       String?
+  /// 0–1. Range-checked in the database. Always displayed with the finding.
+  confidence    Decimal?         @db.Decimal(5, 4)
+
+  /// The provider's full response. JSONB because its shape is genuinely the
+  /// model's to decide and changes between versions — the columns above are the
+  /// stable subset we commit to.
+  rawResult Json? @db.JsonB
+
+  processingStatus ProcessingStatus @default(PENDING)
+  /// Operator-facing failure reason. Never shown to citizens.
+  errorMessage     String?
+  /// Inference wall-clock, for cost and latency monitoring.
+  processingMs     Int?
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  /// "Latest analysis of this kind for this problem" — the common read.
+  @@index([problemId, analysisType, createdAt])
+  /// The job queue.
+  @@index([processingStatus, createdAt])
+  @@map("problem_ai_analyses")
+}
+
+/// Which representation a vector encodes.
+enum EmbeddingType {
+  TEXT
+  IMAGE
+  MULTIMODAL
+}
+
+/// A vector representation of a problem, for semantic search and duplicate
+/// detection.
+///
+/// **Fixed dimension — a deliberate trade-off.** pgvector can only build an
+/// HNSW index on a column of declared width, and approximate nearest-neighbour
+/// search is the entire point of this table, so `vector(1536)` it is. That
+/// couples the schema to 1536-dimensional models (OpenAI text-embedding-3-*,
+/// and most current text encoders).
+///
+/// The consequence to plan for: a 512-dimensional image encoder such as CLIP
+/// does not fit. Two exits, both documented in docs/DATABASE.md — project the
+/// smaller vector up, or add a second table at its native width. `dimensions`
+/// is recorded on every row so a mismatch is detectable rather than silent.
+model ProblemEmbedding {
+  id String @id @default(uuid()) @db.Uuid
+
+  problemId String  @db.Uuid
+  problem   Problem @relation(fields: [problemId], references: [id], onDelete: Cascade)
+
+  embeddingType EmbeddingType
+  modelName     String
+  modelVersion  String
+  /// Actual width of the stored vector. Guards against a model swap quietly
+  /// writing vectors that are no longer comparable with the existing corpus.
+  dimensions    Int           @default(1536)
+
+  /// pgvector column. Prisma cannot express the type, so it is `Unsupported`
+  /// and written by raw SQL from the AI service — see docs/DATABASE.md.
+  embedding Unsupported("vector(1536)")?
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  /// One current embedding per problem per type per model. Re-embedding with
+  /// the same model replaces the row rather than accumulating duplicates.
+  @@unique([problemId, embeddingType, modelName])
+  @@index([embeddingType])
+  @@map("problem_embeddings")
+}
+
+/// Where a candidate pair stands.
+enum DuplicateStatus {
+  PENDING
+  LIKELY_DUPLICATE
+  NOT_DUPLICATE
+  CONFIRMED_DUPLICATE
+  REJECTED
+}
+
+/// A suspected duplicate pair, with the signals that produced it.
+///
+/// **Directional, and deliberately so.** The row records "the newer problem
+/// `problemId` may duplicate the older `candidateProblemId`", because merging
+/// is itself directional: the older report is canonical and inherits the
+/// supporters. A normalised undirected pair would lose which came first, and
+/// that is exactly the fact the merge needs.
+///
+/// A database constraint keeps the direction honest (`problemId` must be the
+/// newer row by created-at ordering is enforced in application code; the
+/// constraint here prevents self-reference), and the unique pair index stops
+/// the same comparison being stored twice.
+///
+/// Rejected candidates are kept, not deleted: without the negatives the
+/// similarity thresholds cannot be tuned.
+model ProblemDuplicateCandidate {
+  id String @id @default(uuid()) @db.Uuid
+
+  /// The newer problem being checked.
+  problemId String  @db.Uuid
+  problem   Problem @relation("DuplicateSource", fields: [problemId], references: [id], onDelete: Cascade)
+
+  /// The older problem it may duplicate.
+  candidateProblemId String  @db.Uuid
+  candidateProblem   Problem @relation("DuplicateTarget", fields: [candidateProblemId], references: [id], onDelete: Cascade)
+
+  // --- Signals, each 0–1 and range-checked in the database ----------------
+  /// Cosine similarity of text embeddings.
+  textSimilarity       Decimal? @db.Decimal(5, 4)
+  /// Cosine similarity of image embeddings.
+  imageSimilarity      Decimal? @db.Decimal(5, 4)
+  /// Derived from distance, scaled by the category's expected radius.
+  geographicSimilarity Decimal? @db.Decimal(5, 4)
+  /// 1 when categories match, lower for related categories.
+  categorySimilarity   Decimal? @db.Decimal(5, 4)
+  /// Weighted combination of the above; what the thresholds are applied to.
+  combinedScore        Decimal? @db.Decimal(5, 4)
+  confidence           Decimal? @db.Decimal(5, 4)
+
+  status DuplicateStatus @default(PENDING)
+
+  /// Who confirmed or rejected the match, once a human has looked.
+  reviewedById String?   @db.Uuid
+  reviewedBy   User?     @relation("DuplicateReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+  reviewedAt   DateTime? @db.Timestamptz(3)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  /// One record per ordered pair.
+  @@unique([problemId, candidateProblemId])
+  @@index([candidateProblemId])
+  /// The human review queue: highest-scoring pending pairs first.
+  @@index([status, combinedScore])
+  @@map("problem_duplicate_candidates")
+}
+
+// ===========================================================================
+// COMMUNITY
+// ===========================================================================
+
+/// A citizen's support for a problem.
+///
+/// Support, not a score: there is no downvote. Civic problems are not opinions
+/// to be argued down, and a negative vote would let a minority bury a report
+/// that affects someone else's street.
+model ProblemVote {
+  id String @id @default(uuid()) @db.Uuid
+
+  problemId String  @db.Uuid
+  problem   Problem @relation(fields: [problemId], references: [id], onDelete: Cascade)
+
+  userId String @db.Uuid
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  /// One support per person per problem. A database constraint rather than an
+  /// application check, because two concurrent taps would otherwise both pass
+  /// a read-then-write test and inflate the count.
+  @@unique([problemId, userId])
+  @@index([userId, createdAt])
+  @@map("problem_votes")
+}
+
+/// A subscription to a problem's updates.
+///
+/// Separate from voting: someone may want notifications about a problem without
+/// publicly supporting it, and supporters may not want every update.
+model ProblemFollow {
+  id String @id @default(uuid()) @db.Uuid
+
+  problemId String  @db.Uuid
+  problem   Problem @relation(fields: [problemId], references: [id], onDelete: Cascade)
+
+  userId String @db.Uuid
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  @@unique([problemId, userId])
+  @@index([userId, createdAt])
+  @@map("problem_follows")
+}
+
+/// A comment on a problem, optionally a reply to another comment.
+model ProblemComment {
+  id String @id @default(uuid()) @db.Uuid
+
+  problemId String  @db.Uuid
+  problem   Problem @relation(fields: [problemId], references: [id], onDelete: Cascade)
+
+  /// Restrict: comments are part of the public record of a problem and must
+  /// survive their author leaving. Authors are soft-deleted.
+  userId String @db.Uuid
+  user   User   @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  /// Null for a top-level comment. Self-referencing for threads.
+  ///
+  /// Adjacency list rather than a materialised path or nested set: Samadhaan's
+  /// threads are shallow — a comment and its replies — and this is the shape
+  /// that stays simple for that. Restrict on delete so a parent cannot vanish
+  /// and orphan its replies; deletion is soft.
+  parentCommentId String?          @db.Uuid
+  parentComment   ProblemComment?  @relation("CommentThread", fields: [parentCommentId], references: [id], onDelete: Restrict)
+  replies         ProblemComment[] @relation("CommentThread")
+
+  body     String
+  isEdited Boolean @default(false)
+
+  createdAt DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime  @updatedAt @db.Timestamptz(3)
+  /// Soft delete so moderation leaves the thread structure intact — a removed
+  /// comment renders as "removed" rather than detaching its replies.
+  deletedAt DateTime? @db.Timestamptz(3)
+
+  /// Loading a problem's thread in display order.
+  @@index([problemId, createdAt])
+  @@index([parentCommentId])
+  @@index([userId, createdAt])
+  @@map("problem_comments")
+}
+
+/// Where a proposed solution stands.
+enum SuggestionStatus {
+  PENDING
+  REVIEWED
+  ACCEPTED
+  REJECTED
+}
+
+/// A proposed way to fix a problem, from a citizen or an organisation.
+model ProblemSuggestion {
+  id String @id @default(uuid()) @db.Uuid
+
+  problemId String  @db.Uuid
+  problem   Problem @relation(fields: [problemId], references: [id], onDelete: Cascade)
+
+  authorId String @db.Uuid
+  author   User   @relation(fields: [authorId], references: [id], onDelete: Restrict)
+
+  /// Set when the author is proposing on behalf of an organisation. Null for a
+  /// private citizen — which is why this is nullable rather than a second table.
+  organizationId String?       @db.Uuid
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+
+  title       String
+  description String
+
+  status SuggestionStatus @default(PENDING)
+
+  /// The reviewer who accepted or rejected it, once decided.
+  reviewedById String?   @db.Uuid
+  reviewedBy   User?     @relation("SuggestionReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+  reviewedAt   DateTime? @db.Timestamptz(3)
+
+  /// Community endorsements, maintained alongside a future endorsement table.
+  endorsementCount Int @default(0)
+
+  createdAt DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime  @updatedAt @db.Timestamptz(3)
+  deletedAt DateTime? @db.Timestamptz(3)
+
+  /// A problem's suggestions, best-endorsed first.
+  @@index([problemId, status])
+  @@index([authorId, createdAt])
+  @@index([organizationId])
+  @@map("problem_suggestions")
+}
+
+// ===========================================================================
+// PLATFORM
+// ===========================================================================
+
+/// An append-only record of consequential actions.
+///
+/// Samadhaan's output is a public record of civic accountability, so "who
+/// changed this, when, and on what basis" has to survive independently of the
+/// rows it describes. That is why `entityType`/`entityId` are loose strings
+/// rather than foreign keys: the log must outlive what it references, and a
+/// foreign key would either block the delete or cascade the evidence away.
+///
+/// Nothing writes to this table yet; the audit service arrives with the
+/// workflows that need it.
+model AuditLog {
+  id String @id @default(uuid()) @db.Uuid
+
+  /// Null for system-initiated actions. SetNull so the entry survives the
+  /// actor's account being removed — an audit trail that disappears with the
+  /// person who acted is not an audit trail.
+  actorUserId String? @db.Uuid
+  actorUser   User?   @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  /// Verb, e.g. `PROBLEM_CREATED`, `ROLE_CHANGED`, `ORGANIZATION_VERIFIED`.
+  /// A string rather than an enum: new actions arrive with every milestone, and
+  /// an enum would need a migration each time for no integrity gain here.
+  action String
+
+  /// What was acted on, e.g. `Problem` / the row's UUID.
+  entityType String
+  entityId   String? @db.Uuid
+
+  /// Action-specific detail — before/after values, the reason given. JSONB
+  /// because the shape genuinely differs per action.
+  metadata Json? @db.JsonB
+
+  ipAddress String?
+  userAgent String?
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  /// "Everything that happened to this record."
+  @@index([entityType, entityId, createdAt])
+  /// "Everything this person did."
+  @@index([actorUserId, createdAt])
+  @@index([action, createdAt])
+  @@map("audit_logs")
 }

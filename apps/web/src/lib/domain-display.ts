@@ -23,8 +23,13 @@ interface StatusPresentation {
 }
 
 export const PROBLEM_STATUS_DISPLAY: Record<ProblemStatus, StatusPresentation> = {
-  OPEN: {
-    label: 'Open',
+  DRAFT: {
+    label: 'Draft',
+    tone: 'neutral',
+    description: 'Not yet submitted',
+  },
+  SUBMITTED: {
+    label: 'Submitted',
     tone: 'info',
     description: 'Reported and awaiting review',
   },
@@ -33,10 +38,10 @@ export const PROBLEM_STATUS_DISPLAY: Record<ProblemStatus, StatusPresentation> =
     tone: 'warning',
     description: 'Being assessed by the local authority',
   },
-  ALLOCATED: {
-    label: 'Allocated',
+  VERIFIED: {
+    label: 'Verified',
     tone: 'primary',
-    description: 'Assigned to an organisation',
+    description: 'Confirmed and ready for allocation',
   },
   IN_PROGRESS: {
     label: 'In progress',
@@ -52,6 +57,16 @@ export const PROBLEM_STATUS_DISPLAY: Record<ProblemStatus, StatusPresentation> =
     label: 'Rejected',
     tone: 'neutral',
     description: 'Closed without action',
+  },
+  DUPLICATE: {
+    label: 'Duplicate',
+    tone: 'neutral',
+    description: 'Merged into an earlier report',
+  },
+  ARCHIVED: {
+    label: 'Archived',
+    tone: 'neutral',
+    description: 'Closed and moved out of active views',
   },
 };
 
@@ -89,13 +104,21 @@ interface CategoryPresentation {
 }
 
 export const CATEGORY_DISPLAY: Record<ProblemCategory, CategoryPresentation> = {
-  ROAD: { label: 'Road infrastructure', short: 'Road' },
-  WATER: { label: 'Water infrastructure', short: 'Water' },
+  ROADS: { label: 'Roads', short: 'Roads' },
+  POTHOLES: { label: 'Potholes', short: 'Potholes' },
+  STREETLIGHTS: { label: 'Street lighting', short: 'Lighting' },
+  WATER: { label: 'Water supply', short: 'Water' },
+  DRAINAGE: { label: 'Drainage', short: 'Drainage' },
   SANITATION: { label: 'Sanitation', short: 'Sanitation' },
+  GARBAGE: { label: 'Waste collection', short: 'Waste' },
+  TRAFFIC: { label: 'Traffic', short: 'Traffic' },
+  PUBLIC_SAFETY: { label: 'Public safety', short: 'Safety' },
+  POLLUTION: { label: 'Pollution', short: 'Pollution' },
   ELECTRICITY: { label: 'Electricity', short: 'Electricity' },
-  SAFETY: { label: 'Public safety', short: 'Safety' },
-  ENVIRONMENT: { label: 'Environment', short: 'Environment' },
+  PUBLIC_TRANSPORT: { label: 'Public transport', short: 'Transport' },
+  PARKS: { label: 'Parks & open spaces', short: 'Parks' },
   PUBLIC_INFRASTRUCTURE: { label: 'Public infrastructure', short: 'Infrastructure' },
+  OTHER: { label: 'Other', short: 'Other' },
 };
 
 interface PriorityPresentation {

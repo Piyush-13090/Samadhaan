@@ -19,11 +19,12 @@
     "test:cov": "vitest run --coverage",
     "test:e2e": "vitest run --config ./vitest.config.e2e.ts",
     "db:generate": "prisma generate",
-    "db:migrate": "prisma migrate dev",
-    "db:migrate:deploy": "prisma migrate deploy",
+    "db:migrate": "prisma migrate dev && bash scripts/post-migrate.sh",
+    "db:migrate:deploy": "prisma migrate deploy && bash scripts/post-migrate.sh",
     "db:studio": "prisma studio",
     "db:push": "prisma db push",
-    "db:seed": "npm run build && node dist/database/seed.js"
+    "db:seed": "npm run build && node dist/database/seed.js",
+    "db:post-migrate": "bash scripts/post-migrate.sh"
   },
   "prisma": {
     "schema": "prisma/schema.prisma"

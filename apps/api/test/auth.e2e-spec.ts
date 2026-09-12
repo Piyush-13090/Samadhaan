@@ -5,6 +5,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { AppModule } from '../src/app.module.js';
 import { configureApp, registerNotFoundHandler } from '../src/bootstrap.js';
 import { PrismaService } from '../src/database/prisma.service.js';
+import { RedisService } from '../src/redis/redis.service.js';
 
 /**
  * Authentication and RBAC, exercised end to end against the real application:
@@ -17,6 +18,7 @@ import { PrismaService } from '../src/database/prisma.service.js';
 describe('Authentication (e2e)', () => {
   let app: INestApplication;
   let prisma: PrismaService;
+  let redis: RedisService;
   let server: Parameters<typeof request>[0];
 
   /** Unique per run so repeated runs never collide on the email index. */
@@ -38,8 +40,21 @@ describe('Authentication (e2e)', () => {
     registerNotFoundHandler(app);
 
     prisma = app.get(PrismaService);
+    redis = app.get(RedisService);
     server = app.getHttpServer();
+
+    // Rate-limit counters live in Redis on a five-minute window, so a suite run
+    // shortly after a previous one would inherit its tally and start failing
+    // with 429s. Clearing the buckets makes the suite independent of when it
+    // last ran, rather than of how many times it signs in.
+    await clearRateLimits();
   });
+
+  /** Drops every rate-limit bucket, so the suite starts from a clean tally. */
+  async function clearRateLimits(): Promise<void> {
+    const keys = await redis.connection.keys('ratelimit:*');
+    if (keys.length > 0) await redis.connection.del(...keys);
+  }
 
   afterAll(async () => {
     // Remove only what this run created; seeded accounts are left in place.
@@ -56,6 +71,10 @@ describe('Authentication (e2e)', () => {
   }
 
   async function loginAs(email: string): Promise<string[]> {
+    // Each helper call is a fresh sign-in; the limiter exists to slow real
+    // credential stuffing, not to cap a test suite's legitimate logins.
+    await clearRateLimits();
+
     const response = await request(server)
       .post('/api/v1/auth/login')
       .send({ email, password: SEEDED_PASSWORD })

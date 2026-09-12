@@ -1,48 +1,50 @@
 /**
  * Domain vocabulary for the Samadhaan UI layer.
  *
- * These are the shapes the presentational components render. They intentionally
- * describe *what the UI needs*, not the database schema — when the API lands,
- * a mapper converts API responses into these, and no component changes.
+ * The enums now come from `@samadhaan/shared`, which mirrors the Prisma schema
+ * — the database is the single source of truth for the vocabulary. What stays
+ * here are the *view shapes*: what a card or a panel needs to render, which is
+ * not the same as what a table stores.
  *
- * Roles and platform enums that cross the service boundary live in
- * `@samadhaan/shared`; these are UI-only.
+ * When the problem endpoints land, a mapper converts API responses into these
+ * and no component changes.
  */
 
-/** Lifecycle of a reported problem, in the order it progresses. */
-export const PROBLEM_STATUSES = [
-  'OPEN',
-  'UNDER_REVIEW',
-  'ALLOCATED',
-  'IN_PROGRESS',
-  'RESOLVED',
-  'REJECTED',
-] as const;
+export type {
+  ProblemStatus,
+  ProblemSeverity,
+  ProblemUrgency,
+  ProblemCategory,
+  OrganizationType,
+  ProblemImageKind,
+  SuggestionStatus,
+} from '@samadhaan/shared';
 
-export type ProblemStatus = (typeof PROBLEM_STATUSES)[number];
+export {
+  PROBLEM_STATUSES,
+  PROBLEM_SEVERITIES,
+  PROBLEM_URGENCIES,
+  PROBLEM_CATEGORIES,
+  ACTIVE_PROBLEM_STATUSES,
+} from '@samadhaan/shared';
 
-/** Severity band. The numeric AI score maps onto one of these for display. */
-export const SEVERITY_LEVELS = ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'] as const;
-
-export type SeverityLevel = (typeof SEVERITY_LEVELS)[number];
-
-/** Problem categories. Mirrors the taxonomy the AI classifier will produce. */
-export const PROBLEM_CATEGORIES = [
-  'ROAD',
-  'WATER',
-  'SANITATION',
-  'ELECTRICITY',
-  'SAFETY',
-  'ENVIRONMENT',
-  'PUBLIC_INFRASTRUCTURE',
-] as const;
-
-export type ProblemCategory = (typeof PROBLEM_CATEGORIES)[number];
+import type {
+  ProblemCategory,
+  ProblemSeverity,
+  ProblemStatus,
+  OrganizationType,
+} from '@samadhaan/shared';
 
 /** Triage priority assigned in the government workspace. */
 export const PRIORITY_LEVELS = ['P1', 'P2', 'P3', 'P4'] as const;
 
 export type PriorityLevel = (typeof PRIORITY_LEVELS)[number];
+
+/**
+ * Display alias kept for existing components: severity bands and the AI's
+ * severity vocabulary are the same set.
+ */
+export type SeverityLevel = ProblemSeverity;
 
 export interface GeoPoint {
   latitude: number;
@@ -104,7 +106,8 @@ export interface ProblemSummary {
   assignedTo?: OrganizationSummary[];
 }
 
-export type OrganizationKind = 'NGO' | 'UNIVERSITY' | 'INDUSTRY' | 'GOVERNMENT';
+/** Alias for the shared organisation type. */
+export type OrganizationKind = OrganizationType;
 
 export interface OrganizationSummary {
   id: string;

@@ -21,7 +21,7 @@ export const PROBLEMS: ProblemSummary[] = [
       'Water has been standing at the market entrance for three days after the last rain. Shopkeepers are laying planks across the road and two people have slipped.',
     status: 'IN_PROGRESS',
     severity: 'HIGH',
-    category: 'WATER',
+    category: 'DRAINAGE',
     location: {
       address: 'Sector 12 Market Road, near Bus Stop 4',
       area: 'Sector 12',
@@ -37,7 +37,7 @@ export const PROBLEMS: ProblemSummary[] = [
     progress: 64,
     assignedTo: [ORGANIZATIONS[0]!, ORGANIZATIONS[1]!],
     ai: {
-      category: 'WATER',
+      category: 'DRAINAGE',
       severityScore: 8.7,
       severity: 'HIGH',
       confidence: 0.94,
@@ -55,7 +55,7 @@ export const PROBLEMS: ProblemSummary[] = [
     title: 'Broken streetlight near Community Park',
     description:
       'The light at the park’s north gate has been out for two weeks. The path is completely dark after 7pm and is used by people walking home.',
-    status: 'OPEN',
+    status: 'SUBMITTED',
     severity: 'MEDIUM',
     category: 'ELECTRICITY',
     location: {
@@ -89,7 +89,7 @@ export const PROBLEMS: ProblemSummary[] = [
       'A pothole roughly two feet wide has opened at the crossing. Two-wheelers are swerving into the opposite lane to avoid it.',
     status: 'UNDER_REVIEW',
     severity: 'HIGH',
-    category: 'ROAD',
+    category: 'POTHOLES',
     location: {
       address: 'Main Market Crossing, opposite State Bank',
       area: 'Sector 12',
@@ -103,7 +103,7 @@ export const PROBLEMS: ProblemSummary[] = [
     suggestionCount: 4,
     reportedAt: hoursAgo(20),
     ai: {
-      category: 'ROAD',
+      category: 'POTHOLES',
       severityScore: 7.9,
       severity: 'HIGH',
       confidence: 0.96,
@@ -155,9 +155,9 @@ export const PROBLEMS: ProblemSummary[] = [
     title: 'Missing manhole cover on Link Road',
     description:
       'An open manhole on the footpath outside the clinic. Someone has put a branch in it as a warning but it is not visible at night.',
-    status: 'ALLOCATED',
+    status: 'VERIFIED',
     severity: 'CRITICAL',
-    category: 'SAFETY',
+    category: 'PUBLIC_SAFETY',
     location: {
       address: 'Link Road, outside Sector 12 clinic',
       area: 'Sector 12',
@@ -173,7 +173,7 @@ export const PROBLEMS: ProblemSummary[] = [
     progress: 20,
     assignedTo: [ORGANIZATIONS[2]!],
     ai: {
-      category: 'SAFETY',
+      category: 'PUBLIC_SAFETY',
       severityScore: 9.4,
       severity: 'CRITICAL',
       confidence: 0.97,
@@ -190,9 +190,9 @@ export const PROBLEMS: ProblemSummary[] = [
     title: 'Overgrown trees blocking footpath',
     description:
       'Branches along the stretch between Gate 2 and the school have grown across the footpath, forcing people to walk on the road.',
-    status: 'OPEN',
+    status: 'SUBMITTED',
     severity: 'LOW',
-    category: 'ENVIRONMENT',
+    category: 'PARKS',
     location: {
       address: 'Green Avenue, Gate 2 to school gate',
       area: 'Sector 9',
@@ -206,7 +206,7 @@ export const PROBLEMS: ProblemSummary[] = [
     suggestionCount: 1,
     reportedAt: daysAgo(4),
     ai: {
-      category: 'ENVIRONMENT',
+      category: 'PARKS',
       severityScore: 3.2,
       severity: 'LOW',
       confidence: 0.82,

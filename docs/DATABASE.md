@@ -2,231 +2,477 @@
 
 PostgreSQL 16+ with PostGIS, pgvector and pg_trgm. Prisma is the ORM.
 
-> This document separates **what exists** from **what is planned**. The planned
-> section is a design sketch, not a description of running code.
+---
+
+## 1. Architecture
+
+```
+NestJS API ──Prisma──▶ PostgreSQL 16+
+                          ├── PostGIS   geography(Point, 4326), GiST
+                          ├── pgvector  vector(1536), HNSW
+                          └── pg_trgm   fuzzy title matching
+```
+
+Prisma is the only writer. The AI service never connects to PostgreSQL — it
+receives work and returns results through the API, so authorisation, auditing
+and validation stay in one place.
+
+**Conventions**, applied throughout:
+
+| | |
+| --- | --- |
+| Primary keys | UUID v4. Sequential ids in URLs leak volume and invite enumeration |
+| Timestamps | `timestamptz(3)`, always UTC. A naive timestamp is ambiguous |
+| Deletion | Soft (`deletedAt`) on anything with historical value |
+| Vocabularies | Enums, mirrored into `@samadhaan/shared` for the frontend |
+| Dynamic data | `JSONB`, used only where the shape genuinely is not ours |
 
 ---
 
-## Implemented now
+## 2. ERD
+
+```
+User ─────────────────────────────────────────────────┐
+ │                                                    │
+ ├── Session                      (auth, Prompt 3)    │
+ │                                                    │
+ ├── Problem  (reporter, Restrict)                    │
+ │     ├── ProblemImage               Cascade         │
+ │     ├── ProblemAiAnalysis          Cascade         │
+ │     ├── ProblemEmbedding           Cascade         │
+ │     ├── ProblemDuplicateCandidate  Cascade  ×2     │
+ │     ├── ProblemVote                Cascade         │
+ │     ├── ProblemFollow              Cascade         │
+ │     ├── ProblemComment             Cascade         │
+ │     │     └── ProblemComment  (self, threaded)     │
+ │     ├── ProblemSuggestion          Cascade         │
+ │     └── Problem  (duplicateOf, self, Restrict)     │
+ │                                                    │
+ ├── ProblemVote · ProblemFollow      Cascade         │
+ ├── ProblemComment · ProblemSuggestion  Restrict     │
+ │                                                    │
+ ├── OrganizationMember ── Organization ──────────────┘
+ │         (Restrict)         (Cascade)     │
+ │                                          └── ProblemSuggestion (SetNull)
+ │
+ └── AuditLog  (actor, SetNull)
+```
+
+---
+
+## 3. Core entities
+
+### Identity
+
+**`User`** — one row per person. Extended this milestone with `bio`; the auth
+fields from Prompt 3 are unchanged and RBAC still reads `role`.
+
+Two decisions carried forward and worth restating:
+
+- **`fullName`, not `firstName`/`lastName`.** Many Indian names do not split
+  cleanly in two, and nothing in the product needs the halves separately.
+- **`status` enum, not an `isActive` boolean.** "Pending verification" and
+  "suspended" have different consequences; a boolean cannot express that. The
+  `isActive` concept the brief asks for is `status = ACTIVE`.
+
+**`Session`** — one row per signed-in device; SHA-256 digest of an opaque
+refresh token. This is what makes logout real. See [ARCHITECTURE.md](./ARCHITECTURE.md).
+
+### Organisations
+
+**`Organization`** — an NGO, university, industry partner or government
+department. Carries its own address and PostGIS point, so "organisations serving
+this area" is a spatial query.
+
+**`OrganizationMember`** — the join table. A join table rather than a column on
+`User` because membership is genuinely many-to-many: a researcher may belong to
+a university *and* advise an NGO, each with a different `membershipRole`. Unique
+on `(organizationId, userId)`.
+
+`OrganizationMemberRole` (OWNER/ADMIN/MEMBER) is deliberately distinct from
+`UserRole`. The platform role says what someone may do on Samadhaan; membership
+role says what they may do inside one organisation.
+
+### Problem — the centre
+
+Everything downstream attaches to `Problem` through its own table rather than
+widening it. Adding a capability therefore adds a table; it never migrates the
+one row every feed query already touches.
+
+| Group | Fields |
+| --- | --- |
+| Identity | `id` (UUID), `publicId` (`SAM-1023`) |
+| Content | `title`, `description`, `category`, `subcategory` |
+| Assessment | `status`, `severity`, `urgency`, `priorityScore` |
+| Location | `address`, `city`, `state`, `country`, `postalCode`, `latitude`, `longitude`, `location`, `locationAccuracyM` |
+| Engagement | `voteCount`, `commentCount`, `followCount` (denormalised) |
+| Lifecycle | `submittedAt`, `resolvedAt`, `createdAt`, `updatedAt`, `deletedAt` |
+
+**Severity and urgency are separate columns, not one score.** A collapsed
+footpath is severe but not urgent at 3am; a live electrical cable is both.
+Collapsing them is what makes triage queues wrong.
+
+**Counters are denormalised deliberately.** The feed sorts and filters on them,
+and counting child rows per problem per request does not survive a real feed.
+They are maintained transactionally alongside the vote/comment rows, and a
+CHECK constraint keeps them non-negative so a bug in that code fails loudly.
+
+---
+
+## 4. Public identifiers
+
+`publicId` is `SAM-` plus a PostgreSQL sequence:
+
+```sql
+CREATE SEQUENCE problem_public_id_seq START WITH 1000;
+ALTER TABLE problems
+  ALTER COLUMN "publicId" SET DEFAULT 'SAM-' || nextval('problem_public_id_seq');
+```
+
+**Why the database generates it.** `nextval()` is atomic and never returns the
+same value twice, even under concurrent inserts. Generating the number in Node
+would need a read-then-write, and two citizens reporting simultaneously would
+race. There is an e2e test that inserts ten problems concurrently and asserts
+ten distinct references.
+
+**Why it is not the primary key.** A sequential identifier in a URL leaks total
+report volume and lets anyone enumerate every report. The UUID stays
+authoritative; `publicId` is for humans.
+
+In the Prisma schema the field is `@default(dbgenerated())` — the empty form.
+Writing the expression out would make the column *required* in the generated
+create input, defeating the purpose; the empty form tells Prisma "the database
+supplies this, do not ask".
+
+---
+
+## 5. Geospatial strategy
+
+`latitude` / `longitude` are `Decimal(9,6)` and are **the writable source of
+truth**. `location` is `geography(Point, 4326)`, maintained by a trigger:
+
+```sql
+CREATE TRIGGER problems_location_sync
+  BEFORE INSERT OR UPDATE OF latitude, longitude ON problems
+  FOR EACH ROW EXECUTE FUNCTION sync_location_from_lat_lng();
+```
+
+**Why a trigger and not application code.** If both were written by the API they
+could disagree — and a `location` that silently diverges from the coordinates
+shown to the user is a bug nobody notices until a map is wrong. The trigger
+makes divergence impossible.
+
+**Why a trigger and not a generated column.** Prisma's migration engine does not
+model generated columns and would report drift against them on every run.
+Triggers are invisible to it.
+
+**Why `Decimal` and not `Float`.** Coordinates are compared and grouped; binary
+floating point makes both subtly unreliable. `(9,6)` gives about 11 cm.
+
+**Indexing.** GiST on `location`, not B-tree on the coordinates. A B-tree cannot
+answer "within 2 km of here" — it would scan one dimension and filter the rest.
+Radius search and map clustering are core queries, so this matters.
+
+> **PostGIS argument order:** `ST_MakePoint(longitude, latitude)`. Reversing them
+> is the classic bug — it produces a point in the wrong hemisphere rather than
+> an error.
+
+Populating `location` from application code is never necessary. Write the
+coordinates; the database does the rest.
+
+---
+
+## 6. Vector / embedding strategy
+
+`ProblemEmbedding.embedding` is `vector(1536)`, indexed with HNSW using
+`vector_cosine_ops`.
+
+**Why HNSW and not IVFFlat.** IVFFlat needs a training pass over existing rows
+and degrades until rebuilt. Samadhaan's corpus grows continuously from empty,
+which is precisely the case IVFFlat handles badly.
+
+**Why the dimension is fixed — and what it costs.** pgvector can only build an
+ANN index on a column of declared width, and approximate nearest-neighbour
+search is the entire purpose of the table. So 1536 it is, matching current text
+encoders (OpenAI `text-embedding-3-*` and most peers).
+
+> **This is a live architectural constraint, not a settled question.** A
+> 512-dimensional image encoder such as CLIP does not fit. Two exits, to be
+> chosen when image embeddings are actually implemented:
+>
+> 1. **Project up** to 1536 with a fixed random or learned projection. One
+>    table, one index, some information loss.
+> 2. **A second table** at the native width, e.g. `problem_image_embeddings`
+>    with `vector(512)`. Exact, but duplicates the query path.
+>
+> Every row records `dimensions`, so a model swap that produces incomparable
+> vectors is detectable rather than silent.
+
+Writes go through raw SQL — Prisma cannot express the type, so the column is
+`Unsupported(...)` and invisible to the client.
+
+---
+
+## 7. Duplicate detection data model
+
+`ProblemDuplicateCandidate` stores one row per **ordered** pair: "the newer
+problem `problemId` may duplicate the older `candidateProblemId`".
+
+**Directional on purpose.** Merging is itself directional — the older report is
+canonical and inherits the supporters of everything merged into it. A normalised
+undirected pair would discard which came first, which is exactly the fact the
+merge needs. The unique index on `(problemId, candidateProblemId)` prevents the
+same comparison being stored twice; the reverse direction is a *different*
+record and is permitted, because "A may duplicate B" and "B may duplicate A" are
+different claims.
+
+A CHECK constraint rejects self-reference.
+
+**Rejected candidates are kept.** Without the negatives, the similarity
+thresholds cannot be tuned — the false positives are the training signal.
+
+Four signals are stored separately (`textSimilarity`, `imageSimilarity`,
+`geographicSimilarity`, `categorySimilarity`) alongside the `combinedScore`, so
+a bad merge can be traced to the signal that caused it. All are range-checked
+0–1 in the database.
+
+**The intended cascade** (implemented in the duplicate-detection milestone):
+geography first via the GiST index, since it eliminates almost all candidates
+for free; then vector similarity on the survivors; then image similarity; then
+the weighted combination.
+
+---
+
+## 8. AI analysis storage
+
+`ProblemAiAnalysis` is a separate table, not columns on `Problem`, for three
+reasons:
+
+1. Analyses are **re-run**, and a new result must not overwrite its predecessor.
+2. Every result carries its own `confidence` and `modelVersion`, which flattened
+   columns cannot.
+3. A machine opinion must stay **visibly distinct** from the human-entered
+   values on `Problem` — a reviewer has to be able to disagree with it.
+
+Together these rows are also the training set for any future custom model.
+
+`rawResult` is JSONB because its shape is genuinely the provider's to decide and
+changes between versions. The typed columns beside it are the stable subset the
+product commits to.
+
+---
+
+## 9. Indexing strategy
+
+Every index below exists for a named query. There are no speculative ones.
+
+| Index | Table | Serves |
+| --- | --- | --- |
+| `(status, createdAt)` | Problem | Default feed |
+| `(category, status)` | Problem | Organisation discovery |
+| `(status, priorityScore)` | Problem | Government triage queue |
+| `(reporterId, createdAt)` | Problem | "My problems" |
+| `(state, city, status)` | Problem | Regional dashboards |
+| `(severity, urgency)` | Problem | Triage filters |
+| GiST `location` | Problem, Organization | Radius search, clustering |
+| GIN `title gin_trgm_ops` | Problem | Fuzzy matching during dedup |
+| HNSW `embedding` | ProblemEmbedding | Semantic nearest neighbour |
+| `(type, verificationStatus)` | Organization | Partner discovery |
+| `(organizationId, status)` | OrganizationMember | Member lists |
+| `(problemId, analysisType, createdAt)` | ProblemAiAnalysis | Latest analysis |
+| `(processingStatus, createdAt)` | ProblemAiAnalysis | Job queue |
+| `(status, combinedScore)` | DuplicateCandidate | Review queue |
+| `(problemId, createdAt)` | ProblemComment | Thread loading |
+| `(entityType, entityId, createdAt)` | AuditLog | Record history |
+
+Unique constraints: `User.email`, `User.displayName`, `Organization.slug`,
+`Problem.publicId`, `ProblemImage.storageKey`,
+`(organizationId, userId)`, `(problemId, userId)` on votes and follows,
+`(problemId, embeddingType, modelName)`, `(problemId, candidateProblemId)`.
+
+One **partial** unique index — at most one primary image per problem:
+
+```sql
+CREATE UNIQUE INDEX problem_images_one_primary_per_problem
+  ON problem_images ("problemId") WHERE "isPrimary" = true;
+```
+
+A plain unique on `(problemId, isPrimary)` would also forbid a second
+*non*-primary image.
+
+---
+
+## 10. Constraints
+
+18 CHECK constraints. Application validation is the first line, not the only
+one — migrations, scripts and psql sessions all bypass the API.
+
+| Constraint | Guards |
+| --- | --- |
+| Latitude −90..90, longitude −180..180 | Problem, Organization |
+| `priorityScore >= 0`, counters `>= 0` | Problem |
+| `duplicateOfId <> id` | Problem |
+| Slug matches `^[a-z0-9]+(-[a-z0-9]+)*$` | Organization |
+| `fileSize > 0`, dimensions positive | ProblemImage |
+| `confidence` 0..1, `severityScore` 0..10 | ProblemAiAnalysis |
+| All five similarity scores 0..1 | DuplicateCandidate |
+| `problemId <> candidateProblemId` | DuplicateCandidate |
+| `parentCommentId <> id`, non-empty body | ProblemComment |
+| `dimensions > 0` | ProblemEmbedding |
+| `endorsementCount >= 0` | ProblemSuggestion |
+
+---
+
+## 11. Deletion strategy
+
+`ON DELETE` is chosen per relationship, never applied uniformly.
+
+| Behaviour | Used for | Reason |
+| --- | --- | --- |
+| **Restrict** | Problem→reporter, Comment→author, Suggestion→author, Member→user | A citizen leaving must not erase the civic record they created |
+| **Cascade** | Problem→images, analyses, embeddings, votes, follows, comments, suggestions, duplicate pairs | Meaningless without their problem |
+| **Cascade** | Vote/Follow→user | Engagement signals, not authored content |
+| **SetNull** | AuditLog→actor, Suggestion→organization, reviewer fields | The record must outlive the reference |
+
+Soft delete (`deletedAt`) on `User`, `Organization`, `Problem`, `ProblemImage`,
+`ProblemComment`, `ProblemSuggestion`. Hard deletion is effectively never used
+in production; the Restrict constraints exist to make an accidental one fail
+loudly rather than take history with it.
+
+**Every read must filter `deletedAt: null`.** This is not enforced by the
+database. `UsersRepository` centralises it for users; each repository added
+later must do the same for its own table.
+
+---
+
+## 12. Audit strategy
+
+`AuditLog` is append-only: actor, action, entity, JSONB metadata, IP, user agent.
+
+`entityType`/`entityId` are loose strings rather than foreign keys — deliberately.
+The log must outlive what it references, and a foreign key would either block the
+delete or cascade the evidence away. `actorUserId` is `SetNull`, so an entry
+survives the removal of the person who acted; there is a test for exactly that.
+
+`action` is a string, not an enum: new actions arrive with every milestone and an
+enum would need a migration each time for no integrity gain.
+
+**Nothing writes to this table yet.** The audit service arrives with the
+workflows that need it — allocation, verification, role changes.
+
+---
+
+## 13. Migration strategy
+
+```
+20260912082226_init                      Users, extensions
+20260912120434_add_sessions              Auth sessions
+20260912144258_core_domain_model         This milestone
+20260912144900_problem_public_id_default Aligns the sequence default with the schema
+```
+
+Migrations are additive and committed. A clean database reproduces the full
+schema — verified by replaying all four into an empty database.
+
+### Raw SQL
+
+Prisma's schema language cannot express everything. Where that is true, the
+migration contains raw SQL: the sequence, the trigger and function, the partial
+unique index, and all 18 CHECK constraints.
+
+Two things were moved *into* `schema.prisma` once it turned out Prisma could
+express them — the GiST indexes (`type: Gist`) and the trigram index
+(`ops: raw("gin_trgm_ops")`). That matters because Prisma regenerates its diff
+from the schema alone and proposes dropping anything it does not know about.
+
+### The HNSW exception
+
+Prisma has no syntax for HNSW, so `prisma migrate dev` **will** propose dropping
+`problem_embeddings_vector_hnsw`. That is expected, not a fault.
+
+It is handled by `prisma/sql/post-migrate.sql`, which is idempotent and applied
+automatically:
+
+```bash
+npm run db:migrate          # prisma migrate dev && post-migrate
+npm run db:migrate:deploy   # prisma migrate deploy && post-migrate
+npm run db:post-migrate     # re-apply on its own
+```
+
+> When reviewing a generated migration, delete any `DROP INDEX
+> "problem_embeddings_vector_hnsw"` line before applying it. The post-migrate
+> script recreates the index either way, but leaving the drop in causes a
+> needless rebuild.
 
 ### Extensions
 
-| Extension | Purpose | Status |
-| --- | --- | --- |
-| `postgis` | Problem locations, radius search, clustering | Created |
-| `vector` | Semantic duplicate detection, RAG retrieval | Created |
-| `pg_trgm` | Fuzzy text matching on problem titles | Created |
+`postgis`, `vector` and `pg_trgm` are declared in the Prisma datasource **and**
+in `infrastructure/database/init.sql`. The two lists must stay identical, or
+Prisma reports drift against a Docker-provisioned database.
 
-They are created in two places, deliberately:
-
-- `infrastructure/database/init.sql` runs once when the Docker data directory is
-  first initialised, so a fresh `docker compose up` has a usable database before
-  any migration runs.
-- The Prisma datasource declares them, so `prisma migrate` emits
-  `CREATE EXTENSION IF NOT EXISTS` and keeps them in the migration history for
-  environments not provisioned by that script.
-
-**The two lists must stay identical.** If they diverge, `prisma migrate` reports
-schema drift against a Docker-provisioned database.
-
-### `User`
-
-Table `users`.
-
-| Column | Type | Notes |
-| --- | --- | --- |
-| `id` | `uuid` PK | Random UUID, not a sequence — see below |
-| `email` | `text` unique | Stored lower-cased |
-| `passwordHash` | `text?` | Argon2id. Null for future OAuth accounts |
-| `fullName` | `text` | |
-| `displayName` | `text?` unique | Public handle for mentions and leaderboard |
-| `phone` | `text?` unique | |
-| `avatarUrl` | `text?` | |
-| `role` | `UserRole` | Default `CITIZEN` |
-| `status` | `UserStatus` | Default `PENDING_VERIFICATION` |
-| `emailVerifiedAt` | `timestamp?` | |
-| `lastLoginAt` | `timestamp?` | |
-| `createdAt` | `timestamp` | |
-| `updatedAt` | `timestamp` | |
-| `deletedAt` | `timestamp?` | Soft delete |
-
-**Enums**
-
-```prisma
-enum UserRole   { CITIZEN NGO UNIVERSITY INDUSTRY GOVERNMENT ADMIN }
-enum UserStatus { PENDING_VERIFICATION ACTIVE SUSPENDED }
-```
-
-**Indexes**
-
-- unique on `email`, `displayName`, `phone`
-- `(role, status)` — serves "active organisations of type X", the query
-  organisation discovery will run constantly
-- `deletedAt` — every read filters on it
-- `createdAt` — ordering for admin listings
-
-### Decisions on this table
-
-**UUID primary keys, not auto-increment.** Problem ids appear in public URLs; a
-sequential id leaks total volume and lets anyone enumerate every report. UUIDs
-also let a client generate an id offline, which matters for a mobile reporting
-flow that must work without connectivity.
-
-**Soft delete via `deletedAt`.** A deleted account's problems, comments and
-resolution history must survive — this is an accountability record. Hard
-deletion would either cascade away civic history or leave dangling references.
-`UsersRepository` applies `deletedAt: null` in one place so no caller can
-accidentally resurrect a deleted account.
-
-**Role as an enum, not a join table.** A user has exactly one role, and it
-drives authorisation on every request. An enum is a single byte, is checked by
-the database, and Prisma types it end-to-end. If per-permission grants are ever
-needed, a permissions table can be added alongside without changing this column.
-
-**`status` separate from `role`.** Organisation and government accounts need
-manual approval before they are trusted; citizens only need email verification.
-Keeping lifecycle separate from role means the verification workflow does not
-have to mutate a user's identity.
-
-**`passwordHash` nullable.** An OAuth-created account genuinely has no password.
-A sentinel value would be a lie the auth code would have to special-case anyway.
-
-**Organisation profile is not on this table.** An NGO's registration number,
-capability tags and service area belong to an `Organization` record that a user
-belongs to — not to fifteen nullable columns that are null for every citizen.
-
-**`fullName`, not `firstName`/`lastName`.** Many Indian names do not split
-cleanly into two fields, and nothing in the product needs the halves separately.
-A single field is both more correct and less to get wrong.
-
-**`status` enum rather than an `isActive` boolean.** "Pending verification" and
-"suspended" are different states with different consequences — an organisation
-account awaiting approval is not the same as one that was shut down — and a
-boolean cannot express that.
-
-### `Session`
-
-One row per signed-in device. Table `sessions`.
-
-| Column | Type | Notes |
-| --- | --- | --- |
-| `id` | `uuid` PK | Also the `sid` claim in access tokens |
-| `userId` | `uuid` FK | `onDelete: Cascade` |
-| `tokenHash` | `text` unique | SHA-256 of the refresh token |
-| `userAgent` | `text?` | For a future "your devices" screen |
-| `ipAddress` | `text?` | Same, and to spot session theft |
-| `expiresAt` | `timestamp` | |
-| `revokedAt` | `timestamp?` | Set on logout, rotation, or reuse detection |
-| `createdAt` / `lastUsedAt` | `timestamp` | |
-
-**Indexes:** unique on `tokenHash`; `userId`; `expiresAt`.
-
-#### Decisions on this table
-
-**Only a digest is stored.** Refresh tokens are 256 bits of randomness, so a
-database leak yields nothing an attacker can replay — there is no token to
-recover from a SHA-256 digest.
-
-**SHA-256, not Argon2.** Argon2 is deliberately slow to resist brute force
-against low-entropy human passwords. A 256-bit random token has nothing to
-brute-force, and this is verified on every refresh, so a slow hash would only
-add latency.
-
-**Revoked, not deleted.** `revokedAt` is what makes refresh-token reuse
-detectable: a deleted row is indistinguishable from one that never existed,
-whereas a revoked row presented again is a signal that a token was captured.
-
-**This table is why logout works.** Access tokens are stateless and cannot be
-recalled, so revocation lives here. `JwtAuthGuard` confirms the session row on
-every request — one indexed lookup, in exchange for revocation that is actually
-true rather than "true in up to fifteen minutes".
-
+`btree_gist` was deliberately *not* added. A composite `(category, location)`
+GiST index would have required it and bought little — the spatial index narrows
+to a geographically local set first, after which filtering by category is
+trivial. One fewer extension to keep in sync.
 
 ---
 
-## Planned later
-
-Not implemented. Shapes are indicative and will be refined by the milestone that
-builds each one.
-
-### Core domain
-
-**`Organization`** — profile for an NGO, university or industry: legal name,
-registration number, type, verification status and evidence, capability tags,
-service area (PostGIS polygon), contact details. Users belong to an organisation
-with a membership role. *(Organisations milestone.)*
-
-**`Problem`** — the central entity.
-
-- Reporter, title, description, status, category, address
-- `location geography(Point, 4326)` — PostGIS, with a GiST index for radius
-  search and map clustering
-- `embedding vector(1536)` — pgvector, with an HNSW index for duplicate
-  detection and semantic search. Dimension must match `EMBEDDING_DIMENSIONS`.
-- AI outputs stored **with their confidence and model version**, so a
-  recommendation is never mistaken for a human decision and a model regression
-  can be traced
-- Denormalised `supporterCount` / `commentCount`, maintained transactionally —
-  feed queries cannot afford to count rows per problem
-
-*(Problem reporting milestone.)*
-
-**`ProblemMedia`** — photos and evidence: object-storage key, dimensions,
-capture EXIF, and a `vector` image embedding for visual duplicate detection.
-
-**`ProblemDuplicate`** — a candidate pair with its similarity score, the signals
-that produced it (text, image, geographic), and the human decision. Recording
-rejected candidates is what makes threshold tuning possible.
-
-### Community
-
-**`Comment`** — threaded discussion, with `parentId` for replies and soft delete
-for moderation.
-
-**`Suggestion`** — a proposed solution, with endorsements.
-
-**`Support`** — one row per user per problem, uniquely constrained. Merged
-duplicates contribute their supporters here.
-
-### Resolution
-
-**`ResolutionRoom`** — created when government allocates a problem. Holds
-participants, milestones, and the coordination timeline.
-
-**`ProgressUpdate`** — free-text update from an organisation plus the structured
-fields the AI Project Coordinator extracted, kept side by side so extraction can
-be audited and re-run.
-
-**`CompletionEvidence`** — submitted evidence, AI verification findings, and the
-government decision that closed the problem.
-
-### Impact
-
-**`ImpactPoints`** — an append-only ledger of point awards, not a running total
-on `User`. A balance that can only be recomputed from its history is auditable
-and disputable; a mutable integer is neither.
-
-**`Notification`** — in-app feed, with delivery state per channel.
-
-### Index plan
-
-| Index | Table | Why |
-| --- | --- | --- |
-| GiST on `location` | `Problem` | "Problems within 2 km" is the core map query |
-| HNSW on `embedding` | `Problem` | Approximate nearest neighbour for duplicates |
-| GIN trigram on `title` | `Problem` | Fuzzy title matching alongside vector search |
-| `(status, createdAt)` | `Problem` | The default feed ordering |
-| `(category, status)` | `Problem` | Organisation discovery filters |
-| `(problemId, userId)` unique | `Support` | Enforces one support per user |
-
----
-
-## Working with the database
+## 14. Seed data
 
 ```bash
-npm run db:generate     # regenerate the Prisma client after a schema change
-npm run db:migrate      # create and apply a migration in development
-npm run db:studio       # browse data
+npm run db:seed
+```
+
+Creates 8 users (one per role plus extra citizens), 4 organisations, 5
+memberships, 6 problems, 6 images, 4 AI analyses, 9 votes, 4 follows, 3 comments
+including a threaded reply, 2 suggestions, 1 duplicate candidate and 2 audit
+entries.
+
+**Deterministic and idempotent.** Dates derive from a fixed epoch and new rows
+get fixed UUIDs, so a clean database always ends up identical. Accounts are
+matched on email rather than id — earlier seeds created them with random ids —
+and the real id is read back and used for every relation, so the seed reconciles
+with an existing database instead of failing.
+
+The data demonstrates the relationships rather than just filling tables:
+
+- One user belongs to **two** organisations, proving membership is many-to-many.
+- Problems 1 and 6 are 37 m apart in the same category, so the duplicate
+  candidate between them has a realistic basis.
+- Problem 4 has both a `BEFORE` and an `AFTER` image, the pair resolution
+  verification will later compare.
+- One analysis is left `PENDING`, so the job-queue index has something to work on.
+- `publicId` is never hand-assigned — the sequence supplies it, as in production.
+
+Guarded by two independent conditions: `NODE_ENV` must not be `production`
+**and** `ALLOW_DEV_SEED` must be `true`.
+
+Placeholder image references are object-store keys such as
+`dev/problems/<uuid>/before-1.jpg`. No binary data is stored in PostgreSQL — the
+table holds metadata and a reference; the bytes belong in object storage.
+
+---
+
+## 15. Planned, not yet modelled
+
+Resolution rooms, progress updates, completion evidence, impact-point ledger,
+notifications, organisation↔problem allocation. Each attaches to `Problem`
+through its own table.
+
+The one schema change to anticipate: `ProblemEmbedding` gains either a
+projection step or a sibling table when image embeddings land (§6).
+
+---
+
+## 16. Working with the database
+
+```bash
+npm run db:generate         # regenerate the Prisma client
+npm run db:migrate          # create + apply a migration, then post-migrate
+npm run db:migrate:deploy   # apply pending migrations (CI/production)
+npm run db:post-migrate     # re-apply non-Prisma objects
+npm run db:seed             # development data
+npm run db:studio           # browse
 ```
 
 Migrations live in `apps/api/prisma/migrations/` and are committed. The client is
@@ -235,11 +481,7 @@ generated into `apps/api/src/generated/prisma/` and is **not** committed — run
 
 ### Prisma 7 notes
 
-Prisma 7 moved the connection URL out of `schema.prisma`:
-
-- the CLI reads `DATABASE_URL` via `apps/api/prisma.config.ts`
-- the runtime client connects through `@prisma/adapter-pg`, receiving the URL
-  from validated config in `PrismaService`
-
-Both paths resolve to the same `DATABASE_URL`, so there is still one source of
-truth.
+Prisma 7 moved the connection URL out of `schema.prisma`: the CLI reads
+`DATABASE_URL` via `apps/api/prisma.config.ts`, and the runtime client connects
+through `@prisma/adapter-pg` with the URL from validated config. Both resolve to
+the same variable.
