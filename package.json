@@ -1,0 +1,41 @@
+{
+  "name": "samadhaan",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AI-powered civic problem intelligence and resolution platform",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "engines": {
+    "node": ">=20.11.0"
+  },
+  "scripts": {
+    "dev": "npm run dev:infra && concurrently -n api,web,ai -c blue,magenta,yellow \"npm:dev:api\" \"npm:dev:web\" \"npm:dev:ai\"",
+    "dev:web": "npm run dev --workspace @samadhaan/web",
+    "dev:api": "npm run start:dev --workspace @samadhaan/api",
+    "dev:ai": "bash services/ai/scripts/dev.sh",
+    "dev:infra": "docker compose up -d --wait",
+    "build": "npm run build --workspace @samadhaan/shared && npm run build --workspace @samadhaan/api && npm run build --workspace @samadhaan/web",
+    "lint": "npm run lint --workspace @samadhaan/api && npm run lint --workspace @samadhaan/web && npm run lint:ai",
+    "lint:ai": "services/ai/.venv/bin/ruff check services/ai",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm run test --workspace @samadhaan/api && npm run test --workspace @samadhaan/web && npm run test:ai",
+    "test:e2e": "npm run test:e2e --workspace @samadhaan/api",
+    "test:ai": "services/ai/.venv/bin/pytest services/ai",
+    "verify": "npm run build && npm run lint && npm run typecheck && npm run test",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "db:generate": "npm run db:generate --workspace @samadhaan/api",
+    "db:migrate": "npm run db:migrate --workspace @samadhaan/api",
+    "db:studio": "npm run db:studio --workspace @samadhaan/api",
+    "infra:up": "docker compose up -d",
+    "infra:down": "docker compose down",
+    "infra:logs": "docker compose logs -f",
+    "db:seed": "npm run db:seed --workspace @samadhaan/api"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2",
+    "prettier": "^3.4.2"
+  }
+}

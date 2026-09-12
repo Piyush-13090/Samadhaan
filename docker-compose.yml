@@ -1,0 +1,64 @@
+# Samadhaan development infrastructure.
+#
+#   docker compose up -d     start PostgreSQL + Redis
+#   docker compose ps        check status
+#   docker compose down      stop (data is kept in named volumes)
+#   docker compose down -v   stop and DELETE all data
+#
+# Only stateful infrastructure is containerised. The three application services
+# (web, api, ai) run on the host with hot reload, which is a materially better
+# development loop than rebuilding containers on every change. Production images
+# for those live in infrastructure/docker/ and are added in a later milestone.
+
+name: samadhaan
+
+services:
+  postgres:
+    # Custom image: PostGIS 3.4 on PostgreSQL 16, plus pgvector.
+    # See infrastructure/docker/postgres.Dockerfile.
+    build:
+      context: ./infrastructure/docker
+      dockerfile: postgres.Dockerfile
+    image: samadhaan/postgres:16-postgis-pgvector
+    container_name: samadhaan-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-samadhaan}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-samadhaan_dev_password}
+      POSTGRES_DB: ${POSTGRES_DB:-samadhaan}
+    ports:
+      - '${POSTGRES_PORT:-5432}:5432'
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      # Runs once, on an empty data directory, to create the extensions.
+      - ./infrastructure/database/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    healthcheck:
+      test:
+        [
+          'CMD-SHELL',
+          'pg_isready -U ${POSTGRES_USER:-samadhaan} -d ${POSTGRES_DB:-samadhaan}',
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  redis:
+    image: redis:7-alpine
+    container_name: samadhaan-redis
+    restart: unless-stopped
+    # appendonly keeps queued jobs across a restart once BullMQ is introduced.
+    command: redis-server --appendonly yes
+    ports:
+      - '${REDIS_PORT:-6379}:6379'
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres-data:
+  redis-data:

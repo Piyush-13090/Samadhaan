@@ -1,0 +1,8 @@
+node_modules/
+dist/
+.next/
+coverage/
+apps/api/src/generated/
+apps/api/prisma/migrations/
+services/ai/.venv/
+*.md

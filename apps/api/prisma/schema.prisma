@@ -1,0 +1,118 @@
+// Samadhaan database schema.
+//
+// Scope note: identity only. `User` (Prompt 1) and `Session` (Prompt 3) are
+// modelled here. Problems, organisations, comments, suggestions, resolution
+// rooms, impact points and the vector/geo columns arrive in later milestones —
+// see docs/DATABASE.md.
+
+generator client {
+  // Prisma 7 generator. Emits an ESM client, matching the API's module setup.
+  provider        = "prisma-client"
+  output          = "../src/generated/prisma"
+  // postgresqlExtensions unlocks `extensions` on the datasource below.
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  // Prisma 7 reads the connection URL from prisma.config.ts, not from here.
+  //
+  // Extensions are declared here so `prisma migrate` emits the CREATE
+  // EXTENSION statements and keeps them in the migration history. This list
+  // must stay identical to infrastructure/database/init.sql, otherwise Prisma
+  // reports schema drift against a Docker-provisioned database.
+  //   postgis  - geographic problem search and clustering
+  //   vector   - semantic duplicate detection and RAG retrieval
+  //   pg_trgm  - fuzzy text matching on problem titles
+  extensions = [postgis, vector, pg_trgm]
+}
+
+/// Platform role. Drives authorisation and which dashboards a user can reach.
+enum UserRole {
+  CITIZEN
+  NGO
+  UNIVERSITY
+  INDUSTRY
+  GOVERNMENT
+  ADMIN
+}
+
+/// Account lifecycle. New accounts start PENDING_VERIFICATION; organisation and
+/// government accounts additionally require manual approval before ACTIVE.
+enum UserStatus {
+  PENDING_VERIFICATION
+  ACTIVE
+  SUSPENDED
+}
+
+model User {
+  id String @id @default(uuid()) @db.Uuid
+
+  email        String  @unique
+  /// Argon2id hash. Null for accounts created through a future OAuth provider.
+  passwordHash String?
+
+  fullName    String
+  /// Public handle used in mentions and on the leaderboard.
+  displayName String? @unique
+  phone       String? @unique
+  avatarUrl   String?
+
+  role   UserRole   @default(CITIZEN)
+  status UserStatus @default(PENDING_VERIFICATION)
+
+  emailVerifiedAt DateTime?
+  lastLoginAt     DateTime?
+
+  sessions Session[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  /// Soft delete. Every query filters on `deletedAt: null` so a removed account
+  /// keeps its authored problems and comments referentially intact.
+  deletedAt DateTime?
+
+  /// Partial-style lookup for the common "active users of role X" query.
+  @@index([role, status])
+  @@index([deletedAt])
+  @@index([createdAt])
+  @@map("users")
+}
+
+/// A refresh-token session — one row per signed-in device.
+///
+/// Refresh tokens are opaque random values, never JWTs, and only their SHA-256
+/// digest is stored. A database leak therefore yields nothing usable: an
+/// attacker cannot reverse a digest into a token the API will accept.
+///
+/// This table is what makes logout real. Access tokens are stateless JWTs and
+/// cannot be recalled, so they are kept short-lived; revocation happens here,
+/// by deleting the session the refresh token points at.
+model Session {
+  id String @id @default(uuid()) @db.Uuid
+
+  userId String @db.Uuid
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// SHA-256 of the refresh token. Unique so rotation cannot collide.
+  /// SHA-256 rather than Argon2: the token is already 256 bits of entropy, so
+  /// there is nothing to brute-force, and this is verified on every refresh.
+  tokenHash String @unique
+
+  /// Shown in a future "your devices" screen and used to spot session theft.
+  userAgent String?
+  ipAddress String?
+
+  expiresAt DateTime
+  /// Set when the session is revoked — by logout, by a password change, or by
+  /// refresh-token reuse detection. Kept rather than deleted so the audit
+  /// trail survives; every lookup filters on it.
+  revokedAt DateTime?
+
+  createdAt  DateTime @default(now())
+  lastUsedAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("sessions")
+}
