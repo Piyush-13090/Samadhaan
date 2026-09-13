@@ -67,6 +67,7 @@ const ACCOUNTS = [
     fullName: 'Priya Sharma',
     displayName: 'priya',
     role: 'CITIZEN',
+    bio: 'Resident of Sector 12. Interested in drainage and pedestrian safety.',
   },
   {
     n: 2,
@@ -74,6 +75,7 @@ const ACCOUNTS = [
     fullName: 'Vikram Rao',
     displayName: 'vikram',
     role: 'NGO',
+    bio: 'Programme lead at Clean City Foundation, working on sanitation and drainage.',
   },
   {
     n: 3,
@@ -81,6 +83,7 @@ const ACCOUNTS = [
     fullName: 'Dr Anita Menon',
     displayName: 'anita',
     role: 'UNIVERSITY',
+    bio: 'Researcher in urban water systems and flood mapping.',
   },
   {
     n: 4,
@@ -88,6 +91,7 @@ const ACCOUNTS = [
     fullName: 'Rohan Kapoor',
     displayName: 'rohan',
     role: 'INDUSTRY',
+    bio: 'Operations lead, road repair and street lighting.',
   },
   {
     n: 5,
@@ -95,6 +99,7 @@ const ACCOUNTS = [
     fullName: 'S. Krishnan',
     displayName: 'krishnan',
     role: 'GOVERNMENT',
+    bio: 'Ward 12 Municipal Office.',
   },
   {
     n: 6,
@@ -102,6 +107,7 @@ const ACCOUNTS = [
     fullName: 'Platform Admin',
     displayName: 'admin',
     role: 'ADMIN',
+    bio: null,
   },
   {
     n: 7,
@@ -109,6 +115,7 @@ const ACCOUNTS = [
     fullName: 'Arjun Mehta',
     displayName: 'arjun',
     role: 'CITIZEN',
+    bio: 'Reports road and traffic problems around Main Market.',
   },
   {
     n: 8,
@@ -116,6 +123,7 @@ const ACCOUNTS = [
     fullName: 'Fatima Khan',
     displayName: 'fatima',
     role: 'CITIZEN',
+    bio: null,
   },
 ] as const;
 
@@ -361,6 +369,12 @@ async function main(): Promise<void> {
           fullName: account.fullName,
           role: account.role,
           status: 'ACTIVE',
+          // Profile fields are refreshed on re-seed too, so an existing
+          // development database picks them up rather than only new ones.
+          bio: account.bio,
+          city: 'Gurugram',
+          state: 'Haryana',
+          country: 'India',
         },
         create: {
           id: USER_ID(account.n),
@@ -371,6 +385,10 @@ async function main(): Promise<void> {
           role: account.role,
           status: 'ACTIVE',
           emailVerifiedAt: daysAfterEpoch(-30),
+          bio: account.bio,
+          city: 'Gurugram',
+          state: 'Haryana',
+          country: 'India',
         },
       });
 
@@ -446,6 +464,71 @@ async function main(): Promise<void> {
     console.log(
       `  ✓ ${ORGANIZATIONS.length} organisations, ${ORGANIZATIONS.length + 1} memberships`,
     );
+
+    // --- Organisation expertise -------------------------------------------
+    // Reuses ProblemCategory, so the future matcher compares like with like.
+    const EXPERTISE = [
+      {
+        org: 1,
+        category: 'DRAINAGE',
+        subcategory: 'Stormwater drainage',
+        level: 'SPECIALIST',
+      },
+      { org: 1, category: 'SANITATION', subcategory: null, level: 'SPECIALIST' },
+      {
+        org: 1,
+        category: 'GARBAGE',
+        subcategory: 'Collection points',
+        level: 'EXPERIENCED',
+      },
+      {
+        org: 2,
+        category: 'WATER',
+        subcategory: 'Urban water systems',
+        level: 'SPECIALIST',
+      },
+      {
+        org: 2,
+        category: 'DRAINAGE',
+        subcategory: 'Flood mapping',
+        level: 'EXPERIENCED',
+      },
+      {
+        org: 2,
+        category: 'PUBLIC_INFRASTRUCTURE',
+        subcategory: 'Urban planning research',
+        level: 'INTERESTED',
+      },
+      { org: 3, category: 'ROADS', subcategory: 'Resurfacing', level: 'SPECIALIST' },
+      { org: 3, category: 'POTHOLES', subcategory: null, level: 'SPECIALIST' },
+      {
+        org: 3,
+        category: 'STREETLIGHTS',
+        subcategory: 'LED retrofits',
+        level: 'EXPERIENCED',
+      },
+      { org: 4, category: 'PUBLIC_SAFETY', subcategory: null, level: 'EXPERIENCED' },
+    ] as const;
+
+    for (const entry of EXPERTISE) {
+      await prisma.organizationExpertise.upsert({
+        where: {
+          organizationId_category: {
+            organizationId: ORG_ID(entry.org),
+            category: entry.category,
+          },
+        },
+        update: { subcategory: entry.subcategory, level: entry.level },
+        create: {
+          organizationId: ORG_ID(entry.org),
+          category: entry.category,
+          subcategory: entry.subcategory,
+          level: entry.level,
+          addedById: uid(ORGANIZATIONS[entry.org - 1]!.ownerUser),
+        },
+      });
+    }
+    console.log(`  ✓ ${EXPERTISE.length} expertise entries`);
 
     // --- Problems ---------------------------------------------------------
     for (const problem of PROBLEMS) {

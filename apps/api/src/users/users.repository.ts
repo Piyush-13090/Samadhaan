@@ -1,12 +1,29 @@
 import { Injectable } from '@nestjs/common';
+import type { ProfileActivity } from '@samadhaan/shared';
 import type { Prisma, User, UserRole } from '../generated/prisma/client.js';
 import { PrismaService } from '../database/prisma.service.js';
 
-/** Fields a user may change about themselves. */
+/**
+ * Fields a user may change about themselves.
+ *
+ * This type is a second, independent barrier to privilege escalation: even if
+ * a DTO were widened by mistake, `role`, `status` and `passwordHash` are not
+ * expressible here, so the repository could not write them.
+ *
+ * `null` clears an optional field; `undefined` leaves it untouched. The two
+ * must stay distinguishable, which is why the update builder below checks for
+ * `undefined` explicitly rather than using a truthiness test.
+ */
 export interface ProfileUpdate {
   fullName?: string;
   displayName?: string;
-  avatarUrl?: string;
+  avatarUrl?: string | null;
+  bio?: string | null;
+  city?: string | null;
+  state?: string | null;
+  country?: string | null;
+  postalCode?: string | null;
+  phone?: string | null;
 }
 
 /**
@@ -73,14 +90,100 @@ export class UsersRepository {
    * dedicated administrative path, which is auditable.
    */
   updateProfile(id: string, update: ProfileUpdate): Promise<User> {
-    return this.prisma.user.update({
-      where: { id },
-      data: {
-        ...(update.fullName !== undefined && { fullName: update.fullName }),
-        ...(update.displayName !== undefined && { displayName: update.displayName }),
-        ...(update.avatarUrl !== undefined && { avatarUrl: update.avatarUrl }),
+    // Built key by key rather than spread, so only fields the caller actually
+    // sent are written — and so a `null` (clear this field) is distinguishable
+    // from an absent key (leave it alone).
+    const data: Prisma.UserUpdateInput = {};
+
+    if (update.fullName !== undefined) data.fullName = update.fullName;
+    if (update.displayName !== undefined) data.displayName = update.displayName;
+    if (update.avatarUrl !== undefined) data.avatarUrl = update.avatarUrl;
+    if (update.bio !== undefined) data.bio = update.bio;
+    if (update.city !== undefined) data.city = update.city;
+    if (update.state !== undefined) data.state = update.state;
+    if (update.country !== undefined) data.country = update.country;
+    if (update.postalCode !== undefined) data.postalCode = update.postalCode;
+    if (update.phone !== undefined) data.phone = update.phone;
+
+    return this.prisma.user.update({ where: { id }, data });
+  }
+
+  /** A user with their organisation memberships loaded, for profile rendering. */
+  findByIdWithMemberships(id: string) {
+    return this.prisma.user.findFirst({
+      where: { id, ...UsersRepository.notDeleted },
+      include: {
+        organizationMembers: {
+          where: { status: { not: 'LEFT' } },
+          include: { organization: true },
+          orderBy: { joinedAt: 'asc' },
+        },
       },
     });
+  }
+
+  /** Public profile lookup by handle, for `/u/:displayName` in a later milestone. */
+  findByDisplayNameWithMemberships(displayName: string) {
+    return this.prisma.user.findFirst({
+      where: { displayName: displayName.toLowerCase(), ...UsersRepository.notDeleted },
+      include: {
+        organizationMembers: {
+          where: { status: 'ACTIVE' },
+          include: { organization: true },
+          orderBy: { joinedAt: 'asc' },
+        },
+      },
+    });
+  }
+
+  /**
+   * Civic activity counts for a profile.
+   *
+   * Every number is counted from the database — nothing is estimated or
+   * invented. `impactPoints` is `null` because the ledger does not exist yet,
+   * and returning 0 would misrepresent an unbuilt feature as a measured score.
+   *
+   * The counts run as one batch so a profile page costs a single round trip
+   * rather than six.
+   */
+  async getActivity(userId: string): Promise<ProfileActivity> {
+    const [
+      problemsReported,
+      problemsSupported,
+      commentsPosted,
+      suggestionsMade,
+      problemsResolved,
+    ] = await this.prisma.$transaction([
+      this.prisma.problem.count({ where: { reporterId: userId, deletedAt: null } }),
+      this.prisma.problemVote.count({ where: { userId } }),
+      this.prisma.problemComment.count({ where: { userId, deletedAt: null } }),
+      this.prisma.problemSuggestion.count({
+        where: { authorId: userId, deletedAt: null },
+      }),
+      // "Contributed to and it was resolved": reported it, supported it, or
+      // suggested a fix. Counted on the problem so a user with several kinds of
+      // contribution to the same problem is counted once.
+      this.prisma.problem.count({
+        where: {
+          status: 'RESOLVED',
+          deletedAt: null,
+          OR: [
+            { reporterId: userId },
+            { votes: { some: { userId } } },
+            { suggestions: { some: { authorId: userId } } },
+          ],
+        },
+      }),
+    ]);
+
+    return {
+      problemsReported,
+      problemsSupported,
+      commentsPosted,
+      suggestionsMade,
+      problemsResolved,
+      impactPoints: null,
+    };
   }
 
   recordLogin(id: string): Promise<User> {

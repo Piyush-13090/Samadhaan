@@ -42,11 +42,18 @@ class Settings(BaseSettings):
     """Comma-separated origins. Empty in production: the browser must never
     call this service directly — it goes through the NestJS API."""
 
-    # --- Reserved for later milestones. Declared so the configuration surface
-    # --- is known up front; no code reads them yet. See docs/ML_PLAN.md.
+    # --- Vision-language model ---------------------------------------------
     llm_provider: str | None = Field(default=None, alias="LLM_PROVIDER")
     llm_api_key: str | None = Field(default=None, alias="LLM_API_KEY")
     llm_model: str | None = Field(default=None, alias="LLM_MODEL")
+    llm_timeout_seconds: float = Field(default=60.0, alias="LLM_TIMEOUT_SECONDS")
+
+    @property
+    def default_llm_model(self) -> str:
+        """Used when a provider is configured but no model is named."""
+        return "claude-opus-5"
+
+    # --- Reserved for later milestones -------------------------------------
     embedding_provider: str | None = Field(default=None, alias="EMBEDDING_PROVIDER")
     embedding_api_key: str | None = Field(default=None, alias="EMBEDDING_API_KEY")
     embedding_model: str | None = Field(default=None, alias="EMBEDDING_MODEL")
@@ -62,9 +69,17 @@ class Settings(BaseSettings):
 
     @property
     def llm_configured(self) -> bool:
-        """Whether an LLM provider is usable. Reported by /health/ready so
-        operators can see which AI capabilities are actually available."""
-        return bool(self.llm_api_key and self.llm_model)
+        """Whether problem analysis can actually run.
+
+        The development provider counts as configured — it needs no key — but
+        only outside production, where the factory refuses to build it.
+        """
+        provider = (self.llm_provider or "").strip().lower()
+
+        if provider == "development":
+            return not self.is_production
+
+        return bool(provider and self.llm_api_key)
 
     @property
     def embeddings_configured(self) -> bool:

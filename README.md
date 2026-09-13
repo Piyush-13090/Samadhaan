@@ -248,9 +248,25 @@ Full documentation with comments: [`.env.example`](./.env.example).
 | `AUTH_COOKIE_SECURE` | `false` | **Must be `true` in production** (requires HTTPS) |
 | `AUTH_RATE_LIMIT_MAX` | `10` | Sign-in attempts per window, per IP + email |
 | `ALLOW_DEV_SEED` | `false` | Must be `true` for `npm run db:seed` |
+| `STORAGE_PROVIDER` | `local` | Image storage driver (`local` writes to `STORAGE_LOCAL_ROOT`) |
+| `UPLOAD_MAX_IMAGE_BYTES` | `8388608` | Per-image byte cap |
+
+**AI analysis** — read by `services/ai` only. Provider credentials never leave
+that process; Next.js and the browser never see them.
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `LLM_PROVIDER` | `development` | `anthropic` for real analysis, `development` for the offline stub |
+| `LLM_API_KEY` | *(empty)* | Required by `anthropic`. Without it the service returns `PROVIDER_UNAVAILABLE` rather than fabricating a result |
+| `LLM_MODEL` | `claude-opus-5` | Vision model id |
+| `LLM_TIMEOUT_SECONDS` | `60` | Per-call provider timeout |
+
+> The `development` provider is a keyword-matching stub, not a model. It labels
+> itself in the response and the UI warns whenever it produced an analysis, and
+> the provider factory **refuses to build it when `NODE_ENV=production`**.
 
 **Reserved for later milestones** — declared in `.env.example`, not read by any
-code yet: `LLM_*`, `EMBEDDING_*`, `STORAGE_*`, `SMTP_URL`, `GEOCODING_API_KEY`.
+code yet: `EMBEDDING_*`, `SMTP_URL`, `GEOCODING_API_KEY`.
 
 The API validates its environment at boot (`apps/api/src/config/env.schema.ts`).
 A missing or malformed variable stops startup with a message naming it.
@@ -324,6 +340,11 @@ together.
 
 ### Implemented
 
+- **Citizen problem reporting** — a three-step flow (problem → location →
+  review) with multi-image upload, browser geolocation with manual fallback,
+  and atomic submission returning a `SAM-` reference
+- **Object storage abstraction** — provider-agnostic `StorageService` with a
+  local development driver; no binary data in PostgreSQL
 - **Authentication** — registration, sign-in, sign-out, refresh; Argon2id
   password hashing; JWT access tokens plus revocable database-backed refresh
   sessions, both in `httpOnly` cookies
@@ -347,13 +368,16 @@ together.
   migration and a `User` model with roles
 - Redis connection and health probe
 - Docker Compose for PostgreSQL and Redis
-- Tests: 61 API unit, 37 API e2e, 39 web unit, 7 AI service
+- Tests: 96 API unit, 158 API e2e, 71 web unit, 7 AI service
 
 ### Not implemented
 
-Problem reporting, comments, voting, suggestions, AI classification, duplicate
-detection, organisation workflows, government dashboards, resolution rooms,
-evidence verification, leaderboard, RAG, custom ML models.
+Comments, voting, suggestions, AI classification, duplicate detection,
+organisation workflows, government dashboards, resolution rooms, evidence
+verification, leaderboard, RAG, custom ML models.
+
+**AI analysis has not been built.** A submitted report is `SUBMITTED` and
+unassessed; the confirmation screen says so rather than implying otherwise.
 
 Organisation and government accounts can be seeded but cannot yet self-register —
 their verification and invitation flows arrive with the organisations milestone.

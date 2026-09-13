@@ -76,6 +76,16 @@ model User {
   /// Short self-description shown on the public profile.
   bio         String?
 
+  // --- Location -----------------------------------------------------------
+  // Coarse only: city/state, never a precise address. A civic platform shows
+  // "reports problems in Gurugram", which builds local credibility, without
+  // publishing where a reporter lives. No coordinates on `User` for the same
+  // reason — problems carry precise geography, people do not.
+  city       String?
+  state      String?
+  country    String? @default("India")
+  postalCode String?
+
   role   UserRole   @default(CITIZEN)
   status UserStatus @default(PENDING_VERIFICATION)
 
@@ -84,6 +94,7 @@ model User {
 
   sessions            Session[]
   organizationMembers OrganizationMember[]
+  expertiseAdded      OrganizationExpertise[]     @relation("ExpertiseAddedBy")
   reportedProblems    Problem[]                   @relation("ProblemReporter")
   votes               ProblemVote[]
   follows             ProblemFollow[]
@@ -231,6 +242,7 @@ model Organization {
 
   members     OrganizationMember[]
   suggestions ProblemSuggestion[]
+  expertise   OrganizationExpertise[]
 
   createdAt DateTime  @default(now()) @db.Timestamptz(3)
   updatedAt DateTime  @updatedAt @db.Timestamptz(3)
@@ -278,6 +290,59 @@ model OrganizationMember {
   @@index([userId])
   @@index([organizationId, status])
   @@map("organization_members")
+}
+
+/// How capable an organisation is in one area.
+///
+/// Ordered from least to most. The recommendation engine weights matches by
+/// this, so an organisation that has resolved fifty drainage problems outranks
+/// one that has merely declared an interest.
+enum ExpertiseLevel {
+  INTERESTED
+  EXPERIENCED
+  SPECIALIST
+}
+
+/// An area an organisation works in.
+///
+/// A row per area, not a comma-separated string, because this is the input to
+/// organisation matching. A free-text list cannot be indexed, cannot be joined
+/// against a problem's category, and drifts the moment two people spell
+/// "waste management" differently.
+///
+/// `category` reuses `ProblemCategory` deliberately: matching an organisation
+/// to a problem is a comparison between the two, and a parallel taxonomy would
+/// need a translation table that is wrong the first time either side changes.
+/// Areas with no civic-problem equivalent — urban planning, education — are
+/// expressed as `subcategory` under the closest category rather than by forking
+/// the enum.
+model OrganizationExpertise {
+  id String @id @default(uuid()) @db.Uuid
+
+  organizationId String       @db.Uuid
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  category    ProblemCategory
+  /// Optional refinement, e.g. "stormwater drainage" under DRAINAGE.
+  subcategory String?
+
+  level ExpertiseLevel @default(EXPERIENCED)
+
+  /// Who declared it. SetNull so the claim survives the person leaving.
+  addedById String? @db.Uuid
+  addedBy   User?   @relation("ExpertiseAddedBy", fields: [addedById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  /// One claim per category per organisation. Refinements live in
+  /// `subcategory`; a second row for the same category would make "which level
+  /// applies here?" ambiguous for the matcher.
+  @@unique([organizationId, category])
+  /// The matcher's primary lookup: "who works on DRAINAGE, best first".
+  @@index([category, level])
+  @@index([organizationId])
+  @@map("organization_expertise")
 }
 
 // ===========================================================================

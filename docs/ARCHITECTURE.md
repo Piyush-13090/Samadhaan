@@ -248,13 +248,15 @@ Cross-cutting decisions:
 - **Correlation ids.** `x-request-id` is accepted or generated, attached to
   every log line, forwarded to the AI service, and returned in `meta.requestId`.
 
-### `services/ai` — FastAPI (implemented, no AI capabilities yet)
+### `services/ai` — FastAPI (implemented: multimodal problem analysis)
 
 ```
 app/
 ├── main.py       App, middleware, error handlers
 ├── api/          Routers and dependencies
-├── core/         Settings, logging, constants, internal-token auth
+├── core/         Settings, logging, constants, internal-token auth, taxonomy
+├── prompts/      System prompts, kept out of service code
+├── providers/    Vision-language providers behind one interface
 ├── schemas/      Pydantic contracts (mirroring packages/shared)
 ├── services/     One module per capability
 ├── models/       Model loading and inference wrappers (empty)
@@ -267,9 +269,77 @@ The health report distinguishes *the service is down* from *the service is up
 but has no LLM credentials* — the latter is `degraded`, and the API passes that
 verdict through rather than flattening it.
 
-No AI capability is implemented. There are no placeholder classifiers and no
-random scores: a fabricated result is worse than an absent one, because it looks
-like it works. See [`ML_PLAN.md`](./ML_PLAN.md).
+**Provider abstraction.** `providers/base.py` defines one interface —
+`VisionLanguageProvider` — with an `info` property and an `analyze()` method,
+and a `ProviderError(code, message, retryable)` that every implementation raises
+in place of its own SDK's exceptions. `anthropic_provider.py` is the real
+implementation (Claude vision, constrained structured output via
+`messages.parse`); `development_provider.py` is a keyword stub. The factory
+refuses to build the stub when `NODE_ENV=production`, and refuses to build the
+Anthropic provider without a key — it never silently falls back, because a
+fabricated result is worse than an absent one.
+
+**Normalisation is a boundary, not a hope.** `core/taxonomy.py` maps whatever
+the model emits onto the Prisma enums. A category that cannot be mapped becomes
+`OTHER` rather than reaching the database; a confidence returned as a percentage
+(`94`) is divided rather than clamped, because clamping it to `1.0` would turn a
+scaling mistake into maximum certainty — exactly backwards from the caution the
+value is meant to express.
+
+See [`ML_PLAN.md`](./ML_PLAN.md).
+
+### How NestJS talks to the AI service
+
+```
+Browser ──▶ Next.js ──▶ NestJS ──▶ FastAPI ──▶ Anthropic
+                          │
+                          └──▶ PostgreSQL (problem_ai_analyses)
+```
+
+The browser never appears to the right of NestJS. That is the enforceable
+property this shape exists for: provider credentials live only in the FastAPI
+process, the API key never reaches Next.js, and every paid call passes one
+authenticated, rate-limited, auditable boundary.
+
+Four layers, each with one job:
+
+| Layer | File | Responsibility |
+| --- | --- | --- |
+| Transport | `ai/ai.client.ts` | The only place that knows the AI service is HTTP. Base URL, `x-internal-token`, timeouts. Returns `Result`, never throws. |
+| Contract | `ai/dto/analysis.dto.ts` | Validates the response *again* — enum membership, confidence bounds, string lengths — and converts snake_case to camelCase. |
+| Capability | `ai/ai.service.ts` | `analyzeProblem()`. Never throws; every failure is a structured outcome carrying `retryable`. |
+| Lifecycle | `problems/services/problem-analysis.service.ts` | Owns the row: enqueue, status transitions, retry policy, persistence. |
+
+The AI service validates its own output, and the API validates it again. That
+is not redundant: the API performs the database write, and trusting a remote
+service's promise about its own shape is how an unknown enum reaches a column.
+
+**Analysis lifecycle.** Filing a report commits the problem first, then:
+
+1. A `PENDING` row is written synchronously, so a client polling immediately
+   after submission finds a row rather than a 404.
+2. The work is detached — the citizen's request is not held by a vision model.
+3. The row moves to `PROCESSING`; up to three images are read from storage and
+   downsized to 1024px JPEG **for the request only**. The stored original is
+   never modified; the evidence a citizen submitted stays as they sent it.
+4. On success the findings and a bounded `rawResult` are written and the row is
+   `COMPLETED`. On failure it is `FAILED` with a message written for a caller.
+5. Only `retryable` failures are retried, twice, with exponential backoff. A
+   permanent failure — no credentials, an unsupported image — is marked `FAILED`
+   immediately rather than burning two more paid calls to reach the same answer.
+
+The runner is in-process rather than on a worker queue: the job is one HTTP call
+with no fan-out. The cost is that a restart mid-analysis leaves a `PROCESSING`
+row, which `recoverStuckAnalyses()` reclaims at startup. When throughput demands
+a real worker, `enqueue()` is the only method that changes.
+
+**A failed analysis never damages the report.** The problem row is committed
+before analysis begins and nothing in this pipeline can roll it back. A civic
+report is the thing of value; the analysis is an enhancement.
+
+**Analysis never writes back to the problem.** The problem's own `category`,
+`severity` and `status` are left exactly as the citizen filed them. AI
+recommends; a reviewer decides.
 
 ### `packages/shared` — shared types (implemented)
 
@@ -335,6 +405,12 @@ Production images for web, api and ai belong to a later milestone.
 | Light-only design system | Civic reporting is public, daylight, mobile work |
 | Cursor pagination in the base DTO | Problem feeds are large and append-heavy; offsets skip and repeat rows |
 | No fabricated AI responses | A fake classifier is indistinguishable from a broken real one |
+| Analysis validated on both sides of the boundary | The API does the write; a remote promise about shape is not a guarantee |
+| Analysis detached, not awaited | A citizen must not wait on a vision model to see their report confirmed |
+| Only `retryable` failures retried | A missing credential will not fix itself; retrying it just spends money |
+| Retry writes a new row | Analyses are records tied to a model; overwriting hides a regression |
+| AI never writes back to the problem | The report is the citizen's record — AI recommends, a reviewer decides |
+| Polling, not websockets | Analysis settles in seconds; realtime infrastructure is earned by resolution rooms |
 | Tokens in httpOnly cookies | `localStorage` hands any injected script an exfiltratable credential |
 | Browser reaches the API same-origin | Makes the cookies first-party, so `SameSite=Lax` stops CSRF |
 | JWT access + opaque refresh | Cheap stateless checks, with revocation that actually works |

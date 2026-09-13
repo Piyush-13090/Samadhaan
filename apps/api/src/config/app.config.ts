@@ -100,4 +100,31 @@ export class AppConfig {
   get allowDevSeed(): boolean {
     return this.get('ALLOW_DEV_SEED');
   }
+
+  // --- Storage and uploads --------------------------------------------------
+
+  get storageProvider(): Env['STORAGE_PROVIDER'] {
+    return this.get('STORAGE_PROVIDER');
+  }
+
+  get storageLocalRoot(): string {
+    return this.get('STORAGE_LOCAL_ROOT');
+  }
+
+  /** Base URL a browser uses to reach the API; no trailing slash. */
+  get publicApiUrl(): string {
+    return this.get('PUBLIC_API_URL').replace(/\/+$/, '');
+  }
+
+  get maxImageBytes(): number {
+    return this.get('UPLOAD_MAX_IMAGE_BYTES');
+  }
+
+  get maxImagesPerProblem(): number {
+    return this.get('UPLOAD_MAX_IMAGES_PER_PROBLEM');
+  }
+
+  get pendingUploadTtlSeconds(): number {
+    return this.get('UPLOAD_PENDING_TTL_SECONDS');
+  }
 }

@@ -12,10 +12,12 @@ import { AppConfig } from './config/app.config.js';
 import { AppConfigModule } from './config/config.module.js';
 import { DatabaseModule } from './database/database.module.js';
 import { HealthModule } from './health/health.module.js';
+import { MediaModule } from './media/media.module.js';
 import { NotificationsModule } from './notifications/notifications.module.js';
 import { OrganizationsModule } from './organizations/organizations.module.js';
 import { ProblemsModule } from './problems/problems.module.js';
 import { RedisModule } from './redis/redis.module.js';
+import { StorageModule } from './storage/storage.module.js';
 import { SuggestionsModule } from './suggestions/suggestions.module.js';
 import { UsersModule } from './users/users.module.js';
 
@@ -38,12 +40,14 @@ import { UsersModule } from './users/users.module.js';
     }),
     DatabaseModule,
     RedisModule,
+    StorageModule,
 
     // Platform boundary to the Python AI service
     AiModule,
 
     // Operations
     HealthModule,
+    MediaModule,
 
     // Domain modules (boundaries established, implemented in later milestones)
     AuthModule,

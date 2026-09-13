@@ -20,7 +20,15 @@ import { NextResponse, type NextRequest } from 'next/server';
 const ACCESS_COOKIE = 'sam_access';
 const REFRESH_COOKIE = 'sam_refresh';
 
-/** Route prefixes that require a session. */
+/**
+ * Route prefixes that require a session.
+ *
+ * Note `/organization` (singular) is the organisation *workspace* and is
+ * protected; `/organizations/:slug` (plural) is a public civic profile and is
+ * deliberately absent. The two are separate paths precisely so that
+ * distinction is expressible — a single `/organization` tree would have made
+ * the workspace and the public profile collide.
+ */
 const PROTECTED_PREFIXES = [
   '/dashboard',
   '/nearby',
@@ -29,6 +37,11 @@ const PROTECTED_PREFIXES = [
   '/settings',
   '/profile',
   '/report',
+  // The problem detail *page* lives in the authenticated shell, so the proxy
+  // short-circuits a signed-out visit here rather than letting the layout do
+  // it a render later. The API behind it is public — a civic report is a
+  // public record — which is what a future shareable public view will use.
+  '/problems',
   '/organization',
   '/government',
   '/admin',

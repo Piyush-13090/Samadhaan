@@ -78,11 +78,45 @@ Two decisions carried forward and worth restating:
 **`Session`** — one row per signed-in device; SHA-256 digest of an opaque
 refresh token. This is what makes logout real. See [ARCHITECTURE.md](./ARCHITECTURE.md).
 
+### Profile fields
+
+`User` carries `bio`, `city`, `state`, `country` and `postalCode`.
+
+**Location is coarse by design.** City and state, never a street address, and no
+coordinates. A civic platform benefits from "reports problems in Gurugram" — it
+builds local credibility — but publishing where a reporter *lives* is a
+different thing entirely. Problems carry precise geography; people do not.
+
+Length caps exist as CHECK constraints as well as DTO rules: a migration or a
+psql session bypasses `class-validator` entirely, and an unbounded `bio` is a
+cheap way to store a megabyte per row.
+
 ### Organisations
 
 **`Organization`** — an NGO, university, industry partner or government
 department. Carries its own address and PostGIS point, so "organisations serving
 this area" is a spatial query.
+
+**`OrganizationExpertise`** — the areas an organisation works in. One row per
+area, never a comma-separated string, because this is the input to organisation
+matching: free text cannot be indexed, cannot be joined against a problem's
+category, and drifts the moment two people spell "waste management" differently.
+
+`category` reuses **`ProblemCategory`**, the same taxonomy problems use. Matching
+an organisation to a problem is a comparison between the two, and a parallel
+vocabulary would need a translation table that is wrong the first time either
+side changes. Areas with no civic-problem equivalent — urban planning, education
+— are expressed as `subcategory` under the closest category rather than by
+forking the enum.
+
+`level` is `INTERESTED | EXPERIENCED | SPECIALIST`, ordered weakest to
+strongest, so the matcher can rank an organisation that has resolved fifty
+drainage problems above one that has merely declared an interest.
+
+Unique on `(organizationId, category)`: a second row for the same category would
+make "which level applies here?" ambiguous. Re-declaring a category is therefore
+an update, which is also what a user pressing *add* on something already listed
+actually means.
 
 **`OrganizationMember`** — the join table. A join table rather than a column on
 `User` because membership is genuinely many-to-many: a researcher may belong to
@@ -367,9 +401,14 @@ workflows that need it — allocation, verification, role changes.
 ```
 20260912082226_init                      Users, extensions
 20260912120434_add_sessions              Auth sessions
-20260912144258_core_domain_model         This milestone
+20260912144258_core_domain_model         Problem and its satellites
 20260912144900_problem_public_id_default Aligns the sequence default with the schema
+20260913080353_profiles_and_expertise    Profile fields, OrganizationExpertise
 ```
+
+> The profiles migration is a worked example of the HNSW caveat below: Prisma
+> proposed `DROP INDEX "problem_embeddings_vector_hnsw"`, that line was removed
+> before applying, and `npm run db:post-migrate` confirmed the index survived.
 
 Migrations are additive and committed. A clean database reproduces the full
 schema — verified by replaying all four into an empty database.
@@ -453,11 +492,201 @@ table holds metadata and a reference; the bytes belong in object storage.
 
 ---
 
+## 14a. Profile architecture
+
+### Two user shapes, not one
+
+The API emits three distinct user serialisations, and the separation is the
+point:
+
+| Serializer | Audience | Carries |
+| --- | --- | --- |
+| `toPublicProfile` | anyone, including signed-out | identity, bio, coarse location, role, accepted memberships |
+| `toOwnProfile` | the user themselves | the above **plus** email, phone, postal code, status, login timestamps, pending invitations |
+| `toAuthenticatedUser` | auth endpoints | the session payload |
+
+A single shape with optional private fields would leak the first time a handler
+forgot to strip them. Two types make "this endpoint returns the public view" a
+question the compiler answers.
+
+**Public profiles show only `ACTIVE` memberships.** Publishing an outstanding
+invitation would let anyone imply an affiliation by inviting someone who never
+replied.
+
+### Activity metrics: null, never a fabricated zero
+
+Every count on a profile is computed from the database. Where the underlying
+feature does not exist yet the value is `null` and the UI renders an em dash
+with "Not yet available" — **not** `0`.
+
+"We cannot measure this" and "we measured nothing" are different claims. Showing
+the second when the first is true is a small lie that compounds into a
+leaderboard nobody trusts. Currently `null`: `ProfileActivity.impactPoints`
+(no ledger yet) and `OrganizationActivity.problemsResolved` (no allocation yet).
+
+### Organisation contact privacy
+
+`email`, `phone` and `address` are published **only for VERIFIED
+organisations**, or to members who can edit. An unverified profile is an
+unchecked claim; attaching contact details to one turns the platform into a
+convenient vector for impersonating a civic body.
+
+City and state stay public regardless — they are the coarse identity that makes
+an organisation findable, not a way to reach it.
+
+---
+
+## 14b. Authorisation rules
+
+Two layers of authority, deliberately distinct:
+
+- **Platform role** (`UserRole`) — what someone may do on Samadhaan.
+- **Membership role** (`OrganizationMemberRole`) — what they may do inside one
+  organisation.
+
+A citizen who owns an NGO is not a platform admin; a platform admin is not
+automatically a member of anything. One column on `User` could never express
+this, which is why `OrganizationMember` is a join table.
+
+| Action | Who |
+| --- | --- |
+| View an organisation profile | Anyone, signed out included |
+| Edit organisation details | OWNER, ADMIN, or platform ADMIN |
+| Manage members | OWNER, ADMIN, or platform ADMIN |
+| Manage expertise | OWNER, ADMIN, or platform ADMIN |
+| Change verification status | **Nobody** — no endpoint exists yet |
+| Edit own profile | The user themselves |
+
+All of it lives in `OrganizationAccessService`, which is exported so allocation
+and resolution rooms reuse it rather than re-deriving a subtly different
+definition of "may manage this organisation".
+
+**Never inferred from the frontend.** `viewerPermissions` is sent so the UI can
+hide unusable controls, but it is a *mirror* of the server's decision — every
+mutating endpoint calls `assertCanManage` again.
+
+### The last-owner invariant
+
+An organisation with no OWNER has nobody who can appoint one, so it becomes
+permanently unmanageable. Demoting or removing the last owner is refused —
+including for a platform ADMIN, because the invariant protects the
+*organisation*, not the actor.
+
+Removal marks the membership `LEFT` rather than deleting it: membership history
+is part of the organisation's record, and a deleted row cannot answer "who was
+on the team when this problem was allocated?".
+
+### IDOR
+
+Every membership and expertise lookup is scoped by `organizationId` as well as
+its own id. Without that, a manager of one organisation could edit another's
+records by guessing an id. Tests cover both cases.
+
+---
+
+## 14c. Slug strategy
+
+**Slugs are stable. Once assigned, a slug never changes** — not on rename, not
+on re-verification.
+
+A public profile URL may appear in a government record, a press mention or a
+citizen's bookmark. Silently repointing it breaks every one of those. The cost
+is that a renamed organisation keeps its old slug, which is the right trade for
+a civic platform; there is a test asserting a rename leaves the slug alone.
+
+Generation, in `slug.util.ts`:
+
+1. Unicode decomposed and combining marks stripped, so `Pūrṇa Foundation`
+   becomes `purna-foundation` rather than being mangled.
+2. Collisions get a readable numeric suffix — `clean-city-2` — because that is
+   what a person expects to see.
+3. A pathological number of collisions falls back to a random suffix, which
+   terminates in one step rather than scanning further.
+4. A name with no Latin characters produces the stem `organization`.
+
+**The uniqueness check is not a substitute for the database constraint.** Two
+concurrent creations can both see a candidate as free; the unique index rejects
+the loser and the caller retries. Checking first only keeps the common case from
+producing an ugly suffix.
+
+If vanity URLs are ever wanted, the extension is an `organization_slug_aliases`
+table — which *preserves* old URLs rather than discarding them.
+
+---
+
+## 14d. Image storage
+
+**No binary data in PostgreSQL.** `ProblemImage` holds metadata and a
+`storageKey`; the bytes live in object storage. Binaries in the database bloat
+the table, defeat its cache and make every backup enormous.
+
+The domain never learns where the bytes are. `StorageService` is an abstract
+class with four methods — `put`, `get`, `delete`, `exists`, `getUrl` — and
+`ProblemsService` stores a *key*. Swapping the local driver for S3 is a change
+to one factory in `storage.module.ts`; no problem logic, no migration.
+
+`getUrl` is async from the outset even though the local driver answers
+synchronously, because a real object store issues *signed* URLs. Making it async
+later would have turned every call site into a refactor.
+
+URLs are resolved on read rather than read from the stored `url` column: a
+signed URL expires and a CDN hostname can change. The key is the durable fact.
+
+### Storage keys
+
+`problems/<year>/<month>/<32 hex>.<ext>`, generated server-side.
+
+**The client's filename is never part of the path.** A user-supplied name
+invites path traversal, collisions between two people uploading `photo.jpg`, and
+leaks whatever the filename discloses. The original name is kept as metadata on
+the row, where it is displayed but never resolved as a path.
+
+The extension comes from the *detected* content type, so a file's real format
+decides where it lands. Date-prefixed so a bucket stays browsable and lifecycle
+rules can target a period; 128 bits of randomness so a key cannot be guessed.
+
+`isSafeStorageKey` rejects `..`, absolute paths, backslashes, NUL bytes and
+anything outside `[a-zA-Z0-9._/-]`. It runs on every read and write, not only at
+creation — a key also arrives from the client at submission time.
+
+---
+
+## 14e. Reporting
+
+A submitted problem is `SUBMITTED`, never `VERIFIED`. `severity`, `urgency` and
+`priorityScore` keep their schema defaults: they are assessments the AI and a
+reviewer make, and the reporting DTO has no field for any of them.
+
+`publicId` comes from the PostgreSQL sequence (§4), so concurrent reports cannot
+collide. `location` is populated by the database trigger from the submitted
+coordinates (§5) — the API writes `latitude`/`longitude` and nothing else.
+
+The problem and its `ProblemImage` rows are written in one transaction.
+
+> **`ProblemAiAnalysis` is now written.** One row per analysis attempt, created
+> `PENDING` immediately after the problem commits and updated through
+> `PROCESSING` to `COMPLETED` or `FAILED`. A retry inserts a **new** row rather
+> than updating the old one, so an earlier model's answer stays readable —
+> `findLatest` orders by `createdAt` desc. `rawResult` holds only the publishable
+> part of the result (provider, observations, image count, attempt number);
+> prompts and private model reasoning are never stored.
+>
+> `ProblemEmbedding` stays empty until duplicate detection.
+
+---
+
 ## 15. Planned, not yet modelled
 
 Resolution rooms, progress updates, completion evidence, impact-point ledger,
 notifications, organisation↔problem allocation. Each attaches to `Problem`
 through its own table.
+
+Also deliberately absent: **organisation invitations** (no email infrastructure
+yet — the extension point is `OrganizationMember.status = INVITED`, which
+already exists and is already rendered), **avatar/logo uploads** (the columns
+take URLs; object storage plugs in behind them without a schema change), and
+**verification workflow** (the statuses exist and are displayed; no endpoint
+writes them).
 
 The one schema change to anticipate: `ProblemEmbedding` gains either a
 projection step or a sibling table when image embeddings land (§6).

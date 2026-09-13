@@ -1,14 +1,18 @@
 # ML Plan
 
-> **Nothing here is implemented.** `services/ai` currently exposes health
-> endpoints and the infrastructure to build on: configuration, structured
-> logging, internal-token auth, schema contracts and a service layer.
+> **System 1 — multimodal problem understanding — is implemented.** Everything
+> else on this page is still a plan. Each section is marked.
 >
 > There are no placeholder classifiers and no random scores anywhere in this
 > repository. A fabricated AI response is worse than an absent one — it is
 > indistinguishable from a broken real one, it invites UI to be built on a
 > contract that was never validated, and in a civic accountability product it
 > would mean fake severity scores attached to real public problems.
+>
+> The one stub that exists — `development_provider.py` — is refused in
+> production by the provider factory, labels itself `development-keyword-stub`
+> in `modelName`, reports a deliberately low confidence, and the UI prints a
+> warning whenever it produced a result.
 
 ## Principles
 
@@ -28,21 +32,48 @@
 
 ---
 
-## 1. Multimodal problem understanding
+## 1. Multimodal problem understanding — **implemented**
 
-Read a photo plus a description and produce structured attributes: what the
-problem is, what is visible, the apparent scale, any safety concern.
+Read a photo plus a description and produce structured attributes: category,
+subcategory, severity, urgency, confidence, a citizen-readable summary, and
+evidence-based observations.
 
-**Approach.** A vision-capable LLM (Claude, GPT-4o class) with a strict
-JSON-schema response. Images are downscaled before sending — cost scales with
-resolution and civic photos are far larger than needed.
+**What shipped.** Claude vision via the Anthropic SDK, with constrained
+structured output (`messages.parse` against a Pydantic schema) rather than
+JSON-mode-and-hope. Images are downscaled to 1024px JPEG before sending — cost
+scales with resolution and civic photos are far larger than needed. The stored
+original is never touched.
 
-**Initially:** hosted API. **Later:** a fine-tuned open vision model, once there
-is a corpus of Indian civic imagery with verified labels — the domain is narrow
+| Piece | Where |
+| --- | --- |
+| System prompt | `services/ai/app/prompts/problem_analysis.py` |
+| Provider interface | `services/ai/app/providers/base.py` |
+| Claude provider | `services/ai/app/providers/anthropic_provider.py` |
+| Development stub | `services/ai/app/providers/development_provider.py` |
+| Taxonomy normalisation | `services/ai/app/core/taxonomy.py` |
+| Orchestration | `services/ai/app/services/analysis_service.py` |
+| Lifecycle in NestJS | `apps/api/src/problems/services/problem-analysis.service.ts` |
+
+**What the prompt enforces.** Use both image and text; on conflict prefer the
+more cautious reading; never invent detail or locations; never identify people;
+observations are evidence, not reasoning. Private chain-of-thought is neither
+requested nor stored — only the observations, which are written for the citizen
+who filed the report.
+
+**Calibration rules that are code, not prompting.** A text-only analysis is
+capped at 0.75 confidence, because a model reasoning from a description alone
+cannot be as certain as one that saw the problem. A category outside the
+taxonomy becomes `OTHER`. A confidence returned as a percentage is rescaled,
+not clamped.
+
+**Still hosted.** **Later:** a fine-tuned open vision model, once there is a
+corpus of Indian civic imagery with verified labels — the domain is narrow
 enough for a small model to beat a general one, and per-report cost matters at
-volume.
+volume. Every inference is already stored with its model name, version and
+confidence, which is that training set accumulating.
 
-**Metric:** human agreement rate on a held-out sample.
+**Metric:** human agreement rate on a held-out sample. Not yet measured — there
+is no labelled sample of real reports yet.
 
 ---
 
@@ -85,9 +116,13 @@ worse than a 3. Reported with a confidence interval, not a bare number.
 
 ---
 
-## 4. Duplicate detection
+## 4. Duplicate detection — *next*
 
 Identify that a new report describes an already-reported problem.
+
+Not implemented. The schema is ready (`problem_embeddings` with an HNSW index,
+`problem_duplicates`), and nothing about analysis is coupled to it — duplicate
+detection is a separate capability endpoint on the same provider boundary.
 
 **Approach.** A cascade, cheapest filter first:
 
@@ -250,7 +285,7 @@ never auto-closes; and a sample of closures is audited regardless of score.
 
 | System | Initially | Later |
 | --- | --- | --- |
-| 1. Multimodal understanding | Hosted vision LLM | Fine-tuned open vision model |
+| 1. Multimodal understanding ✅ | Hosted vision LLM (Claude) | Fine-tuned open vision model |
 | 2. Classification | Derived from (1) | Fine-tuned text classifier |
 | 3. Severity | LLM + published rubric | Learned, calibrated model |
 | 4. Duplicate detection | Geo + vector cascade | Learned combiner over signals |
@@ -268,13 +303,24 @@ never auto-closes; and a sample of closures is audited regardless of score.
 | Piece | Where |
 | --- | --- |
 | Service skeleton, routing, lifespan | `services/ai/app/main.py` |
-| Settings incl. LLM/embedding placeholders | `services/ai/app/core/config.py` |
+| Settings incl. LLM/embedding configuration | `services/ai/app/core/config.py` |
 | Structured logging with correlation ids | `services/ai/app/core/logging.py` |
 | Internal-token auth for non-public routes | `services/ai/app/core/security.py` |
+| Vision-language provider interface | `services/ai/app/providers/base.py` |
+| Provider factory with production guards | `services/ai/app/providers/factory.py` |
+| Canonical taxonomy and normalisation | `services/ai/app/core/taxonomy.py` |
 | Model wrapper location | `services/ai/app/models/` (empty by design) |
 | Typed client from NestJS | `apps/api/src/ai/ai.client.ts` |
 | Application-facing AI entry point | `apps/api/src/ai/ai.service.ts` |
+| Analysis lifecycle and retry policy | `apps/api/src/problems/services/problem-analysis.service.ts` |
+| Stored inference records | `problem_ai_analyses` |
 
 Adding a capability means: a Pydantic schema in `app/schemas/`, logic in
 `app/services/`, a router in `app/api/routes/`, and a typed method on
-`AiService` in NestJS. No structural change required.
+`AiService` in NestJS. A capability that needs a different model adds a provider
+under `app/providers/` behind the same interface. No structural change required.
+
+Nothing in the analysis pipeline assumes one provider. Swapping Claude for
+another vision model is one class implementing `VisionLanguageProvider` and one
+line in the factory — the taxonomy normalisation, the calibration rules, the
+retry policy and the whole NestJS side are provider-agnostic.

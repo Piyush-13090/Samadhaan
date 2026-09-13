@@ -1,11 +1,19 @@
 import { Module } from '@nestjs/common';
+import { OrganizationAccessService } from './organization-access.service.js';
+import { OrganizationsController } from './organizations.controller.js';
+import { OrganizationsService } from './organizations.service.js';
 
 /**
- * Organisation profiles for NGOs, universities and industries: verification, capability tags, problem discovery and allocation workflows.
+ * Organisation profiles, membership and expertise.
  *
- * Boundary only in this milestone: the module is registered and wired into
- * `AppModule` so later prompts add controllers, services and DTOs here
- * without restructuring the application.
+ * `OrganizationAccessService` is exported because later milestones — allocation
+ * and resolution rooms — need the same authorisation rules. Re-deriving them
+ * there is how two subtly different definitions of "may manage this
+ * organisation" end up in the codebase.
  */
-@Module({})
+@Module({
+  controllers: [OrganizationsController],
+  providers: [OrganizationsService, OrganizationAccessService],
+  exports: [OrganizationsService, OrganizationAccessService],
+})
 export class OrganizationsModule {}

@@ -45,7 +45,13 @@ class HealthService:
 
     def readiness(self) -> HealthReport:
         dependencies = [
-            self._capability("llmProvider", self._settings.llm_configured),
+            self._capability(
+                "llmProvider",
+                self._settings.llm_configured,
+                # Surfaced so an operator can see *which* provider is answering
+                # — a development stub reporting "ok" would be misleading.
+                detail=(self._settings.llm_provider or "not configured"),
+            ),
             self._capability("embeddingProvider", self._settings.embeddings_configured),
         ]
 
@@ -60,14 +66,21 @@ class HealthService:
         )
 
     @staticmethod
-    def _capability(name: str, configured: bool) -> DependencyHealth:
+    def _capability(
+        name: str, configured: bool, detail: str | None = None
+    ) -> DependencyHealth:
         """An unconfigured provider is `degraded`, not `down`: the service
         itself is healthy, it simply cannot perform that class of work yet."""
+        if not configured:
+            return DependencyHealth(
+                name=name, status="degraded", latency_ms=None, message="Not configured"
+            )
+
         return DependencyHealth(
             name=name,
-            status="ok" if configured else "degraded",
+            status="ok",
             latency_ms=None,
-            message=None if configured else "Not configured",
+            message=f"Provider: {detail}" if detail else None,
         )
 
     @staticmethod

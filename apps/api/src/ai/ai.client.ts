@@ -8,6 +8,23 @@ import {
 } from '@samadhaan/shared';
 import { AppConfig } from '../config/app.config.js';
 
+/**
+ * A non-2xx response from the AI service, carrying its body.
+ *
+ * The body matters: it holds the `code`/`retryable` pair the orchestration
+ * layer needs to decide between retrying and giving up.
+ */
+export class AiRequestError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly body: unknown,
+  ) {
+    super(message);
+    this.name = 'AiRequestError';
+  }
+}
+
 /** Options accepted by a single AI service call. */
 export interface AiRequestOptions {
   /** Correlation id to propagate, so one trace spans web -> api -> ai. */
@@ -76,10 +93,16 @@ export class AiClient {
       });
 
       if (!response.ok) {
-        const detail = await response.text().catch(() => '');
+        // The body is parsed rather than stringified, because the AI service
+        // returns a structured failure whose `retryable` flag decides whether
+        // the caller tries again. Flattening it to a message would cost that.
+        const body: unknown = await response.json().catch(() => null);
+
         return err(
-          new Error(
-            `AI service responded ${response.status}${detail ? `: ${detail.slice(0, 200)}` : ''}`,
+          new AiRequestError(
+            `AI service responded ${response.status}`,
+            response.status,
+            body,
           ),
         );
       }

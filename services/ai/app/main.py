@@ -102,6 +102,16 @@ async def validation_error_handler(_: Request, exc: RequestValidationError) -> J
 
 @app.exception_handler(StarletteHTTPException)
 async def http_error_handler(_: Request, exc: StarletteHTTPException) -> JSONResponse:
+    """Normalises aborts into the error envelope.
+
+    A handler that raised with a structured `detail` (the analysis endpoint
+    does, to carry `code` and `retryable`) has that shape preserved. Stringifying
+    it would cost the caller the retry signal it needs to decide whether trying
+    again could ever help.
+    """
+    if isinstance(exc.detail, dict) and "code" in exc.detail:
+        return JSONResponse(status_code=exc.status_code, content=exc.detail)
+
     return JSONResponse(
         status_code=exc.status_code,
         content=ErrorResponse(code="HTTP_ERROR", message=str(exc.detail)).model_dump(),

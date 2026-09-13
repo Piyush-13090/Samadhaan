@@ -81,6 +81,38 @@ export const envSchema = z.object({
     .enum(['true', 'false'])
     .default('false')
     .transform((value) => value === 'true'),
+
+  // --- Storage --------------------------------------------------------------
+  /**
+   * Which storage driver to use. Only `local` is implemented; an S3 driver
+   * plugs into the same factory without touching problem logic.
+   */
+  STORAGE_PROVIDER: z.enum(['local', 's3']).default('local'),
+  /** Directory the local driver writes to. Relative paths resolve from apps/api. */
+  STORAGE_LOCAL_ROOT: z.string().default('.storage'),
+
+  /**
+   * Public base URL of the API, used to build media URLs. Distinct from
+   * API_HOST/PORT, which describe the socket the process binds — behind a proxy
+   * those are not the address a browser can reach.
+   */
+  PUBLIC_API_URL: z.string().url().default('http://localhost:3100'),
+
+  // --- Uploads --------------------------------------------------------------
+  /** Per-image byte cap. 8 MiB comfortably holds a modern phone photo. */
+  UPLOAD_MAX_IMAGE_BYTES: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(8 * 1024 * 1024),
+  /** Images allowed on one problem. */
+  UPLOAD_MAX_IMAGES_PER_PROBLEM: z.coerce.number().int().positive().default(6),
+  /**
+   * How long an uploaded-but-unattached image stays claimable, in seconds.
+   * Long enough to finish a report, short enough that abandoned uploads do not
+   * accumulate indefinitely.
+   */
+  UPLOAD_PENDING_TTL_SECONDS: z.coerce.number().int().positive().default(3600),
 });
 
 export type Env = z.infer<typeof envSchema>;

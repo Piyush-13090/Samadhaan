@@ -44,10 +44,17 @@ export class JwtAuthGuard implements CanActivate {
       context.getClass(),
     ]);
 
-    if (isPublic) return true;
-
     const request = context.switchToHttp().getRequest<Request & AuthenticatedRequest>();
     const token = this.cookies.readAccessToken(request);
+
+    // A public route still resolves the caller when they happen to be signed
+    // in, so handlers can adapt — an organisation profile shows edit controls
+    // to its owners and the plain page to everyone else. It never *requires* a
+    // session: any failure simply leaves `request.user` unset.
+    if (isPublic) {
+      if (token) await this.attachOptionalUser(request, token);
+      return true;
+    }
 
     if (!token) throw this.sessionExpired();
 
@@ -76,6 +83,33 @@ export class JwtAuthGuard implements CanActivate {
     };
 
     return true;
+  }
+
+  /**
+   * Best-effort authentication for `@Public()` routes.
+   *
+   * Deliberately silent: an expired or revoked token on a public route means
+   * "treat this as a signed-out visitor", not "reject the request". Suspended
+   * accounts are left unattached so they get the anonymous view rather than
+   * member privileges.
+   */
+  private async attachOptionalUser(
+    request: Request & AuthenticatedRequest,
+    token: string,
+  ): Promise<void> {
+    const claims = await this.tokens.verifyAccessToken(token);
+    if (!claims || claims.status === 'SUSPENDED') return;
+
+    const session = await this.sessions.findActive(claims.sid);
+    if (!session || session.userId !== claims.sub) return;
+
+    request.user = {
+      id: claims.sub,
+      email: claims.email,
+      role: claims.role,
+      status: claims.status,
+      sessionId: claims.sid,
+    };
   }
 
   /**

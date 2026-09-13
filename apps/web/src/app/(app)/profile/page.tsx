@@ -1,13 +1,18 @@
-import { BadgeCheck, Clock } from 'lucide-react';
+import { Pencil } from 'lucide-react';
 import type { Metadata } from 'next';
+import Link from 'next/link';
+import { redirect } from 'next/navigation';
+import { cookies } from 'next/headers';
+import { Suspense } from 'react';
+import { ActivitySummary } from '@/components/profile/activity-summary';
+import { OrganizationMemberships } from '@/components/profile/organization-memberships';
+import { ProfileHeader } from '@/components/profile/profile-header';
 import { PageContainer, PageHeading } from '@/components/layout/page-container';
-import { Avatar } from '@/components/ui/avatar';
-import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Card, CardBody, CardHeader } from '@/components/ui/card';
 import { EmptyState } from '@/components/ui/states';
-import { formatDate } from '@/lib/format';
-import { requireUser } from '@/lib/auth-server';
-import { ROLE_DESCRIPTION, ROLE_LABEL } from '@/lib/role-display';
+import { Skeleton, SkeletonText } from '@/components/ui/skeleton';
+import { fetchOwnProfileOnServer } from '@/services/profile.service';
 import { ProfileForm } from './profile-form';
 
 export const metadata: Metadata = { title: 'Profile' };
@@ -15,14 +20,13 @@ export const metadata: Metadata = { title: 'Profile' };
 /**
  * The signed-in user's profile.
  *
- * Everything shown is real data from `/auth/me`. Impact and activity have no
- * data source yet, so they render honest empty states rather than invented
- * numbers — a fabricated "480 points" would be indistinguishable from a
- * working feature and would quietly become a lie to the user.
+ * Everything shown is real: the profile comes from `/users/me` and the activity
+ * counts from `/users/me/activity`, both computed from the database. Features
+ * that do not exist yet render as honest empty states — a fabricated number
+ * would be indistinguishable from a working feature and would quietly become a
+ * lie to the user.
  */
-export default async function ProfilePage() {
-  const user = await requireUser('/profile');
-
+export default function ProfilePage() {
   return (
     <PageContainer width="narrow">
       <PageHeading
@@ -30,83 +34,96 @@ export default async function ProfilePage() {
         description="Your account and how you appear to others."
       />
 
-      <div className="mt-8 space-y-5">
-        <Card>
-          <CardBody className="flex flex-wrap items-start gap-5">
-            <Avatar name={user.fullName} src={user.avatarUrl ?? undefined} size="xl" />
-
-            <div className="min-w-0 flex-1">
-              <div className="flex flex-wrap items-center gap-2">
-                <h2 className="type-h3 text-ink">{user.fullName}</h2>
-                {user.emailVerifiedAt && (
-                  <span title="Email verified" className="text-primary">
-                    <BadgeCheck className="size-4" aria-hidden="true" />
-                    <span className="sr-only">Email verified</span>
-                  </span>
-                )}
-              </div>
-
-              <p className="mt-0.5 type-body-sm text-ink-muted">{user.email}</p>
-
-              {user.displayName && (
-                <p className="mt-0.5 font-mono type-caption text-ink-subtle">
-                  @{user.displayName}
-                </p>
-              )}
-
-              <div className="mt-3 flex flex-wrap items-center gap-2">
-                <Badge tone="primary">{ROLE_LABEL[user.role]}</Badge>
-                {user.status !== 'ACTIVE' && (
-                  <Badge tone="warning">
-                    {user.status === 'PENDING_VERIFICATION'
-                      ? 'Pending verification'
-                      : 'Suspended'}
-                  </Badge>
-                )}
-              </div>
-
-              <p className="mt-3 type-body-sm text-ink-muted">
-                {ROLE_DESCRIPTION[user.role]}
-              </p>
-
-              <p className="mt-3 inline-flex items-center gap-1.5 type-caption text-ink-subtle">
-                <Clock className="size-3.5" aria-hidden="true" />
-                Member since {formatDate(user.createdAt)}
-              </p>
-            </div>
-          </CardBody>
-        </Card>
-
-        <ProfileForm user={user} />
-
-        <Card>
-          <CardHeader
-            title="Impact"
-            description="Points earned when problems you contributed to are resolved."
-          />
-          <CardBody className="p-0">
-            <EmptyState
-              size="sm"
-              title="No impact yet"
-              description="Impact points are awarded once problem reporting and resolution are live."
-            />
-          </CardBody>
-        </Card>
-
-        <Card>
-          <CardHeader
-            title="Activity"
-            description="Problems you reported, supported and commented on."
-          />
-          <CardBody className="p-0">
-            <EmptyState
-              size="sm"
-              title="No activity yet"
-              description="Your reports and contributions will appear here."
-            />
-          </CardBody>
-        </Card>
-      </div>
+      <Suspense fallback={<ProfileSkeleton />}>
+        <ProfileContent />
+      </Suspense>
     </PageContainer>
+  );
+}
+
+async function ProfileContent() {
+  const cookieStore = await cookies();
+  const header = cookieStore
+    .getAll()
+    .map((cookie) => `${cookie.name}=${cookie.value}`)
+    .join('; ');
+
+  const data = await fetchOwnProfileOnServer(header);
+
+  // The route group already requires a session; this covers the token expiring
+  // between the layout's check and this fetch.
+  if (!data) redirect('/login?next=%2Fprofile&reason=expired');
+
+  const { profile, activity } = data;
+
+  return (
+    <div className="mt-8 space-y-5">
+      <ProfileHeader
+        profile={profile}
+        action={
+          <Button variant="secondary" size="sm" leadingIcon={<Pencil />} asChild>
+            <Link href="#edit-profile">Edit profile</Link>
+          </Button>
+        }
+      />
+
+      <section aria-labelledby="impact-heading">
+        <h2 id="impact-heading" className="sr-only">
+          Impact summary
+        </h2>
+        <ActivitySummary activity={activity} />
+      </section>
+
+      <OrganizationMemberships memberships={profile.organizations} />
+
+      <div id="edit-profile" className="scroll-mt-20">
+        <ProfileForm profile={profile} />
+      </div>
+
+      <Card>
+        <CardHeader
+          title="Activity"
+          description="Problems you reported, supported and commented on."
+        />
+        <CardBody className="p-0">
+          <EmptyState
+            size="sm"
+            title="Activity feed coming soon"
+            description="Your reports and contributions will be listed here once problem reporting is live."
+          />
+        </CardBody>
+      </Card>
+    </div>
+  );
+}
+
+/** Mirrors the finished layout, so nothing jumps when the data arrives. */
+function ProfileSkeleton() {
+  return (
+    <div className="mt-8 space-y-5" aria-busy="true" aria-label="Loading profile">
+      <div className="rounded-card border border-border bg-surface p-5">
+        <div className="flex flex-col gap-5 sm:flex-row">
+          <Skeleton className="size-16 shrink-0 rounded-full" />
+          <div className="flex-1">
+            <Skeleton className="h-7 w-48" />
+            <Skeleton className="mt-2 h-4 w-24" />
+            <div className="mt-3 flex gap-2">
+              <Skeleton className="h-6 w-20" />
+              <Skeleton className="h-6 w-32" />
+            </div>
+            <SkeletonText lines={2} className="mt-4" />
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
+        {[0, 1, 2, 3].map((index) => (
+          <Skeleton key={index} className="h-24" />
+        ))}
+      </div>
+
+      <Skeleton className="h-40" />
+      <Skeleton className="h-96" />
+    </div>
   );
 }

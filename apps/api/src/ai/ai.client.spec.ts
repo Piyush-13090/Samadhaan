@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AppConfig } from '../config/app.config.js';
-import { AiClient } from './ai.client.js';
+import { AiClient, AiRequestError } from './ai.client.js';
 
 function createClient(overrides: Partial<AppConfig> = {}): AiClient {
   return new AiClient({
@@ -87,13 +87,58 @@ describe('AiClient', () => {
     fetchMock.mockResolvedValue({
       ok: false,
       status: 500,
-      text: async () => 'boom',
+      json: async () => ({ detail: 'boom' }),
     });
 
     const result = await createClient().get('/health');
 
     expect(result.ok).toBe(false);
     expect(!result.ok && result.error.message).toContain('500');
+  });
+
+  // The failure body is what tells the caller whether to retry, so it has to
+  // survive the transport rather than being flattened into a message.
+  it('carries the parsed failure body on the error', async () => {
+    fetchMock.mockResolvedValue({
+      ok: false,
+      status: 503,
+      json: async () => ({
+        code: 'PROVIDER_UNAVAILABLE',
+        message: 'Provider is down',
+        retryable: true,
+      }),
+    });
+
+    const result = await createClient().post('/analyze/problem', {});
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+
+    const error = result.error as AiRequestError;
+    expect(error).toBeInstanceOf(AiRequestError);
+    expect(error.status).toBe(503);
+    expect(error.body).toEqual({
+      code: 'PROVIDER_UNAVAILABLE',
+      message: 'Provider is down',
+      retryable: true,
+    });
+  });
+
+  // An error page instead of JSON must not become a transport failure — the
+  // status still has to reach the caller.
+  it('tolerates a failure body that is not JSON', async () => {
+    fetchMock.mockResolvedValue({
+      ok: false,
+      status: 502,
+      json: async () => {
+        throw new SyntaxError('Unexpected token <');
+      },
+    });
+
+    const result = await createClient().get('/health');
+
+    expect(result.ok).toBe(false);
+    expect(!result.ok && (result.error as AiRequestError).body).toBeNull();
   });
 
   it('returns an error result when the AI service is unreachable', async () => {
