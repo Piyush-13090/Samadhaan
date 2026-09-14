@@ -1,4 +1,5 @@
 import type {
+  DuplicateCheckView,
   CreateProblemInput,
   ProblemAnalysisView,
   ProblemView,
@@ -97,10 +98,6 @@ export function createProblem(input: CreateProblemInput): Promise<ProblemView> {
   return api.post<ProblemView>('/problems', input);
 }
 
-export function fetchOwnProblems(): Promise<ProblemView[]> {
-  return api.get<ProblemView[]>('/problems/mine', { cache: 'no-store' });
-}
-
 /**
  * A problem by public id, during server rendering.
  *
@@ -159,6 +156,63 @@ export async function fetchAnalysisOnServer(
     );
   } catch (error) {
     // A missing analysis is a normal state, not a page failure.
+    if (error instanceof ApiError) return null;
+    throw error;
+  }
+}
+
+// --- Duplicate detection ---------------------------------------------------
+
+/** Problems that may already describe the same issue. */
+export function fetchSimilar(publicId: string): Promise<DuplicateCheckView> {
+  return api.get<DuplicateCheckView>(
+    `/problems/${encodeURIComponent(publicId)}/similar`,
+    { cache: 'no-store' },
+  );
+}
+
+/**
+ * Records that this report describes the same issue as an existing one.
+ *
+ * Only the pair id is sent. Scores are generated server-side and the API
+ * ignores — in fact rejects — any the client tries to supply.
+ */
+export function confirmDuplicate(
+  publicId: string,
+  candidateId: string,
+): Promise<DuplicateCheckView> {
+  return api.post<DuplicateCheckView>(
+    `/problems/${encodeURIComponent(publicId)}/duplicates/${encodeURIComponent(candidateId)}/confirm`,
+  );
+}
+
+/** Records that this report is a different issue from the suggested one. */
+export function rejectDuplicate(
+  publicId: string,
+  candidateId: string,
+): Promise<DuplicateCheckView> {
+  return api.post<DuplicateCheckView>(
+    `/problems/${encodeURIComponent(publicId)}/duplicates/${encodeURIComponent(candidateId)}/reject`,
+  );
+}
+
+/** The duplicate check resolved during server rendering, for the detail page. */
+export async function fetchSimilarOnServer(
+  publicId: string,
+  cookieHeader: string,
+): Promise<DuplicateCheckView | null> {
+  try {
+    return await createServerApi().get<DuplicateCheckView>(
+      `/problems/${encodeURIComponent(publicId)}/similar`,
+      {
+        cache: 'no-store',
+        headers: cookieHeader
+          ? { cookie: cookieHeader }
+          : ({} as Record<string, string>),
+      },
+    );
+  } catch (error) {
+    // A missing check is a normal state, not a page failure.
     if (error instanceof ApiError) return null;
     throw error;
   }

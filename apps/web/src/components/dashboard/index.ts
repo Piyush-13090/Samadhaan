@@ -1,1 +1,1 @@
-export * from './dashboard-preview';
+export { CitizenDashboard } from './citizen-dashboard';

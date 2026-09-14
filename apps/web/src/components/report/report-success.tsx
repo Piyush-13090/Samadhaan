@@ -6,6 +6,7 @@ import { useEffect, useState } from 'react';
 import type { ProblemView } from '@samadhaan/shared';
 import { AnalysisFailed, ProblemIntelligence } from '@/components/ai/problem-intelligence';
 import { AnalysisProcessing } from '@/components/ai/analysis-processing';
+import { SimilarProblemsPanel } from '@/components/ai/similar-problems-panel';
 import { Button } from '@/components/ui/button';
 import { Card, CardBody } from '@/components/ui/card';
 import { useAnalysisPolling } from '@/hooks/use-analysis-polling';
@@ -55,6 +56,17 @@ export function ReportSuccess({ problem }: { problem: ProblemView }) {
           </p>
         </CardBody>
       </Card>
+
+      {/* Surfaced above the analysis: "you may be reporting something already
+          filed" is the more consequential thing to tell someone who has just
+          submitted, and it is the only part of this screen they can act on.
+          The report is already saved either way — this never blocks it. */}
+      <SimilarProblemsPanel
+        publicId={problem.publicId}
+        initial={null}
+        // The reporter is on this screen by definition.
+        canReview
+      />
 
       {polling && <AnalysisProcessing elapsedMs={elapsedMs} />}
 

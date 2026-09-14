@@ -6,13 +6,16 @@ import { ProblemsController } from './problems.controller.js';
 import { ProblemsService } from './problems.service.js';
 import { ImageValidationService } from './services/image-validation.service.js';
 import { PendingUploadService } from './services/pending-upload.service.js';
+import { DuplicateDetectionService } from './services/duplicate-detection.service.js';
+import { DuplicateScoringService } from './services/duplicate-scoring.service.js';
+import { ProblemDiscoveryService } from './services/problem-discovery.service.js';
 import { ProblemAnalysisService } from './services/problem-analysis.service.js';
 
 /**
  * Civic problem reporting.
  *
- * `AiModule` is imported for analysis; the browser never reaches the AI
- * service, so every call goes through this boundary.
+ * `AiModule` is imported for analysis and embeddings; the browser never reaches
+ * the AI service, so every call goes through this boundary.
  *
  * Multer is configured with memory storage and a hard byte limit. Memory
  * because the validator must decode the bytes before anything is persisted —
@@ -43,7 +46,15 @@ import { ProblemAnalysisService } from './services/problem-analysis.service.js';
     ImageValidationService,
     PendingUploadService,
     ProblemAnalysisService,
+    DuplicateScoringService,
+    DuplicateDetectionService,
+    ProblemDiscoveryService,
   ],
-  exports: [ProblemsService, ProblemAnalysisService],
+  exports: [
+    ProblemsService,
+    ProblemAnalysisService,
+    DuplicateDetectionService,
+    ProblemDiscoveryService,
+  ],
 })
 export class ProblemsModule {}

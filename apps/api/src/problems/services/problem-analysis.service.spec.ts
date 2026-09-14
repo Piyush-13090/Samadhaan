@@ -347,6 +347,31 @@ describe('ProblemAnalysisService', () => {
       expect(prisma.rows[0]?.id).not.toBe(prisma.rows[1]?.id);
     });
 
+    /**
+     * `problem_ai_analyses` holds duplicate checks too. Without an
+     * `analysisType` filter, an in-flight duplicate check blocks a
+     * re-analysis — two unrelated jobs deadlocking purely because they share a
+     * table.
+     */
+    it('is not blocked by an in-flight duplicate check', async () => {
+      const prisma = createFakePrisma(PROBLEM);
+      const { service } = build(prisma, [{ ok: true, analysis: ANALYSIS }]);
+
+      await service.enqueue('prb-1');
+      await settle();
+
+      // A duplicate check sitting in PROCESSING, as one would be after submit.
+      prisma.rows.push({
+        id: 'dup-1',
+        problemId: 'prb-1',
+        analysisType: 'DUPLICATE_ANALYSIS',
+        processingStatus: 'PROCESSING',
+        history: ['PENDING', 'PROCESSING'],
+      });
+
+      await expect(service.retry('prb-1')).resolves.toBeDefined();
+    });
+
     it('refuses while an analysis is already in flight', async () => {
       const prisma = createFakePrisma(PROBLEM);
       const ai = {

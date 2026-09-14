@@ -113,6 +113,97 @@ export const envSchema = z.object({
    * accumulate indefinitely.
    */
   UPLOAD_PENDING_TTL_SECONDS: z.coerce.number().int().positive().default(3600),
+
+  // --- Duplicate detection --------------------------------------------------
+  // Every value here is a starting heuristic chosen by hand, not a learned
+  // parameter. They live in configuration precisely because they are expected
+  // to be tuned against real data — see docs/ML_DUPLICATE_DETECTION.md.
+
+  /**
+   * Radius, in metres, over which geographic similarity decays to zero.
+   *
+   * 750 m is a deliberate compromise: large enough that GPS drift and a
+   * mis-dropped pin do not separate two reports of the same pothole, small
+   * enough that two genuinely different potholes on the same arterial road do
+   * not merge. Per-category radii are the obvious refinement — a blocked drain
+   * is a point, an unlit street is a stretch.
+   */
+  DUPLICATE_GEO_RADIUS_METERS: z.coerce.number().positive().default(750),
+
+  /**
+   * Hard cut-off for candidate retrieval. A problem further than this is never
+   * considered, whatever its text says. Two identically-worded potholes 500 km
+   * apart are two potholes.
+   */
+  DUPLICATE_MAX_DISTANCE_METERS: z.coerce.number().positive().default(5000),
+
+  /**
+   * Geographic similarity at or above which distance stops suppressing a score.
+   *
+   * Geography can veto in a way word choice cannot: two reports describe the
+   * same physical pothole only if they are in the same place. Below this value
+   * the combined score is scaled down proportionally, so strong text similarity
+   * cannot outvote a pair being demonstrably far apart. 0.25 corresponds to
+   * roughly 1.4x the radius above.
+   */
+  DUPLICATE_GEO_GATE_FLOOR: z.coerce.number().min(0).max(1).default(0.25),
+
+  /**
+   * Category similarity at or above which category stops suppressing a score.
+   *
+   * The same necessity argument as the geographic gate, on the other axis: two
+   * reports describe the same problem only if they are about the same kind of
+   * thing. 0.4 clears every pairing in the affinity table (the loosest related
+   * pair is 0.5) and suppresses only the "unrelated" floor of 0.1, which nearby
+   * recent reports would otherwise ride over the related threshold.
+   */
+  DUPLICATE_CATEGORY_GATE_FLOOR: z.coerce.number().min(0).max(1).default(0.4),
+
+  /** How many nearest neighbours the vector search returns before scoring. */
+  DUPLICATE_CANDIDATE_LIMIT: z.coerce.number().int().positive().max(100).default(20),
+
+  /** How many scored candidates are stored and shown. */
+  DUPLICATE_RESULT_LIMIT: z.coerce.number().int().positive().max(20).default(5),
+
+  /**
+   * Minimum text cosine similarity for a candidate to be scored at all.
+   *
+   * Cheap pre-filter: below this the combined score cannot realistically clear
+   * the related threshold, and scoring it costs a PostGIS distance computation
+   * for nothing.
+   */
+  DUPLICATE_MIN_TEXT_SIMILARITY: z.coerce.number().min(0).max(1).default(0.35),
+
+  // Signal weights. Renormalised over whatever signals are actually available,
+  // so a missing image embedding redistributes its weight rather than scoring 0.
+  DUPLICATE_WEIGHT_TEXT: z.coerce.number().min(0).default(0.35),
+  DUPLICATE_WEIGHT_IMAGE: z.coerce.number().min(0).default(0.25),
+  DUPLICATE_WEIGHT_GEO: z.coerce.number().min(0).default(0.25),
+  DUPLICATE_WEIGHT_CATEGORY: z.coerce.number().min(0).default(0.1),
+  DUPLICATE_WEIGHT_TEMPORAL: z.coerce.number().min(0).default(0.05),
+
+  /**
+   * Score at or above which a pair is called a likely duplicate.
+   *
+   * Never an automatic merge. This only decides the wording a citizen sees and
+   * the `LIKELY_DUPLICATE` status on the stored row; confirmation stays human.
+   */
+  DUPLICATE_HIGH_THRESHOLD: z.coerce.number().min(0).max(1).default(0.85),
+  /** Score at or above which a pair is called a possible duplicate. */
+  DUPLICATE_POSSIBLE_THRESHOLD: z.coerce.number().min(0).max(1).default(0.65),
+  /** Score below which a pair is not worth showing at all. */
+  DUPLICATE_RELATED_THRESHOLD: z.coerce.number().min(0).max(1).default(0.5),
+
+  /**
+   * Half-life in days for the temporal signal.
+   *
+   * Supporting signal only, with a floor: a pothole unrepaired for two years is
+   * still the same pothole when someone reports it again, so age must lower a
+   * score without ever making an old problem unmatchable.
+   */
+  DUPLICATE_TEMPORAL_HALF_LIFE_DAYS: z.coerce.number().positive().default(120),
+  /** Floor for the temporal signal, however old the candidate is. */
+  DUPLICATE_TEMPORAL_FLOOR: z.coerce.number().min(0).max(1).default(0.35),
 });
 
 export type Env = z.infer<typeof envSchema>;

@@ -26,9 +26,10 @@ class HealthService:
     """Reports whether the service is alive and whether its AI capabilities
     are actually usable.
 
-    No model or provider clients exist yet, so readiness currently reflects
-    configuration only. As providers are introduced, each gains a real probe
-    here and appears as another dependency in the report.
+    Readiness reflects configuration rather than a live model call: loading an
+    embedding model takes seconds and probing a paid vision endpoint on every
+    health check would be expensive in both senses. A misconfigured provider is
+    caught here; a broken one surfaces on the first real request.
     """
 
     def __init__(self, settings: Settings) -> None:
@@ -52,7 +53,20 @@ class HealthService:
                 # — a development stub reporting "ok" would be misleading.
                 detail=(self._settings.llm_provider or "not configured"),
             ),
-            self._capability("embeddingProvider", self._settings.embeddings_configured),
+            self._capability(
+                "embeddingProvider",
+                self._settings.embeddings_configured,
+                # The model id, not just the provider: two deployments running
+                # different encoders produce vectors that must never be
+                # compared, and this is where that becomes visible.
+                detail=(
+                    f"{self._settings.embedding_provider} "
+                    f"({self._settings.embedding_model}, "
+                    f"{self._settings.embedding_dimensions}d)"
+                    if self._settings.embeddings_configured
+                    else "not configured"
+                ),
+            ),
         ]
 
         return HealthReport(

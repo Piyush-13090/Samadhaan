@@ -15,6 +15,7 @@ import { HealthModule } from './health/health.module.js';
 import { MediaModule } from './media/media.module.js';
 import { NotificationsModule } from './notifications/notifications.module.js';
 import { OrganizationsModule } from './organizations/organizations.module.js';
+import { DashboardModule } from './dashboard/dashboard.module.js';
 import { ProblemsModule } from './problems/problems.module.js';
 import { RedisModule } from './redis/redis.module.js';
 import { StorageModule } from './storage/storage.module.js';
@@ -53,6 +54,7 @@ import { UsersModule } from './users/users.module.js';
     AuthModule,
     UsersModule,
     ProblemsModule,
+    DashboardModule,
     OrganizationsModule,
     CommentsModule,
     SuggestionsModule,

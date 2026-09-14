@@ -248,7 +248,7 @@ Cross-cutting decisions:
 - **Correlation ids.** `x-request-id` is accepted or generated, attached to
   every log line, forwarded to the AI service, and returned in `meta.requestId`.
 
-### `services/ai` — FastAPI (implemented: multimodal problem analysis)
+### `services/ai` — FastAPI (implemented: problem analysis, text embeddings)
 
 ```
 app/
@@ -256,7 +256,7 @@ app/
 ├── api/          Routers and dependencies
 ├── core/         Settings, logging, constants, internal-token auth, taxonomy
 ├── prompts/      System prompts, kept out of service code
-├── providers/    Vision-language providers behind one interface
+├── providers/    Vision-language and embedding providers behind two interfaces
 ├── schemas/      Pydantic contracts (mirroring packages/shared)
 ├── services/     One module per capability
 ├── models/       Model loading and inference wrappers (empty)
@@ -341,6 +341,55 @@ report is the thing of value; the analysis is an enhancement.
 `severity` and `status` are left exactly as the citizen filed them. AI
 recommends; a reviewer decides.
 
+### Duplicate detection
+
+A second AI job, queued alongside analysis when a report is filed and
+**independent of it**. Deduplication works from the citizen's own words, not from
+the AI's reading of them, so a failed analysis must not also cost the
+deduplication — and chaining them would put a vision-model call on the critical
+path of a vector search.
+
+```
+new problem ──▶ canonical text ──▶ FastAPI /embeddings/text ──▶ MiniLM (local)
+                                                                    │
+                      problem_embeddings  ◀─────────────────────────┘
+                              │
+                              ▼
+              one SQL query: pgvector ANN + PostGIS radius + eligibility
+                              │
+                              ▼
+              DuplicateScoringService (pure) ──▶ problem_duplicate_candidates
+```
+
+The encoder runs **locally inside the AI service** rather than through a hosted
+API: deduplication runs on every submitted report, so a per-call price would make
+the cost of the feature scale with civic participation — the wrong incentive for
+a platform whose goal is more reporting.
+
+**Scoring is a pure function.** `DuplicateScoringService.score(signals, config)`
+has no clock, no randomness and no database access, and takes its entire
+configuration as an argument. That is what makes thresholds testable, and what
+lets a learned model replace the hand-chosen weights later by supplying a
+different config rather than a different pipeline.
+
+**Two gates, not five weights.** Geography and category are necessary conditions
+rather than votes: two reports describe the same physical problem only if they
+are in the same place *and* about the same kind of thing. A plain weighted
+average cannot express that — identical text 500 km apart scores 0.66 and reads
+as a "possible duplicate". See
+[`ML_DUPLICATE_DETECTION.md`](./ML_DUPLICATE_DETECTION.md) §7 and §9.
+
+**No dedicated status column.** The check's lifecycle *is* a `ProblemAiAnalysis`
+row with `analysisType = DUPLICATE_ANALYSIS`. It is an AI job with a lifecycle,
+that table already models exactly that, and the startup sweep that reclaims
+interrupted analyses covers duplicate checks for free. The cost is that any query
+against that table must filter by `analysisType` — two job types sharing a table
+will otherwise block each other.
+
+**Nothing merges automatically.** The detector's ceiling is `LIKELY_DUPLICATE`.
+`CONFIRMED_DUPLICATE` records a human decision and nothing on the scoring path
+can write it.
+
 ### `packages/shared` — shared types (implemented)
 
 Types that must not drift across the service boundary: the response envelope,
@@ -368,6 +417,78 @@ yet; only the connection foundation exists.
 
 `lazyConnect` with a bounded retry strategy and an `error` listener means an
 unavailable Redis degrades health rather than taking the process down.
+
+## Citizen dashboard and discovery
+
+The authenticated home page (`/dashboard`) and the explore feed (`/explore`) are
+the citizen's main surface. Two things shape their architecture.
+
+**One request per page, not one per section.** `GET /dashboard/citizen` returns
+the greeting, the activity counts and the recent reports together. A dashboard
+that fans out to a request per card is slowest on exactly the connection a civic
+app gets used on — a phone on mobile data, outdoors.
+
+**Except the part the server cannot know.** Nearby problems depend on a location
+only the browser has, so that one section is a client component that fetches
+`GET /problems/nearby` once a location exists. Folding it into the dashboard
+call would mean either blocking the whole page on a permission prompt or
+returning a section the server cannot fill.
+
+```
+/dashboard  ──▶ GET /dashboard/citizen   (server-rendered, one call)
+                  └── greeting · activity counts · recent reports
+            ──▶ GET /problems/nearby     (client, after a location is known)
+                  └── PostGIS + ranking
+```
+
+### Location, and its fallbacks
+
+Three sources, in descending precision, and the UI always says which is in use —
+"near Gurugram" and "near your current location" are different promises.
+
+1. **Device** — browser geolocation, requested only from a button press. A
+   permission prompt nobody asked for teaches people to refuse it. A granted fix
+   is remembered for a day, so a citizen is not re-prompted every visit but
+   yesterday's location does not quietly decide what "nearby" means today.
+2. **Profile city** — the coarse locality already on the profile. This searches a
+   *city*, not a radius, and reports no distances.
+3. **Nothing** — the page stays useful and asks, rather than rendering an empty
+   feed that looks like "no problems exist".
+
+Profiles deliberately store city and state but **not** coordinates. A civic
+platform locates problems precisely and people coarsely; adding user coordinates
+to make the fallback neater would invert that, so the fallback is weaker instead.
+
+### Discovery ranking
+
+Four weighted signals — proximity, severity, recency, community support — all
+computed in SQL. The full formula and its rationale are in
+[`API.md`](./API.md#discovery-ranking).
+
+Two properties are worth stating here because they are easy to get wrong:
+
+- **The ranking is computed in the database, not in Node.** The order decides
+  the page boundary, so ranking after pagination would page through one order
+  and display another.
+- **The ranking clock is pinned into the cursor.** Recency decays against a
+  reference time; if each page used its own `now()`, a row's score would drift
+  between requests and the boundary row would be returned twice. Pinning it also
+  keeps the feed stable while a citizen scrolls it.
+
+This is basic, transparent discovery ranking. **It is not the AI priority
+engine**, which is a later milestone and will be a learned model — nothing here
+pretends otherwise, and no AI priority score is displayed.
+
+### What a feed publishes
+
+`ProblemListItem` is a narrower read model than `ProblemView`, and the
+difference is the point: a feed shows many people's reports at once, so it
+carries the civic facts and nothing about who filed them. Absent by design —
+reporter, internal UUID, email, phone, exact coordinates. `publicId` is the only
+identity a feed exposes, and `area` is the first address segment rather than the
+full street address.
+
+---
 
 ## Request path
 
@@ -411,6 +532,17 @@ Production images for web, api and ai belong to a later milestone.
 | Retry writes a new row | Analyses are records tied to a model; overwriting hides a regression |
 | AI never writes back to the problem | The report is the citizen's record — AI recommends, a reviewer decides |
 | Polling, not websockets | Analysis settles in seconds; realtime infrastructure is earned by resolution rooms |
+| One dashboard endpoint, not one per card | A request per section is slowest on the connection a civic app is actually used on |
+| Nearby fetched client-side | Only the browser knows where the citizen is; the server cannot fill that section |
+| Location asked for, never taken | A permission prompt nobody requested teaches people to refuse it |
+| Ranking computed in SQL | The order decides the page boundary; ranking after pagination pages one order and shows another |
+| Ranking clock pinned in the cursor | A time-dependent score drifts between requests and returns the boundary row twice |
+| Feeds use a narrower read model | A list of other people's reports must not be able to render a reporter it never received |
+| Embeddings run locally, not hosted | Deduplication runs per report; a per-call price makes the feature cost scale with participation |
+| Geography and category gate, not vote | Same place and same kind of thing are preconditions; a weighted average cannot express a veto |
+| Duplicate checks reuse the analysis job table | It already models an AI job's lifecycle, including the interrupted-job sweep |
+| Rejected pairs kept, never deleted | Confirmed negatives are the scarcer half of any future training set |
+| Re-checks retract stale candidates | Otherwise re-checking is purely additive and the list only ever grows |
 | Tokens in httpOnly cookies | `localStorage` hands any injected script an exfiltratable credential |
 | Browser reaches the API same-origin | Makes the cookies first-party, so `SameSite=Lax` stops CSRF |
 | JWT access + opaque refresh | Cheap stateless checks, with revocation that actually works |

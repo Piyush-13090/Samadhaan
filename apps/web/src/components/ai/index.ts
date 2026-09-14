@@ -5,3 +5,5 @@ export * from './ai-processing-state';
 export * from './analysis-processing';
 export * from './problem-intelligence';
 export * from './problem-intelligence-panel';
+export * from './similar-problem-card';
+export * from './similar-problems-panel';

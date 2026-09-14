@@ -95,7 +95,15 @@ export class ProblemAnalysisService {
    */
   async retry(problemId: string, requestId?: string): Promise<ProblemAnalysisView> {
     const inFlight = await this.prisma.problemAiAnalysis.findFirst({
-      where: { problemId, processingStatus: { in: ['PENDING', 'PROCESSING'] } },
+      where: {
+        problemId,
+        // Scoped to this job type. `problem_ai_analyses` also holds duplicate
+        // checks, and without this filter an in-flight duplicate check would
+        // block a re-analysis — two unrelated jobs deadlocking each other
+        // purely because they share a table.
+        analysisType: 'INITIAL_ANALYSIS',
+        processingStatus: { in: ['PENDING', 'PROCESSING'] },
+      },
     });
 
     // Guards against a user hammering Retry and queueing several paid calls.

@@ -41,16 +41,23 @@ export function ImpactMetric({
       <div className="mt-1.5 flex items-baseline gap-2">
         <span
           className={cn(
-            'tabular font-semibold tracking-tight text-ink',
+            'tabular font-semibold tracking-tight',
             size === 'md' ? 'type-h2' : 'type-h3',
+            stat.pending ? 'text-ink-subtle' : 'text-ink',
           )}
         >
-          {formatNumber(stat.value)}
+          {/* An em dash, not a zero. A metric whose system does not exist yet
+              has no value — reporting 0 would claim it was measured. */}
+          {stat.pending ? '—' : formatNumber(stat.value)}
         </span>
-        {stat.unit && <span className="type-caption text-ink-subtle">{stat.unit}</span>}
+        {!stat.pending && stat.unit && (
+          <span className="type-caption text-ink-subtle">{stat.unit}</span>
+        )}
       </div>
 
-      {stat.change !== undefined && (
+      {stat.pending && <p className="mt-1 type-caption text-ink-subtle">Coming soon</p>}
+
+      {stat.change !== undefined && !stat.pending && (
         <p
           className={cn(
             'mt-1 inline-flex items-center gap-1 type-caption',

@@ -625,9 +625,14 @@ The reporter is reduced to `{ id, name, avatarUrl }`. A civic report is public,
 but the person who filed it did not thereby consent to publishing their email,
 phone or account state. `DRAFT` problems are visible only to their reporter.
 
-### `GET /api/v1/problems/mine`
+### `GET /api/v1/problems/my`
 
-The signed-in user's own reports, newest first. Requires authentication.
+The signed-in user's own reports. Requires authentication. Cursor-paginated,
+with status and category filters and four sort orders — see *Citizen dashboard
+and discovery* below.
+
+> Replaced `GET /problems/mine`, which returned an unpaginated array. The old
+> path is gone rather than aliased.
 
 ### `GET /api/v1/media/*key`
 
@@ -639,6 +644,185 @@ re-interpreting the bytes as another type — the mechanism behind several
 image-upload XSS attacks) and `Content-Security-Policy: default-src 'none';
 sandbox`. Keys are validated three times: here, in the driver, and by the
 driver confirming the resolved path stays inside its root.
+
+---
+
+## Citizen dashboard and discovery
+
+Three endpoints back the citizen home page and the explore feed. Deliberately
+three and not a dozen: a dashboard that fans out to a request per section is
+slowest on exactly the connection a civic app is used on.
+
+### `GET /api/v1/dashboard/citizen`
+
+Everything the home page needs, in one request. **Authenticated**, and scoped
+entirely to the caller — the principal comes from the verified token and no
+parameter can point it elsewhere.
+
+```json
+{
+  "success": true,
+  "data": {
+    "user": {
+      "name": "Priya Sharma",
+      "firstName": "Priya",
+      "city": "Gurugram",
+      "state": "Haryana"
+    },
+    "activity": {
+      "problemsReported": 7,
+      "problemsSupported": 2,
+      "commentsPosted": 0,
+      "suggestionsMade": 0,
+      "problemsResolved": 1,
+      "impactPoints": null
+    },
+    "recentReports": [],
+    "reportCount": 7
+  }
+}
+```
+
+Every count is read from the database. **`impactPoints` is `null`, not `0`** —
+the ledger does not exist yet, and a zero would read as a measured score of
+nothing rather than an unbuilt feature. The UI renders it as a dash labelled
+"Coming soon".
+
+Nearby problems are **not** included: they depend on a location only the browser
+knows, so folding them in would mean either blocking the dashboard on a
+permission prompt or returning a section the server cannot fill.
+
+Not role-restricted. An admin or an organisation account still has their own
+reports and their own activity; refusing them a home page would be arbitrary.
+
+### `GET /api/v1/problems/nearby`
+
+The discovery feed. **Public**, like every other read of a civic report. A
+signed-in caller additionally gets `isOwnReport` on each row — the only thing
+identity changes. It never widens what is visible.
+
+| Parameter | Default | Notes |
+| --- | --- | --- |
+| `latitude`, `longitude` | — | All-or-nothing; one without the other is a `400` |
+| `radiusMeters` | `5000` | Bounded `100`–`50000` |
+| `city` | — | Fallback origin, used only without coordinates |
+| `category` | all | Must be a known `ProblemCategory` |
+| `status` | active only | Must be a known `ProblemStatus` |
+| `sort` | `relevance` | `relevance`, `distance`, `recent`, `severity` |
+| `limit` | `20` | Bounded `1`–`50` |
+| `cursor` | — | Opaque; from the previous page's `nextCursor` |
+
+```json
+{
+  "items": [
+    {
+      "publicId": "SAM-1023",
+      "title": "Large pothole near Sector 12 market",
+      "category": "POTHOLES",
+      "subcategory": "Road surface failure",
+      "status": "UNDER_REVIEW",
+      "severity": "HIGH",
+      "urgency": "HIGH",
+      "area": "Main Market Crossing",
+      "city": "Gurugram",
+      "distanceMeters": 350,
+      "voteCount": 214,
+      "commentCount": 3,
+      "thumbnailUrl": "http://localhost:3100/api/v1/media/...",
+      "createdAt": "2026-09-10T00:00:00.000Z",
+      "hasAiAnalysis": true,
+      "isOwnReport": false
+    }
+  ],
+  "nextCursor": "…",
+  "origin": { "kind": "coordinates", "label": null, "radiusMeters": 5000 }
+}
+```
+
+**Two search modes, and `origin` says which ran.**
+
+- `coordinates` — PostGIS distance, real metres, ranked by proximity.
+- `city` — the fallback. Profiles store city and state but deliberately **not**
+  coordinates: a civic platform locates *problems* precisely, not people. A city
+  search reports `distanceMeters: null` rather than inventing a number.
+- `none` — neither given; the public feed, newest first.
+
+**Privacy.** A feed shows many people's reports, so it carries civic facts and
+nothing else. Absent by design and asserted by tests: the reporter, the internal
+UUID (`publicId` is the only identity published), the email, the phone, and the
+exact coordinates. `area` is the first address segment, not the full address —
+the street address belongs on the problem's own page, not in a list that would
+otherwise read as a directory of addresses.
+
+**Eligibility.** `DRAFT` (never published) and confirmed duplicates (the reader
+should be sent to the canonical report) are always excluded. Without an explicit
+`status`, the feed is limited to live work — a feed led by resolved and archived
+reports answers the wrong question for someone asking what needs attention.
+`ARCHIVED` and `RESOLVED` remain reachable by asking for them: problems recur.
+
+### `GET /api/v1/problems/my`
+
+The citizen's own reports. **Authenticated.**
+
+| Parameter | Default | Notes |
+| --- | --- | --- |
+| `status` | all | Must be a known `ProblemStatus` |
+| `category` | all | Must be a known `ProblemCategory` |
+| `sort` | `recent` | `recent`, `oldest`, `severity`, `status` |
+| `limit` | `20` | Bounded `1`–`50` |
+| `cursor` | — | Opaque |
+
+Returns the standard paginated envelope: `{ items, nextCursor, totalCount }`.
+
+**The identity cannot be redirected.** There is no `userId` parameter, the DTO
+cannot express one, and the global `forbidNonWhitelisted` rejects an invented
+one outright — `?userId=someone-else` is a `400`, not a leak. This is asserted
+by tests for `userId`, `reporterId` and `user`.
+
+### Discovery ranking
+
+Transparent and hand-chosen. **This is not the AI priority engine**, which is a
+later milestone; nothing here claims to be a learned model.
+
+```
+score = 0.45·proximity + 0.25·severity + 0.20·recency + 0.10·support
+```
+
+| Signal | Definition |
+| --- | --- |
+| Proximity | Linear decay to zero at the search radius. Omitted without an origin, so every row scores alike on it. |
+| Severity | The reported band, evenly spaced: LOW `0.25` → CRITICAL `1.0`. |
+| Recency | Exponential decay, 14-day half-life. |
+| Support | Vote count, saturating at 50, so one popular report cannot dominate a feed. |
+
+Support carries the least weight deliberately: it is the only signal a group of
+people can drive up, and a feed one report dominates stops being discovery.
+
+The whole expression is computed in SQL, because the order decides the page
+boundary — ranking after pagination would page through one order and display
+another. An explicit `sort` replaces the expression entirely.
+
+**Pagination is keyset, and the ranking clock is pinned into the cursor.**
+Recency decays against a reference time; letting each page use its own `now()`
+makes a row's score drift between requests, and the boundary row is then
+returned twice. Carrying the anchor also keeps the feed stable while a citizen
+reads it, instead of re-ranking under them as they scroll.
+
+### Caching
+
+None of these are cached. The dashboard and `my` are per-user and must not be;
+`nearby` is public but keyed on a continuous coordinate pair, so a cache would
+mostly miss. Redis stays where it already earns its place — rate limiting and
+pending uploads.
+
+### Not in this milestone
+
+| Capability | Milestone |
+| --- | --- |
+| Full-text and semantic search | Prompt 25 |
+| AI priority engine | Prompt 21 |
+| Voting, comments and suggestions | Prompt 10 |
+| Notifications | Prompt 11 |
 
 ---
 
@@ -727,6 +911,125 @@ overwriting one would erase the evidence that a model regressed.
 
 ---
 
+## Duplicate detection
+
+Runs in the background on submit, like analysis. Filing a report returns
+immediately; the check arrives seconds later and the client polls for it.
+
+### `GET /api/v1/problems/:publicId/similar`
+
+Problems that may already describe the same issue. **Public**, like the problem
+itself, and resolved *through* the problem so a `DRAFT` stays invisible to
+non-owners — a similarity endpoint must not become a way to enumerate
+unpublished reports.
+
+```json
+{
+  "success": true,
+  "data": {
+    "status": "COMPLETED",
+    "comparedCount": 12,
+    "errorMessage": null,
+    "checkedAt": "2026-09-13T10:00:04.000Z",
+    "candidates": [
+      {
+        "candidateId": "b81f...",
+        "problem": {
+          "publicId": "SAM-1023",
+          "title": "Large pothole near Sector 12 market",
+          "category": "POTHOLES",
+          "subcategory": "Road surface failure",
+          "status": "UNDER_REVIEW",
+          "city": "Gurugram",
+          "createdAt": "2026-09-10T00:00:00.000Z",
+          "voteCount": 214,
+          "thumbnailUrl": "http://localhost:3100/api/v1/media/..."
+        },
+        "similarity": 0.91,
+        "confidence": 0.78,
+        "distanceMeters": 350,
+        "verdict": "LIKELY_DUPLICATE",
+        "status": "LIKELY_DUPLICATE",
+        "signals": {
+          "text": 0.91,
+          "image": null,
+          "geographic": 0.97,
+          "category": 1,
+          "temporal": 0.88
+        },
+        "evidence": [
+          { "id": "text-strong", "label": "Describes a very similar problem" },
+          { "id": "category", "label": "Same civic category" },
+          { "id": "geo", "label": "Reported nearby" }
+        ]
+      }
+    ]
+  }
+}
+```
+
+`status` reuses the analysis lifecycle (`PENDING` / `PROCESSING` / `COMPLETED` /
+`FAILED`). `COMPLETED` with an empty `candidates` array means the check ran and
+found nothing — distinct from `PENDING`, which means it has not run.
+
+**`verdict` vs `status`.** `verdict` is what the *algorithm* claims, derived from
+the score: `LIKELY_DUPLICATE`, `POSSIBLE_DUPLICATE` or `RELATED`. `status` is
+what a *person* decided about the stored pair. Conflating them would turn an
+algorithm's opinion into a record of human judgement.
+
+**A `null` signal means unavailable, not zero.** `image` is always null today —
+there is no image encoder, and the scorer renormalises its weights rather than
+inventing a value. See [`ML_DUPLICATE_DETECTION.md`](./ML_DUPLICATE_DETECTION.md) §6.
+
+**Raw vectors are never returned**, and are not even loaded by this path. An
+embedding reconstructs its source text well enough that publishing the corpus
+would let anyone probe the similarity space offline.
+
+Polling: every 2s, stopping on a terminal status, capped at 60 polls.
+
+### `POST /api/v1/problems/:publicId/duplicates/:candidateId/confirm`
+
+Records that this report describes the same issue as the candidate. Restricted
+to the **reporter and platform admins** — marking someone's report a duplicate is
+a judgement about their submission, not a community action.
+
+The pair becomes `CONFIRMED_DUPLICATE`, the newer problem gets `duplicateOfId`
+and status `DUPLICATE`, and an `AuditLog` entry records who decided and the score
+at that moment. **Neither report is deleted.** Transferring supporters and
+comments onto the canonical report is a *merge*, and is a later milestone.
+
+Returns the updated check, in the same shape as `GET /similar`.
+
+### `POST /api/v1/problems/:publicId/duplicates/:candidateId/reject`
+
+Records that the two reports are different problems. The pair becomes
+`NOT_DUPLICATE` and is withdrawn from the UI but **kept** — confirmed negatives
+are the scarcer half of the training data a learned scorer will need, and
+deleting them would also mean re-suggesting the same rejected pair.
+
+### `POST /api/v1/problems/:publicId/duplicates/analyze`
+
+Re-runs the check. **202 Accepted**; the client polls from there. Reporter and
+admins only. `409` while a check is already in flight.
+
+### Authorisation, all four endpoints
+
+| Caller | `GET /similar` | confirm / reject / analyze |
+| --- | --- | --- |
+| Anonymous | `200` | `401` |
+| Signed-in, not the reporter | `200` | `403` |
+| Organisation account | `200` | `403` |
+| Reporter or `ADMIN` | `200` | `200` / `202` |
+
+A `candidateId` belonging to a different problem returns `404` — identical to a
+missing pair, so the endpoint does not confirm which ids exist.
+
+Similarity is **never accepted from the client**. The global validation pipe runs
+`forbidNonWhitelisted`, so a request body carrying `combinedScore`, `confidence`,
+`textSimilarity` or `duplicateOfId` is rejected with `400`.
+
+---
+
 ## AI service endpoints (internal)
 
 `services/ai` is **not public**. The NestJS API is its only client. Documented
@@ -740,6 +1043,7 @@ Base URL: `http://localhost:8001`
 | `GET /health/live` | Liveness |
 | `GET /docs` | OpenAPI UI (disabled when `NODE_ENV=production`) |
 | `POST /analyze/problem` | Multimodal problem analysis. Requires `x-internal-token`. |
+| `POST /embeddings/text` | Text embedding generation. Requires `x-internal-token`. |
 
 Health endpoints are intentionally unauthenticated so orchestrators can probe
 them. Capability endpoints require the `x-internal-token` shared secret
@@ -786,6 +1090,48 @@ Raw provider responses are never forwarded. When credentials are missing the
 service returns `PROVIDER_UNAVAILABLE` with `retryable: false` — it does not
 fabricate an analysis.
 
+### `POST /embeddings/text`
+
+Encodes text into vectors for duplicate detection. Internal only: exposing it
+would let anyone mine the vector space, and let a caller generate vectors this
+service never wrote.
+
+```json
+{ "texts": ["Large pothole near Sector 12 market"] }
+```
+
+Response:
+
+```json
+{
+  "embeddings": [{ "index": 0, "embedding": [0.0123, -0.0456, "..."] }],
+  "provider": "sentence-transformers",
+  "model_name": "sentence-transformers/all-MiniLM-L6-v2",
+  "model_version": "sentence-transformers/6.0.1",
+  "dimensions": 384,
+  "normalized": true,
+  "processing_ms": 41
+}
+```
+
+A batch of 1–64 texts; encoding is dominated by model overhead, so ten texts in
+one call cost far less than ten calls.
+
+`model_name`, `model_version` and `dimensions` must all be stored with the
+vector. Vectors from different models are not comparable, and a cosine computed
+across them is a plausible-looking number with no meaning.
+
+| Status | Codes |
+| --- | --- |
+| `400` | `INVALID_INPUT`, `DIMENSION_MISMATCH` |
+| `401` | Missing or wrong `x-internal-token` |
+| `422` | Request failed validation (empty or oversized batch) |
+| `502` | `PROVIDER_ERROR` |
+| `503` | `PROVIDER_UNAVAILABLE` |
+
+The model loads lazily on first use — seconds on a cold process, milliseconds
+after — so the API allows a 60s timeout for this call.
+
 ---
 
 ## Planned endpoints
@@ -794,11 +1140,13 @@ Not implemented — listed so the URL surface is predictable.
 
 | Area | Endpoints | Milestone |
 | --- | --- | --- |
-| Problems | `GET /problems` (feed, filtering, cursor pagination), `PATCH /problems/:id`, `DELETE /problems/:id` | Feed |
-| Support | `POST /problems/:id/support`, `DELETE /problems/:id/support` | Community |
-| Comments | `GET /problems/:id/comments`, `POST /problems/:id/comments` | Community |
-| Suggestions | `GET /problems/:id/suggestions`, `POST /problems/:id/suggestions` | Community |
+| Problems | `PATCH /problems/:id`, `DELETE /problems/:id` | Editing |
+| Search | `GET /problems/search` (full-text, then semantic) | Prompt 25 |
+| Support | `POST /problems/:id/support`, `DELETE /problems/:id/support` | Prompt 10 |
+| Comments | `GET /problems/:id/comments`, `POST /problems/:id/comments` | Prompt 10 |
+| Suggestions | `GET /problems/:id/suggestions`, `POST /problems/:id/suggestions` | Prompt 10 |
+| Notifications | `GET /notifications`, `POST /notifications/read` | Prompt 11 |
 | Organisations | `GET /organizations` (directory), `POST /organizations`, `POST /organizations/:id/verify`, invitations | Organisations |
 | Allocation | `POST /problems/:id/allocate` | Government |
 | Resolution | `GET /resolution-rooms/:id`, `POST /resolution-rooms/:id/updates` | Resolution |
-| Impact | `GET /leaderboard`, `GET /users/:id/impact` | Impact |
+| Impact | `GET /leaderboard`, `GET /users/:id/impact` — the ledger behind `impactPoints` | Impact |

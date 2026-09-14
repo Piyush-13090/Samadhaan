@@ -1,9 +1,8 @@
 # Runtime dependencies for the Samadhaan AI service.
 #
-# Deliberately minimal: only what the service actually runs today. ML libraries
-# (torch, transformers, sentence-transformers, ultralytics, langchain) are added
-# by the milestone that first needs them, so the image stays small until then.
-# See docs/ML_PLAN.md for the planned model stack.
+# Only what the service actually runs today. Remaining ML libraries
+# (ultralytics, langchain) are added by the milestone that first needs them, so
+# the image stays small until then. See docs/ML_PLAN.md for the model stack.
 
 fastapi>=0.115.0
 uvicorn[standard]>=0.32.0
@@ -11,3 +10,12 @@ pydantic>=2.9.0
 pydantic-settings>=2.6.0
 httpx>=0.27.0
 structlog>=24.4.0
+
+# Vision-language analysis (problem analysis).
+anthropic>=1.5.0
+
+# Text embeddings (duplicate detection). Runs a real model locally, so
+# deduplication needs no API key and no per-report cost. Pulls in torch and
+# transformers, which dominate the image size — the trade accepted in
+# docs/ML_DUPLICATE_DETECTION.md.
+sentence-transformers>=6.0.0

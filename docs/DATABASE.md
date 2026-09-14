@@ -9,7 +9,7 @@ PostgreSQL 16+ with PostGIS, pgvector and pg_trgm. Prisma is the ORM.
 ```
 NestJS API ──Prisma──▶ PostgreSQL 16+
                           ├── PostGIS   geography(Point, 4326), GiST
-                          ├── pgvector  vector(1536), HNSW
+                          ├── pgvector  vector(384), HNSW
                           └── pg_trgm   fuzzy title matching
 ```
 
@@ -218,7 +218,7 @@ coordinates; the database does the rest.
 
 ## 6. Vector / embedding strategy
 
-`ProblemEmbedding.embedding` is `vector(1536)`, indexed with HNSW using
+`ProblemEmbedding.embedding` is `vector(384)`, indexed with HNSW using
 `vector_cosine_ops`.
 
 **Why HNSW and not IVFFlat.** IVFFlat needs a training pass over existing rows
@@ -227,20 +227,30 @@ which is precisely the case IVFFlat handles badly.
 
 **Why the dimension is fixed — and what it costs.** pgvector can only build an
 ANN index on a column of declared width, and approximate nearest-neighbour
-search is the entire purpose of the table. So 1536 it is, matching current text
-encoders (OpenAI `text-embedding-3-*` and most peers).
+search is the entire purpose of the table. 384 is the native width of the
+configured encoder, `sentence-transformers/all-MiniLM-L6-v2`.
 
-> **This is a live architectural constraint, not a settled question.** A
-> 512-dimensional image encoder such as CLIP does not fit. Two exits, to be
-> chosen when image embeddings are actually implemented:
+The column was originally declared 1536 in anticipation of an OpenAI-class
+encoder this project does not use. Padding a 384-vector into it was rejected: it
+wastes index space and makes a genuine dimension mismatch *look* correct.
+Matching the column to the model keeps the two honest.
+
+**Changing the embedding model** therefore means a migration plus a re-embed:
+
+1. `ALTER COLUMN "embedding" TYPE vector(N)`, dropping the HNSW index first —
+   it is bound to the column type — and letting `post-migrate.sql` recreate it.
+2. Re-encode. Old rows are not deleted; retrieval filters on `modelName`, so
+   they simply stop matching and become invisible until re-encoded.
+
+> **The image-encoder question is now settled.** A 512-dimensional CLIP-class
+> encoder does not fit, and the chosen exit is **a second table at its native
+> width** (`problem_image_embeddings`, `vector(512)`, its own HNSW index) rather
+> than projecting into this column. Projection loses information and couples two
+> unrelated models to one width. See `ML_DUPLICATE_DETECTION.md` §6.
 >
-> 1. **Project up** to 1536 with a fixed random or learned projection. One
->    table, one index, some information loss.
-> 2. **A second table** at the native width, e.g. `problem_image_embeddings`
->    with `vector(512)`. Exact, but duplicates the query path.
->
-> Every row records `dimensions`, so a model swap that produces incomparable
-> vectors is detectable rather than silent.
+> Every row records `dimensions` and `modelName`, and retrieval filters on the
+> model — so vectors from incompatible encoders are never compared, rather than
+> producing a plausible-looking number with no meaning.
 
 Writes go through raw SQL — Prisma cannot express the type, so the column is
 `Unsupported(...)` and invisible to the client.
@@ -671,7 +681,18 @@ The problem and its `ProblemImage` rows are written in one transaction.
 > part of the result (provider, observations, image count, attempt number);
 > prompts and private model reasoning are never stored.
 >
-> `ProblemEmbedding` stays empty until duplicate detection.
+> **`ProblemEmbedding` and `ProblemDuplicateCandidate` are now written too.**
+> One `TEXT` embedding per problem per model, upserted on
+> `(problemId, embeddingType, modelName)` — re-encoding with the same model
+> replaces the row, while a different model writes a new one, so a model change
+> cannot silently overwrite a corpus it can no longer be compared with.
+>
+> Duplicate candidates are directional (newer `problemId` may duplicate older
+> `candidateProblemId`), unique per ordered pair, and store each component
+> signal rather than only the combined score — that table is the feature store
+> for the learned scorer in Prompt 28. A re-check retracts pairs it no longer
+> supports, except those a human has ruled on. Rejected pairs are kept, never
+> deleted: confirmed negatives are the scarcer half of any future training set.
 
 ---
 

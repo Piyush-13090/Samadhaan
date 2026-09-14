@@ -146,8 +146,11 @@ export type ProcessingStatus = (typeof PROCESSING_STATUSES)[number];
  * Dimension of the vectors stored in `problem_embeddings`.
  *
  * Fixed because pgvector can only build an HNSW index on a column of declared
- * width. Exported so the AI service and the API agree on it rather than each
- * hard-coding a number. See docs/DATABASE.md for the migration path if a model
- * with a different width is adopted.
+ * width. 384 is the native width of the configured text encoder,
+ * `sentence-transformers/all-MiniLM-L6-v2`.
+ *
+ * Exported so the API can reject a vector of the wrong width *before* it
+ * reaches the database, rather than each side hard-coding a number. A model
+ * swap is a migration plus a re-embed — see docs/DATABASE.md §6.
  */
-export const EMBEDDING_DIMENSIONS = 1536;
+export const EMBEDDING_DIMENSIONS = 384;

@@ -24,7 +24,8 @@
     "db:studio": "prisma studio",
     "db:push": "prisma db push",
     "db:seed": "npm run build && node dist/database/seed.js",
-    "db:post-migrate": "bash scripts/post-migrate.sh"
+    "db:post-migrate": "bash scripts/post-migrate.sh",
+    "probe:duplicates": "npm run build && node dist/database/probe-duplicates.js"
   },
   "prisma": {
     "schema": "prisma/schema.prisma"

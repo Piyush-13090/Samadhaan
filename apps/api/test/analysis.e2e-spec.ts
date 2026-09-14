@@ -52,7 +52,21 @@ describe('AI problem analysis (e2e)', () => {
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(AiService)
-      .useValue({ analyzeProblem, getHealth: async () => null })
+      .useValue({
+        analyzeProblem,
+        // Submitting a report also queues a duplicate check, which needs an
+        // encoder. Stubbed as unavailable so that check settles immediately
+        // rather than being left PROCESSING for the whole suite.
+        embedText: async () => ({
+          ok: false as const,
+          failure: {
+            code: 'PROVIDER_UNAVAILABLE',
+            message: 'Embeddings are not configured in this suite.',
+            retryable: false,
+          },
+        }),
+        getHealth: async () => null,
+      })
       .compile();
 
     app = moduleRef.createNestApplication();
@@ -167,9 +181,10 @@ describe('AI problem analysis (e2e)', () => {
         errorMessage: null,
       });
 
-      // Persisted, not just returned.
+      // Persisted, not just returned. Scoped by `analysisType`: the same table
+      // also holds the duplicate check queued on submit.
       const row = await prisma.problemAiAnalysis.findFirst({
-        where: { problemId: problem.id },
+        where: { problemId: problem.id, analysisType: 'INITIAL_ANALYSIS' },
       });
       expect(row?.processingStatus).toBe('COMPLETED');
       expect(Number(row?.confidence)).toBe(0.88);
@@ -330,7 +345,7 @@ describe('AI problem analysis (e2e)', () => {
     it('allows the reporter, and records a new analysis rather than overwriting', async () => {
       const cookies = await loginAs('citizen@samadhaan.dev');
       const before = await prisma.problemAiAnalysis.count({
-        where: { problem: { publicId } },
+        where: { problem: { publicId }, analysisType: 'INITIAL_ANALYSIS' },
       });
 
       const response = await request(server)
@@ -344,7 +359,7 @@ describe('AI problem analysis (e2e)', () => {
       await pollUntilSettled(publicId);
 
       const after = await prisma.problemAiAnalysis.count({
-        where: { problem: { publicId } },
+        where: { problem: { publicId }, analysisType: 'INITIAL_ANALYSIS' },
       });
       // History is preserved: an earlier model's answer stays readable.
       expect(after).toBe(before + 1);

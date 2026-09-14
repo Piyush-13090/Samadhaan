@@ -677,19 +677,32 @@ describe('Problem reporting (e2e)', () => {
       await request(server).get('/api/v1/problems/SAM-99999999').expect(404);
     });
 
+    // `/problems/mine` became `/problems/my` when it gained pagination and
+    // filters; the discovery suite covers those in full.
     it('lists the signed-in user’s own reports', async () => {
       const cookies = await loginAs('citizen@samadhaan.dev');
 
       const response = await request(server)
-        .get('/api/v1/problems/mine')
+        .get('/api/v1/problems/my')
         .set('Cookie', cookies)
         .expect(200);
 
-      expect(Array.isArray(response.body.data)).toBe(true);
+      expect(Array.isArray(response.body.data.items)).toBe(true);
+      expect(typeof response.body.data.totalCount).toBe('number');
     });
 
     it('requires authentication to list own reports', async () => {
-      await request(server).get('/api/v1/problems/mine').expect(401);
+      await request(server).get('/api/v1/problems/my').expect(401);
+    });
+
+    /** The old path is gone rather than quietly aliased. */
+    it('no longer serves the retired /mine path', async () => {
+      const cookies = await loginAs('citizen@samadhaan.dev');
+
+      await request(server)
+        .get('/api/v1/problems/mine')
+        .set('Cookie', cookies)
+        .expect(404);
     });
   });
 

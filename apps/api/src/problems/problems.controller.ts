@@ -6,6 +6,7 @@ import {
   HttpStatus,
   Param,
   Post,
+  Query,
   Req,
   UploadedFile,
   UseInterceptors,
@@ -15,7 +16,11 @@ import type { Request } from 'express';
 import {
   API_VERSION,
   ERROR_CODES,
+  type DuplicateCheckView,
+  type PaginatedData,
   type ProblemAnalysisView,
+  type ProblemFeed,
+  type ProblemListItem,
   type ProblemView,
   type UploadedImage,
 } from '@samadhaan/shared';
@@ -25,7 +30,11 @@ import { Public } from '../auth/decorators/public.decorator.js';
 import { Roles } from '../auth/decorators/roles.decorator.js';
 import { AppException } from '../common/app.exception.js';
 import { CreateProblemDto } from './dto/create-problem.dto.js';
+import { DiscoverProblemsQueryDto } from './dto/discover-problems.dto.js';
+import { MyProblemsQueryDto } from './dto/my-problems.dto.js';
 import { ProblemsService } from './problems.service.js';
+import { DuplicateDetectionService } from './services/duplicate-detection.service.js';
+import { ProblemDiscoveryService } from './services/problem-discovery.service.js';
 import { ProblemAnalysisService } from './services/problem-analysis.service.js';
 
 /** Uploaded file as multer presents it. Typed locally to avoid a global import. */
@@ -41,6 +50,8 @@ export class ProblemsController {
   constructor(
     private readonly problems: ProblemsService,
     private readonly analysis: ProblemAnalysisService,
+    private readonly duplicates: DuplicateDetectionService,
+    private readonly discovery: ProblemDiscoveryService,
   ) {}
 
   /**
@@ -91,10 +102,51 @@ export class ProblemsController {
     return this.problems.create(dto, user);
   }
 
-  /** The signed-in user's own reports. */
-  @Get('mine')
-  listOwn(@CurrentUser() user: RequestUser): Promise<ProblemView[]> {
-    return this.problems.listOwn(user);
+  /**
+   * The signed-in user's own reports.
+   *
+   * **The principal is the only source of identity.** There is no `userId`
+   * parameter — `MyProblemsQueryDto` cannot express one, and the global
+   * `forbidNonWhitelisted` rejects a request that invents one rather than
+   * ignoring it. `?userId=someone-else` is a 400, not a leak.
+   */
+  @Get('my')
+  async listMine(
+    @Query() query: MyProblemsQueryDto,
+    @CurrentUser() user: RequestUser,
+  ): Promise<PaginatedData<ProblemListItem>> {
+    const { items, nextCursor, totalCount } = await this.discovery.listOwn(user.id, {
+      status: query.status,
+      category: query.category,
+      sort: query.sort,
+      limit: query.limit,
+      cursor: query.cursor,
+    });
+
+    return { items, nextCursor, totalCount };
+  }
+
+  /**
+   * Problems near a point, or across a city.
+   *
+   * **Public**, like every other read of a civic report — the point of the
+   * platform is that these are a public record. A signed-in caller additionally
+   * gets `isOwnReport` on each row, which is the only thing the identity
+   * changes; it never widens what is visible.
+   *
+   * Coordinates are validated and the radius is bounded, so a caller cannot
+   * turn an indexed lookup into a full scan. See
+   * `DiscoverProblemsQueryDto` for the two search modes.
+   */
+  @Public()
+  @Get('nearby')
+  nearby(
+    @Query() query: DiscoverProblemsQueryDto,
+    @Req() request: Request,
+  ): Promise<ProblemFeed> {
+    const viewer = (request as Request & AuthenticatedRequest).user ?? null;
+
+    return this.discovery.discover(query, viewer?.id ?? null);
   }
 
   /**
@@ -161,5 +213,112 @@ export class ProblemsController {
     }
 
     return this.analysis.retry(problem.id);
+  }
+
+  // ========================================================= duplicate checks
+
+  /**
+   * Problems that may already describe the same issue.
+   *
+   * **Public**, like the problem itself, and resolved *through* the problem so
+   * a `DRAFT` stays invisible to non-owners — a similarity endpoint must not
+   * become a way to enumerate unpublished reports.
+   *
+   * Returns scores and evidence, never vectors. An embedding reconstructs its
+   * source text well enough that publishing the corpus would let anyone probe
+   * the similarity space offline.
+   */
+  @Public()
+  @Get(':publicId/similar')
+  async getSimilar(
+    @Param('publicId') publicId: string,
+    @Req() request: Request,
+  ): Promise<DuplicateCheckView> {
+    const viewer = (request as Request & AuthenticatedRequest).user ?? null;
+    const problem = await this.problems.findByPublicId(publicId, viewer);
+
+    return this.readCheck(problem.id);
+  }
+
+  /**
+   * Records that this report describes the same issue as an existing one.
+   *
+   * Restricted to the **reporter and platform admins**. Nobody else may decide
+   * that someone's report is a duplicate: doing so marks their report
+   * `DUPLICATE` and links it to another, which is a judgement about their
+   * submission, not a community action.
+   *
+   * The score itself is never accepted from the client. Only the pair id is,
+   * and it is checked against this problem before anything is written.
+   */
+  @Post(':publicId/duplicates/:candidateId/confirm')
+  async confirmDuplicate(
+    @Param('publicId') publicId: string,
+    @Param('candidateId') candidateId: string,
+    @CurrentUser() user: RequestUser,
+  ): Promise<DuplicateCheckView> {
+    const problem = await this.requireReviewableProblem(publicId, user);
+    await this.duplicates.confirm(candidateId, problem.id, user);
+
+    return this.readCheck(problem.id);
+  }
+
+  /** Records that this report is a different issue from the suggested one. */
+  @Post(':publicId/duplicates/:candidateId/reject')
+  async rejectDuplicate(
+    @Param('publicId') publicId: string,
+    @Param('candidateId') candidateId: string,
+    @CurrentUser() user: RequestUser,
+  ): Promise<DuplicateCheckView> {
+    const problem = await this.requireReviewableProblem(publicId, user);
+    await this.duplicates.reject(candidateId, problem.id, user);
+
+    return this.readCheck(problem.id);
+  }
+
+  /**
+   * Re-runs the duplicate check.
+   *
+   * Reporter and admins only, like re-analysis: each call re-encodes the report
+   * and runs a vector scan, and an open endpoint would be a cheap way to make
+   * the service do unbounded work.
+   */
+  @Post(':publicId/duplicates/analyze')
+  @HttpCode(HttpStatus.ACCEPTED)
+  async recheckDuplicates(
+    @Param('publicId') publicId: string,
+    @CurrentUser() user: RequestUser,
+  ): Promise<{ status: 'queued' }> {
+    const problem = await this.requireReviewableProblem(publicId, user);
+
+    await this.duplicates.retry(problem.id);
+
+    return { status: 'queued' };
+  }
+
+  /** Reads the check with thumbnails resolved through the storage driver. */
+  private readCheck(problemId: string): Promise<DuplicateCheckView> {
+    return this.duplicates.findCheck(problemId, (key) =>
+      this.problems.resolveImageUrl(key),
+    );
+  }
+
+  /**
+   * Resolves a problem the caller is allowed to rule on duplicates for.
+   *
+   * One place, so the three endpoints above cannot drift apart — and so adding
+   * a fourth cannot forget the check.
+   */
+  private async requireReviewableProblem(
+    publicId: string,
+    user: RequestUser,
+  ): Promise<ProblemView> {
+    const problem = await this.problems.findByPublicId(publicId, user);
+
+    if (!problem.isOwnReport && user.role !== 'ADMIN') {
+      throw AppException.forbidden('You can only review duplicates on your own reports.');
+    }
+
+    return problem;
   }
 }

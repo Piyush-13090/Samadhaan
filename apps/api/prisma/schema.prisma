@@ -673,14 +673,22 @@ enum EmbeddingType {
 ///
 /// **Fixed dimension — a deliberate trade-off.** pgvector can only build an
 /// HNSW index on a column of declared width, and approximate nearest-neighbour
-/// search is the entire point of this table, so `vector(1536)` it is. That
-/// couples the schema to 1536-dimensional models (OpenAI text-embedding-3-*,
-/// and most current text encoders).
+/// search is the entire point of this table, so the column is `vector(384)`:
+/// the native width of the configured text encoder
+/// (`sentence-transformers/all-MiniLM-L6-v2`).
+///
+/// Padding a narrower model up to a wider column was rejected — it wastes index
+/// space and makes a dimension mismatch *look* fine. Matching the column to the
+/// model keeps the two honest, at the cost of a migration whenever the model
+/// changes. That migration is documented in docs/DATABASE.md §6 and is cheap:
+/// re-embedding is idempotent and the corpus can be rebuilt from the problems.
 ///
 /// The consequence to plan for: a 512-dimensional image encoder such as CLIP
-/// does not fit. Two exits, both documented in docs/DATABASE.md — project the
-/// smaller vector up, or add a second table at its native width. `dimensions`
-/// is recorded on every row so a mismatch is detectable rather than silent.
+/// does not fit. When image embeddings land they get a second table at their
+/// native width rather than being projected into this one — see
+/// docs/ML_DUPLICATE_DETECTION.md. `dimensions` is recorded on every row so a
+/// mismatch is detectable rather than silent, and the API refuses to compare
+/// vectors whose `modelName` differs.
 model ProblemEmbedding {
   id String @id @default(uuid()) @db.Uuid
 
@@ -692,11 +700,11 @@ model ProblemEmbedding {
   modelVersion  String
   /// Actual width of the stored vector. Guards against a model swap quietly
   /// writing vectors that are no longer comparable with the existing corpus.
-  dimensions    Int           @default(1536)
+  dimensions    Int           @default(384)
 
   /// pgvector column. Prisma cannot express the type, so it is `Unsupported`
   /// and written by raw SQL from the AI service — see docs/DATABASE.md.
-  embedding Unsupported("vector(1536)")?
+  embedding Unsupported("vector(384)")?
 
   createdAt DateTime @default(now()) @db.Timestamptz(3)
 

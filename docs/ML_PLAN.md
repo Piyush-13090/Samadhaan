@@ -1,7 +1,11 @@
 # ML Plan
 
-> **System 1 — multimodal problem understanding — is implemented.** Everything
-> else on this page is still a plan. Each section is marked.
+> **Systems 1, 4, 5 and 7 are implemented** — multimodal problem understanding,
+> duplicate detection, text embeddings and geographic similarity. Everything else
+> on this page is still a plan. Each section is marked.
+>
+> Duplicate detection has its own detailed document:
+> [`ML_DUPLICATE_DETECTION.md`](./ML_DUPLICATE_DETECTION.md).
 >
 > There are no placeholder classifiers and no random scores anywhere in this
 > repository. A fabricated AI response is worse than an absent one — it is
@@ -116,13 +120,24 @@ worse than a 3. Reported with a confidence interval, not a bare number.
 
 ---
 
-## 4. Duplicate detection — *next*
+## 4. Duplicate detection — **implemented**
 
 Identify that a new report describes an already-reported problem.
 
-Not implemented. The schema is ready (`problem_embeddings` with an HNSW index,
-`problem_duplicates`), and nothing about analysis is coupled to it — duplicate
-detection is a separate capability endpoint on the same provider boundary.
+Full design, evaluation plan and configuration:
+[`ML_DUPLICATE_DETECTION.md`](./ML_DUPLICATE_DETECTION.md).
+
+**What shipped.** The cascade below, as one SQL query into a pure scoring
+function, with two additions the original plan did not anticipate:
+
+- **Gates, not just weights.** Geography and category are necessary conditions,
+  not votes. A plain weighted combination scores identical text 500 km apart at
+  0.66 — a "possible duplicate" — because text outvotes a near-zero geographic
+  signal.
+- **Renormalisation over available signals.** Image similarity does not exist
+  yet, so its weight is redistributed rather than scored as zero. A missing
+  signal shows up as lower `confidence`; it never drags the score down as though
+  the photos had been compared and found different.
 
 **Approach.** A cascade, cheapest filter first:
 
@@ -149,18 +164,30 @@ than a duplicate surviving.
 
 ---
 
-## 5. Semantic embeddings
+## 5. Semantic embeddings — **implemented**
 
 Vector representations of problem text for duplicate detection, semantic search
 and RAG retrieval.
 
-**Approach.** Hosted embedding API initially; `sentence-transformers`
-(multilingual, for Indian-language reports) self-hosted later, when per-embedding
-cost or data residency justifies it.
+**What shipped.** `sentence-transformers/all-MiniLM-L6-v2` (384 dimensions,
+L2-normalised) running **locally inside the AI service**, not through a hosted
+API — the reverse of the order this plan originally proposed.
 
-Stored as `vector(N)` in PostgreSQL with an HNSW index. `EMBEDDING_DIMENSIONS`
-must match the column dimension — **changing the model requires a migration and
-a full re-embed**, so the model and dimension are recorded per row.
+The reason for the reversal: deduplication runs on every submitted report, so a
+per-call price makes the cost of the feature scale with civic participation,
+which is exactly the wrong incentive for a platform whose goal is more reporting.
+A 22M-parameter encoder is adequate for short descriptive text, and it works
+offline and in CI with no key.
+
+Stored as `vector(384)` with an HNSW index. `EMBEDDING_DIMENSIONS` must match
+both the model and the column — **changing the model requires a migration and a
+full re-embed** — so model name, version and width are recorded on every row and
+retrieval filters on the model.
+
+**Later:** a multilingual encoder for Indian-language reports
+(`paraphrase-multilingual-MiniLM-L12-v2` is the same width, so that swap is a
+re-embed with no migration), then a domain fine-tune once there is a corpus of
+labelled civic text.
 
 ---
 
@@ -177,17 +204,25 @@ a *supporting* signal for duplicate detection, never a sole basis for merging.
 
 ---
 
-## 7. Geographic similarity
+## 7. Geographic similarity — **implemented**
 
 Decide whether two locations refer to the same physical problem.
 
-**Approach.** PostGIS `ST_DWithin` on `geography(Point, 4326)` with a GiST
-index. The radius is category-dependent — two streetlight reports 50 m apart are
-different lights; two lake-pollution reports 200 m apart are the same lake. So
-the threshold is a per-category parameter, not a constant.
+**What shipped.** PostGIS `ST_DWithin` and `ST_Distance` on
+`geography(Point, 4326)` with a GiST index, converted to a similarity by
+half-value decay at a configured radius (750 m default), plus a **proximity
+gate** that suppresses the combined score when two reports are not plausibly
+co-located. See [`ML_DUPLICATE_DETECTION.md`](./ML_DUPLICATE_DETECTION.md) §7.
 
-GPS accuracy varies from metres to hundreds of metres, so reported accuracy is
-stored and factored into the threshold.
+**Deferred, deliberately:** the radius is currently a single constant, not a
+per-category parameter. Two streetlight reports 50 m apart are different lights;
+two lake-pollution reports 200 m apart are the same lake — so a per-category
+radius is clearly right, but choosing twelve of them by hand would be twelve more
+invented numbers. It is better learned from confirmed merges, which the review
+flow is now accumulating.
+
+Reported GPS accuracy is stored on every problem (`locationAccuracyM`) and is not
+yet factored into the threshold — the same argument applies.
 
 ---
 
@@ -288,10 +323,10 @@ never auto-closes; and a sample of closures is audited regardless of score.
 | 1. Multimodal understanding ✅ | Hosted vision LLM (Claude) | Fine-tuned open vision model |
 | 2. Classification | Derived from (1) | Fine-tuned text classifier |
 | 3. Severity | LLM + published rubric | Learned, calibrated model |
-| 4. Duplicate detection | Geo + vector cascade | Learned combiner over signals |
-| 5. Embeddings | Hosted API | Self-hosted sentence-transformers |
+| 4. Duplicate detection ✅ | Geo + vector cascade, gated | Learned combiner over signals |
+| 5. Embeddings ✅ | Self-hosted sentence-transformers | Domain fine-tuned encoder |
 | 6. Image similarity | CLIP-class encoder | Domain fine-tuned encoder |
-| 7. Geographic similarity | PostGIS, per-category radius | Learned radius from merge history |
+| 7. Geographic similarity ✅ | PostGIS, single radius + gate | Per-category radius learned from merge history |
 | 8. Priority | Transparent rules | Learned ranker + fairness monitoring |
 | 9. Org recommendation | Ranked retrieval | Learned from allocation outcomes |
 | 10. RAG | pgvector hybrid search | Same, tuned retrieval |
@@ -313,7 +348,11 @@ never auto-closes; and a sample of closures is audited regardless of score.
 | Typed client from NestJS | `apps/api/src/ai/ai.client.ts` |
 | Application-facing AI entry point | `apps/api/src/ai/ai.service.ts` |
 | Analysis lifecycle and retry policy | `apps/api/src/problems/services/problem-analysis.service.ts` |
-| Stored inference records | `problem_ai_analyses` |
+| Embedding provider interface | `services/ai/app/providers/embedding_base.py` |
+| Local sentence-transformers encoder | `services/ai/app/providers/sentence_transformer_provider.py` |
+| Duplicate pipeline | `apps/api/src/problems/services/duplicate-detection.service.ts` |
+| Duplicate scoring (pure, configurable) | `apps/api/src/problems/services/duplicate-scoring.service.ts` |
+| Stored inference records | `problem_ai_analyses`, `problem_embeddings`, `problem_duplicate_candidates` |
 
 Adding a capability means: a Pydantic schema in `app/schemas/`, logic in
 `app/services/`, a router in `app/api/routes/`, and a typed method on

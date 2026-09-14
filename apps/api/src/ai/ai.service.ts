@@ -7,6 +7,7 @@ import {
   type AiAnalysis,
   type AiAnalysisFailure,
 } from './dto/analysis.dto.js';
+import { parseEmbeddingResponse, type AiEmbeddings } from './dto/embedding.dto.js';
 
 /** One image, inlined for the AI service. */
 export interface AnalysisImagePayload {
@@ -34,6 +35,11 @@ export type AnalysisOutcome =
   | { ok: true; analysis: AiAnalysis }
   | { ok: false; failure: AiAnalysisFailure };
 
+/** Either validated vectors or a structured reason they could not be produced. */
+export type EmbeddingOutcome =
+  | { ok: true; embeddings: AiEmbeddings }
+  | { ok: false; failure: AiAnalysisFailure };
+
 /**
  * Application-facing entry point to AI capabilities.
  *
@@ -49,6 +55,63 @@ export class AiService {
   private readonly logger = new Logger(AiService.name);
 
   constructor(private readonly client: AiClient) {}
+
+  /**
+   * Encodes texts into vectors.
+   *
+   * Never throws, for the same reason `analyzeProblem` does not: an
+   * unreachable encoder is an expected operational state, and the caller's
+   * decision depends on the structured `retryable` flag rather than on an
+   * exception type.
+   */
+  async embedText(texts: string[], requestId?: string): Promise<EmbeddingOutcome> {
+    if (texts.length === 0) {
+      return {
+        ok: false,
+        failure: {
+          code: 'INVALID_INPUT',
+          message: 'No text was provided to encode.',
+          retryable: false,
+        },
+      };
+    }
+
+    const result = await this.client.post<unknown>(
+      '/embeddings/text',
+      { texts },
+      {
+        requestId,
+        // A local transformer loads on first use — seconds on a cold process,
+        // milliseconds afterwards. The default timeout would abort exactly the
+        // first request of every deployment.
+        timeoutMs: 60_000,
+      },
+    );
+
+    if (!result.ok) {
+      return { ok: false, failure: this.toFailure(result.error) };
+    }
+
+    const embeddings = parseEmbeddingResponse(result.value, texts.length);
+
+    if (!embeddings) {
+      this.logger.error('AI service returned an unusable embedding response');
+
+      return {
+        ok: false,
+        failure: {
+          code: 'INVALID_MODEL_OUTPUT',
+          message: 'The embeddings could not be understood.',
+          // Usually a dimension or configuration mismatch, which a retry will
+          // not fix — but the encoder is local and free, so one more attempt
+          // costs nothing and covers a genuinely transient fault.
+          retryable: true,
+        },
+      };
+    }
+
+    return { ok: true, embeddings };
+  }
 
   /**
    * Analyses a problem from its images and description.

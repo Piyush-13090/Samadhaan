@@ -265,6 +265,30 @@ that process; Next.js and the browser never see them.
 > itself in the response and the UI warns whenever it produced an analysis, and
 > the provider factory **refuses to build it when `NODE_ENV=production`**.
 
+**Embeddings (duplicate detection)** — read by `services/ai` only.
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `EMBEDDING_PROVIDER` | `sentence-transformers` | Runs a real model locally; no API key, no per-report cost |
+| `EMBEDDING_MODEL` | `sentence-transformers/all-MiniLM-L6-v2` | Downloaded (~90 MB) and cached on first use |
+| `EMBEDDING_DIMENSIONS` | `384` | Must match both the model and the `vector(N)` column |
+
+> There is deliberately **no development stub for embeddings**. A fabricated
+> vector produces a similarity score indistinguishable from a real one, so the
+> factory refuses to build an unconfigured provider rather than inventing one.
+
+**Duplicate detection** — read by `apps/api`. Every value is a starting
+heuristic expected to be retuned; see
+[`docs/ML_DUPLICATE_DETECTION.md`](docs/ML_DUPLICATE_DETECTION.md) §15 for the
+full table.
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `DUPLICATE_GEO_RADIUS_METERS` | `750` | Distance at which geographic similarity is 0.5 |
+| `DUPLICATE_HIGH_THRESHOLD` | `0.85` | Score at or above which a pair is called a likely duplicate |
+| `DUPLICATE_POSSIBLE_THRESHOLD` | `0.65` | Possible duplicate |
+| `DUPLICATE_WEIGHT_*` | text .35, image .25, geo .25, category .10, time .05 | Signal weights, renormalised over what is available |
+
 **Reserved for later milestones** — declared in `.env.example`, not read by any
 code yet: `EMBEDDING_*`, `SMTP_URL`, `GEOCODING_API_KEY`.
 

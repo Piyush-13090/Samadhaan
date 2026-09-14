@@ -53,11 +53,29 @@ class Settings(BaseSettings):
         """Used when a provider is configured but no model is named."""
         return "claude-opus-5"
 
-    # --- Reserved for later milestones -------------------------------------
-    embedding_provider: str | None = Field(default=None, alias="EMBEDDING_PROVIDER")
+    # --- Embeddings ---------------------------------------------------------
+    embedding_provider: str = Field(
+        default="sentence-transformers", alias="EMBEDDING_PROVIDER"
+    )
+    """Which encoder to use. `sentence-transformers` runs a real model locally
+    and needs no credentials, which is why it is the default: deduplication cost
+    must not scale with report volume."""
+
     embedding_api_key: str | None = Field(default=None, alias="EMBEDDING_API_KEY")
-    embedding_model: str | None = Field(default=None, alias="EMBEDDING_MODEL")
-    embedding_dimensions: int = Field(default=1536, alias="EMBEDDING_DIMENSIONS")
+    """Unused by the local provider. Present for a hosted provider added later."""
+
+    embedding_model: str = Field(
+        default="sentence-transformers/all-MiniLM-L6-v2", alias="EMBEDDING_MODEL"
+    )
+
+    embedding_dimensions: int = Field(default=384, alias="EMBEDDING_DIMENSIONS")
+    """Must match both the model and the `vector(N)` column in PostgreSQL.
+    The provider verifies it against the loaded model and refuses to encode on a
+    mismatch, because vectors of the wrong width are worse than no vectors."""
+
+    @property
+    def default_embedding_model(self) -> str:
+        return "sentence-transformers/all-MiniLM-L6-v2"
 
     @property
     def is_production(self) -> bool:
@@ -83,7 +101,21 @@ class Settings(BaseSettings):
 
     @property
     def embeddings_configured(self) -> bool:
-        return bool(self.embedding_api_key and self.embedding_model)
+        """Whether embedding generation can run.
+
+        The local provider needs a model id and nothing else — no key, no
+        network at request time once the model is cached. A hosted provider
+        added later would also need its credential.
+        """
+        provider = (self.embedding_provider or "").strip().lower()
+
+        if not provider or not self.embedding_model:
+            return False
+
+        if provider == "sentence-transformers":
+            return True
+
+        return bool(self.embedding_api_key)
 
 
 @lru_cache

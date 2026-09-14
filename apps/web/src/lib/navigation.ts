@@ -3,15 +3,18 @@ import {
   Building2,
   ClipboardCheck,
   Compass,
+  FileText,
   FolderKanban,
   Gauge,
   LayoutDashboard,
   MapPin,
+  Plus,
   Settings,
   ShieldCheck,
   Target,
   TrendingUp,
   Trophy,
+  UserRound,
   Users,
   type LucideIcon,
 } from 'lucide-react';
@@ -24,9 +27,8 @@ import type { UserRole } from '@samadhaan/shared';
  * future command palette all read from one list — and so role-specific
  * navigation is a filter over this array, not a second component tree.
  *
- * `roles` is already on every item but nothing filters by it yet: the auth
- * milestone supplies the signed-in role and turns `navigationFor()` on. Until
- * then the citizen set renders, which is the correct default for an
+ * `navigationFor()` is called with the signed-in user's role by the app shell,
+ * so each role sees its own destinations. The citizen set is the default for an
  * unauthenticated visitor.
  */
 
@@ -54,14 +56,22 @@ const NOTIFICATIONS_ITEM: NavItem = {
   badgeKey: 'notifications',
 };
 
+/**
+ * `Explore` absorbed the old `Nearby` destination.
+ *
+ * They had become the same page: both answered "what has been reported around
+ * me", from the same query, and two entries for one question is how a sidebar
+ * starts feeling like a sitemap. Explore keeps the distance filter, so nothing
+ * was lost.
+ */
 const CITIZEN_NAV: NavSection[] = [
   {
     id: 'primary',
     items: [
       { href: '/dashboard', label: 'Home', icon: LayoutDashboard },
       { href: '/explore', label: 'Explore', icon: Compass },
-      { href: '/nearby', label: 'Nearby', icon: MapPin },
-      { href: '/my-problems', label: 'My problems', icon: MapPin },
+      { href: '/report', label: 'Report', icon: Plus },
+      { href: '/my-problems', label: 'My reports', icon: FileText },
       { href: '/leaderboard', label: 'Leaderboard', icon: Trophy },
       NOTIFICATIONS_ITEM,
     ],
@@ -157,7 +167,7 @@ const CITIZEN_MOBILE_NAV: MobileNavItem[] = [
   { href: '/explore', label: 'Explore', icon: Compass },
   { href: '/report', label: 'Report', icon: MapPin, primary: true },
   { href: '/notifications', label: 'Activity', icon: Bell, badgeKey: 'notifications' },
-  { href: '/profile', label: 'Profile', icon: Settings },
+  { href: '/profile', label: 'Profile', icon: UserRound },
 ];
 
 /**
@@ -169,7 +179,7 @@ function workspaceMobileNav(home: string): MobileNavItem[] {
     { href: home, label: 'Home', icon: LayoutDashboard },
     { href: '/explore', label: 'Explore', icon: Compass },
     { href: '/notifications', label: 'Activity', icon: Bell, badgeKey: 'notifications' },
-    { href: '/profile', label: 'Profile', icon: Settings },
+    { href: '/profile', label: 'Profile', icon: UserRound },
   ];
 }
 

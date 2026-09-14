@@ -44,7 +44,42 @@ if (!URL.createObjectURL) {
   URL.revokeObjectURL = vi.fn();
 }
 
+/**
+ * jsdom's `localStorage` is not a full `Storage` in this configuration —
+ * `clear()` is missing — so anything that remembers a preference between
+ * visits cannot be tested against it. Replaced with a real in-memory
+ * implementation, which also keeps one test's stored state out of the next.
+ */
+/**
+ * Radix's Select uses pointer capture and scrolls the active item into view.
+ * jsdom implements neither, so without these the listbox never opens and every
+ * filter test fails on a missing option rather than on real behaviour.
+ */
+if (!Element.prototype.hasPointerCapture) {
+  Element.prototype.hasPointerCapture = vi.fn(() => false);
+  Element.prototype.setPointerCapture = vi.fn();
+  Element.prototype.releasePointerCapture = vi.fn();
+}
+Element.prototype.scrollIntoView = vi.fn();
+
+const storage = new Map<string, string>();
+
+Object.defineProperty(window, 'localStorage', {
+  configurable: true,
+  value: {
+    getItem: (key: string) => storage.get(key) ?? null,
+    setItem: (key: string, value: string) => void storage.set(key, String(value)),
+    removeItem: (key: string) => void storage.delete(key),
+    clear: () => storage.clear(),
+    key: (index: number) => [...storage.keys()][index] ?? null,
+    get length() {
+      return storage.size;
+    },
+  } satisfies Storage,
+});
+
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+  storage.clear();
 });

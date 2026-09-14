@@ -191,4 +191,12 @@ export interface ImpactStat {
   /** Percentage change against the previous period. */
   change?: number;
   hint?: string;
+  /**
+   * Marks a metric whose underlying system does not exist yet.
+   *
+   * Rendered as a dash rather than a number. A zero here would read as a
+   * measured score of nothing, which is a different and wrong claim — see
+   * `impactPoints`, which stays null until the ledger is built.
+   */
+  pending?: boolean;
 }

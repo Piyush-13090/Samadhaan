@@ -29,6 +29,16 @@ export class AppException extends HttpException {
     return new AppException(ERROR_CODES.CONFLICT, message, HttpStatus.CONFLICT, details);
   }
 
+  /** A malformed request the DTO layer could not express — a bad cursor, say. */
+  static badRequest(message: string, details?: ApiErrorDetail[]): AppException {
+    return new AppException(
+      ERROR_CODES.VALIDATION_FAILED,
+      message,
+      HttpStatus.BAD_REQUEST,
+      details,
+    );
+  }
+
   static forbidden(message = 'You do not have access to this resource'): AppException {
     return new AppException(ERROR_CODES.FORBIDDEN, message, HttpStatus.FORBIDDEN);
   }

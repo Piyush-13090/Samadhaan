@@ -15,7 +15,12 @@ import { Card, CardBody, CardHeader } from '@/components/ui/card';
 import { Skeleton, SkeletonText } from '@/components/ui/skeleton';
 import { formatDate, formatNumber } from '@/lib/format';
 import { ProblemIntelligencePanel } from '@/components/ai/problem-intelligence-panel';
-import { fetchAnalysisOnServer, fetchProblemOnServer } from '@/services/problems.service';
+import { SimilarProblemsPanel } from '@/components/ai/similar-problems-panel';
+import {
+  fetchAnalysisOnServer,
+  fetchProblemOnServer,
+  fetchSimilarOnServer,
+} from '@/services/problems.service';
 
 interface PageProps {
   params: Promise<{ publicId: string }>;
@@ -56,9 +61,14 @@ async function ProblemContent({ publicId }: { publicId: string }) {
   const problem = await fetchProblemOnServer(publicId, header);
   if (!problem) notFound();
 
-  // Resolved server-side so a completed analysis renders on the first paint;
-  // the panel only polls when one is still in flight.
-  const analysis = await fetchAnalysisOnServer(publicId, header);
+  // Both resolved server-side so completed results render on the first paint;
+  // each panel only polls when its own job is still in flight. Fetched in
+  // parallel — they are independent jobs and serialising them would add the
+  // slower one's latency to the page for no reason.
+  const [analysis, duplicateCheck] = await Promise.all([
+    fetchAnalysisOnServer(publicId, header),
+    fetchSimilarOnServer(publicId, header),
+  ]);
 
   const primary = problem.images.find((image) => image.isPrimary) ?? problem.images[0];
   const gallery = problem.images.filter((image) => image.id !== primary?.id);
@@ -144,6 +154,12 @@ async function ProblemContent({ publicId }: { publicId: string }) {
               )}
             </CardBody>
           </Card>
+
+          <SimilarProblemsPanel
+            publicId={problem.publicId}
+            initial={duplicateCheck}
+            canReview={problem.isOwnReport === true}
+          />
 
           <ProblemIntelligencePanel
             publicId={problem.publicId}

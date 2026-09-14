@@ -10,6 +10,7 @@ import type { CreateProblemDto } from './dto/create-problem.dto.js';
 import { toProblemView } from './problem.serializer.js';
 import { ImageValidationService } from './services/image-validation.service.js';
 import { PendingUploadService } from './services/pending-upload.service.js';
+import { DuplicateDetectionService } from './services/duplicate-detection.service.js';
 import { ProblemAnalysisService } from './services/problem-analysis.service.js';
 
 @Injectable()
@@ -22,11 +23,22 @@ export class ProblemsService {
     private readonly images: ImageValidationService,
     private readonly pending: PendingUploadService,
     private readonly analysis: ProblemAnalysisService,
+    private readonly duplicates: DuplicateDetectionService,
     private readonly config: AppConfig,
   ) {}
 
   /** Resolves a storage key to a fetchable URL. Passed into the serializer. */
   private readonly resolveUrl = (key: string) => this.storage.getUrl(key);
+
+  /**
+   * The same resolver, for callers outside this service.
+   *
+   * The duplicate serializer needs thumbnails but has no business holding a
+   * `StorageService` — resolving a key stays this module's job.
+   */
+  resolveImageUrl(key: string): Promise<string> {
+    return this.storage.getUrl(key);
+  }
 
   /**
    * Accepts one uploaded image.
@@ -153,10 +165,16 @@ export class ProblemsService {
       this.logger.log(`Problem ${problem.publicId} reported by ${user.id}`);
 
       // Queued *after* the transaction commits, so the report is durable before
-      // anything depends on it. Analysis is an enhancement: if it never runs,
-      // the civic record is still complete and the citizen still has their
+      // anything depends on it. Both are enhancements: if neither runs, the
+      // civic record is still complete and the citizen still has their
       // reference number.
+      //
+      // Independent of each other on purpose. Duplicate detection works from
+      // the citizen's own words, not from the AI's reading of them, so a failed
+      // analysis must not also cost the deduplication — and chaining them would
+      // put a vision-model call on the critical path of a vector search.
       await this.analysis.enqueue(problem.id);
+      await this.duplicates.enqueue(problem.id);
 
       return toProblemView(problem, this.resolveUrl, { viewerId: user.id });
     } catch (error) {
@@ -254,22 +272,6 @@ export class ProblemsService {
     }
 
     return toProblemView(problem, this.resolveUrl, { viewerId: viewer?.id });
-  }
-
-  /** The signed-in user's own reports, newest first. */
-  async listOwn(user: RequestUser, limit = 20): Promise<ProblemView[]> {
-    const problems = await this.prisma.problem.findMany({
-      where: { reporterId: user.id, deletedAt: null },
-      include: { images: true, reporter: true },
-      orderBy: { createdAt: 'desc' },
-      take: Math.min(limit, 50),
-    });
-
-    return Promise.all(
-      problems.map((problem) =>
-        toProblemView(problem, this.resolveUrl, { viewerId: user.id }),
-      ),
-    );
   }
 
   private validationError(message: string, field: string): AppException {
