@@ -36,10 +36,16 @@ export default async function ExplorePage() {
     <PageContainer width="wide">
       <PageHeading
         title="Explore problems"
-        description="Civic issues reported around you, ranked by distance, severity and how recent they are."
+        description="Civic issues reported around you. Rank them by relevance, distance, severity, support or recent discussion."
       />
 
-      <NearbyProblems profileCity={profile?.profile.location.city ?? null} limit={24} className="mt-8" />
+      <NearbyProblems
+        profileCity={profile?.profile.location.city ?? null}
+        limit={24}
+        showSort
+        paginate
+        className="mt-8"
+      />
     </PageContainer>
   );
 }

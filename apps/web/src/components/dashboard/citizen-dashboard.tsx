@@ -4,6 +4,7 @@ import type { CitizenDashboard as CitizenDashboardData } from '@samadhaan/shared
 import type { ImpactStat } from '@/types/domain';
 import { SectionHeading } from '@/components/layout/page-container';
 import { ImpactMetricGroup } from '@/components/common/impact-metric';
+import { CommunityActivity } from '@/components/community/community-activity';
 import { NearbyProblems } from '@/components/discovery/nearby-problems';
 import { ProblemListCard } from '@/components/problems/problem-list-card';
 import { Button } from '@/components/ui/button';
@@ -43,7 +44,19 @@ export function CitizenDashboard({
       id: 'supported',
       label: 'Problems supported',
       value: activity.problemsSupported,
-      hint: 'Reports from others you have backed.',
+      hint: 'Problems you have said matter.',
+    },
+    {
+      id: 'followed',
+      label: 'Following',
+      value: activity.problemsFollowed,
+      hint: 'Problems you are keeping track of, including your own reports.',
+    },
+    {
+      id: 'comments',
+      label: 'Comments posted',
+      value: activity.commentsPosted,
+      hint: 'What you have added to community discussions.',
     },
     {
       id: 'resolved',
@@ -84,9 +97,13 @@ export function CitizenDashboard({
       <section aria-label="Your impact">
         <SectionHeading
           title="Your impact"
-          description="What your reports and support have added up to."
+          description="What your reports, support and discussion have added up to."
         />
-        <ImpactMetricGroup stats={impact} className="mt-4" />
+        {/* Six figures: three across on a tablet, one row on a wide screen. */}
+        <ImpactMetricGroup
+          stats={impact}
+          className="mt-4 sm:grid-cols-3 lg:grid-cols-3 xl:grid-cols-6"
+        />
       </section>
 
       <section aria-label="Nearby problems">
@@ -101,6 +118,26 @@ export function CitizenDashboard({
         />
 
         <NearbyProblems profileCity={user.city} className="mt-4" limit={6} />
+      </section>
+
+      <section aria-label="Community activity">
+        <SectionHeading
+          title="Community activity"
+          description={
+            user.city
+              ? `What people in ${user.city} are supporting and discussing.`
+              : 'What people are supporting and discussing.'
+          }
+          action={
+            <Button variant="ghost" size="sm" trailingIcon={<ArrowRight />} asChild>
+              <Link href="/explore">Explore all</Link>
+            </Button>
+          }
+        />
+
+        <div className="mt-4">
+          <CommunityActivity city={user.city} />
+        </div>
       </section>
 
       <section aria-label="Your reports">

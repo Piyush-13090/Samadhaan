@@ -78,7 +78,25 @@ describe('ProblemListCard', () => {
     expect(screen.getByText('Under review')).toBeInTheDocument();
     expect(screen.getByText('High')).toBeInTheDocument();
     expect(container.textContent).toContain('214');
-    expect(screen.getByText('people also affected')).toBeInTheDocument();
+    expect(screen.getByText('supporters')).toBeInTheDocument();
+  });
+
+  it('shows compact engagement without the viewer’s state when there is none', () => {
+    render(<ProblemListCard problem={item()} />);
+
+    expect(screen.queryByText('Following')).not.toBeInTheDocument();
+    expect(screen.queryByText(/including you/)).not.toBeInTheDocument();
+  });
+
+  it('marks problems the viewer supports and follows, in text', () => {
+    render(
+      <ProblemListCard
+        problem={item({ supportedByCurrentUser: true, followedByCurrentUser: true })}
+      />,
+    );
+
+    expect(screen.getByText(/supporters, including you/)).toBeInTheDocument();
+    expect(screen.getByText('Following')).toBeInTheDocument();
   });
 
   // A feed card takes the API's list shape, which has no reporter to leak.

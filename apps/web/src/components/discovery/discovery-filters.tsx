@@ -3,6 +3,7 @@
 import {
   DISTANCE_OPTIONS,
   PROBLEM_CATEGORIES,
+  type DiscoverySort,
   type ProblemCategory,
   type ProblemStatus,
 } from '@samadhaan/shared';
@@ -28,7 +29,25 @@ const FILTERABLE_STATUSES = [
 ] as const satisfies readonly ProblemStatus[];
 
 /**
- * Basic discovery filters: category, distance and status.
+ * Orderings a citizen can choose. Each names exactly what it sorts by — no
+ * option implies a judgement the system is not making. "Nearest" needs a
+ * device location, so it is offered only when there is one.
+ */
+const SORT_OPTIONS: ReadonlyArray<{
+  value: DiscoverySort;
+  label: string;
+  needsDevice?: true;
+}> = [
+  { value: 'relevance', label: 'Most relevant' },
+  { value: 'distance', label: 'Nearest', needsDevice: true },
+  { value: 'recent', label: 'Newest' },
+  { value: 'severity', label: 'Most severe' },
+  { value: 'supported', label: 'Most supported' },
+  { value: 'discussed', label: 'Recently discussed' },
+];
+
+/**
+ * Basic discovery filters: category, distance, status and order.
  *
  * Selects rather than a chip rail. Fifteen categories as chips wrap to three
  * rows on a phone and push the feed below the fold, and this is a filter bar,
@@ -42,9 +61,11 @@ export function DiscoveryFilters({
   status,
   radiusMeters,
   showDistance,
+  sort,
   onCategoryChange,
   onStatusChange,
   onRadiusChange,
+  onSortChange,
   className,
 }: {
   category: ProblemCategory | 'ALL';
@@ -55,13 +76,20 @@ export function DiscoveryFilters({
   onCategoryChange: (value: ProblemCategory | 'ALL') => void;
   onStatusChange: (value: ProblemStatus | 'ALL') => void;
   onRadiusChange: (value: number) => void;
+  /** Omit both to hide the order control. */
+  sort?: DiscoverySort;
+  onSortChange?: (value: DiscoverySort) => void;
   className?: string;
 }) {
   return (
     <div
       role="group"
       aria-label="Filter problems"
-      className={cn('grid gap-3 sm:grid-cols-3', className)}
+      className={cn(
+        'grid gap-3 sm:grid-cols-2',
+        sort && onSortChange ? 'lg:grid-cols-4' : 'lg:grid-cols-3',
+        className,
+      )}
     >
       <Field label="Category">
         <Select
@@ -120,6 +148,28 @@ export function DiscoveryFilters({
           </SelectContent>
         </Select>
       </Field>
+
+      {sort && onSortChange && (
+        <Field label="Order">
+          <Select
+            value={sort}
+            onValueChange={(value) => onSortChange(value as DiscoverySort)}
+          >
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {SORT_OPTIONS.filter((option) => !option.needsDevice || showDistance).map(
+                (option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ),
+              )}
+            </SelectContent>
+          </Select>
+        </Field>
+      )}
     </div>
   );
 }

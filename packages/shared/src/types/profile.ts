@@ -84,6 +84,8 @@ export interface ProfileOrganizationMembership {
 export interface ProfileActivity {
   problemsReported: number;
   problemsSupported: number;
+  /** Problems the user is keeping track of. */
+  problemsFollowed: number;
   commentsPosted: number;
   suggestionsMade: number;
   /** Counted from problems the user contributed to that reached RESOLVED. */

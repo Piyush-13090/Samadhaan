@@ -409,11 +409,11 @@ PostgreSQL 16+ with three extensions, created by both
 Prisma is the ORM. Prisma 7 reads the connection URL from `prisma.config.ts` and
 the runtime client connects through the `@prisma/adapter-pg` driver adapter.
 
-### Redis (implemented — connection only)
+### Redis (implemented)
 
-Connected and health-checked. It will back caching, rate limiting, background
-jobs, notification fan-out and AI processing queues. None of those are built
-yet; only the connection foundation exists.
+Connected and health-checked. Backs rate limiting — per IP for sign-in, per user
+for community actions — and pending uploads. Caching, background jobs and
+notification fan-out are later milestones.
 
 `lazyConnect` with a bounded retry strategy and an `error` listener means an
 unavailable Redis degrades health rather than taking the process down.
@@ -489,6 +489,78 @@ identity a feed exposes, and `area` is the first address segment rather than the
 full street address.
 
 ---
+
+## Community engagement
+
+Prompt 10 turns a report into a shared civic issue. It lives in its own
+`CommunityModule` (`apps/api/src/community`), which depends on `ProblemsModule`
+for exactly one thing — `findAccessible`, resolving a problem with the same
+visibility rule the problem page uses. `ProblemsModule` knows nothing about
+support, follows or comments.
+
+### Support is not Follow
+
+Two actions, two tables, two counters, two buttons — on purpose.
+
+| | Support | Follow |
+| --- | --- | --- |
+| A citizen is saying | "This issue matters." | "I want updates about this issue." |
+| Nature | A public civic **claim** | A private **subscription** |
+| Stored in | `problem_votes` → `problems.voteCount` | `problem_follows` → `problems.followCount` |
+| Feeds, later | Priority, urgency, civic impact | Notifications (Prompt 11) |
+
+Merging them would make every notification subscriber look like an endorser —
+inflating the very signal priority will rely on — and make every endorsement opt
+into notifications nobody asked for. A reporter **follows** their own report
+automatically (they want updates) but is not made to **support** it.
+
+Community signals are exposed as clean structured data — counts on the problem
+row, `supportedByCurrentUser`/`followedByCurrentUser` per viewer, `lastCommentAt`
+for discussion recency — and nothing consumes them for ranking beyond the
+transparent `supported`/`discussed` sorts. The AI priority engine (Prompt 21)
+will read them; it does not exist yet.
+
+### Correctness under concurrency
+
+The `(problemId, userId)` unique constraints are the final protection. Adding is
+`INSERT … ON CONFLICT DO NOTHING`, and the denormalised counter moves by the
+number of rows actually changed, in the same transaction, via an atomic
+`SET x = x + n` that does not touch `updatedAt`. So a double tap, a retry or
+eight simultaneous requests all end at one row and a counter that agrees with
+it. The operations are idempotent, so the client never has to treat "already
+supported" as an error.
+
+The counters already existed (the feed sorts on them); maintaining them beats
+counting rows per card per request.
+
+### Discussion
+
+Threads are **one level deep** — comments and replies, nothing below. Pages are
+bounded (20 top-level comments, 3 previewed replies each, more on request) and
+cost four queries regardless of size. Deletion is soft, so a removed comment with
+replies remains as a placeholder and the thread keeps its shape.
+
+### Abuse protection
+
+The global `RateLimitGuard` runs before authentication and keys on IP — right for
+sign-in, wrong for user-generated content. `UserRateLimitGuard`, applied per
+route with `@UserRateLimit`, runs after authentication and keys on the account,
+with a named bucket so a spammer moving between problems draws on one allowance.
+
+### Extension points
+
+- **Notifications (Prompt 11).** `CommunityEventPublisher.publish()` receives a
+  typed `CommunityEvent` after every committed write. Today it logs at debug;
+  Prompt 11 replaces its body (a queue, an outbox) and no caller changes. It
+  never throws — a notification failure must not fail the civic action.
+- **Moderation.** Every comment write passes through `checkCommentContent()` in
+  `comment-content.ts`. It enforces structure only today; a classifier, link
+  heuristics or a hold-for-review state attach there. Admin removal is already
+  audited. Reporting a comment needs a table that does not exist yet and is
+  deliberately not faked.
+- **Realtime.** Not needed for this milestone — counts and threads update from
+  each API response. Resolution rooms will add websockets; nothing here assumes
+  their absence.
 
 ## Request path
 

@@ -1,4 +1,4 @@
-import { Calendar, MapPin, MessageSquare, TrendingUp } from 'lucide-react';
+import { Calendar, Heart, MapPin, MessageSquare } from 'lucide-react';
 import type { Metadata } from 'next';
 import { cookies } from 'next/headers';
 import { notFound } from 'next/navigation';
@@ -16,6 +16,13 @@ import { Skeleton, SkeletonText } from '@/components/ui/skeleton';
 import { formatDate, formatNumber } from '@/lib/format';
 import { ProblemIntelligencePanel } from '@/components/ai/problem-intelligence-panel';
 import { SimilarProblemsPanel } from '@/components/ai/similar-problems-panel';
+import { CommunityDiscussion } from '@/components/community/community-discussion';
+import { EngagementBar } from '@/components/community/engagement-bar';
+import { EngagementProvider } from '@/components/community/engagement-context';
+import {
+  fetchCommentsOnServer,
+  fetchEngagementOnServer,
+} from '@/services/community.service';
 import {
   fetchAnalysisOnServer,
   fetchProblemOnServer,
@@ -35,9 +42,10 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
 /**
  * A reported problem.
  *
- * Deliberately minimal: it shows what exists today. The AI analysis panel,
- * duplicate candidates, community actions and the resolution timeline arrive in
- * later milestones and attach here without reshaping the page.
+ * Shows what exists today: the report, its AI analysis and duplicate check, and
+ * the community around it — support, follow and discussion. The resolution
+ * timeline arrives in a later milestone and attaches here without reshaping
+ * the page.
  */
 export default async function ProblemDetailPage({ params }: PageProps) {
   const { publicId } = await params;
@@ -65,15 +73,17 @@ async function ProblemContent({ publicId }: { publicId: string }) {
   // each panel only polls when its own job is still in flight. Fetched in
   // parallel — they are independent jobs and serialising them would add the
   // slower one's latency to the page for no reason.
-  const [analysis, duplicateCheck] = await Promise.all([
+  const [analysis, duplicateCheck, engagement, comments] = await Promise.all([
     fetchAnalysisOnServer(publicId, header),
     fetchSimilarOnServer(publicId, header),
+    fetchEngagementOnServer(publicId, header),
+    fetchCommentsOnServer(publicId, header),
   ]);
 
   const primary = problem.images.find((image) => image.isPrimary) ?? problem.images[0];
   const gallery = problem.images.filter((image) => image.id !== primary?.id);
 
-  return (
+  const content = (
     <>
       <div className="flex flex-wrap items-center gap-2">
         <span className="font-mono type-caption text-ink-subtle">{problem.publicId}</span>
@@ -93,15 +103,25 @@ async function ProblemContent({ publicId }: { publicId: string }) {
           <Calendar className="size-3.5" aria-hidden="true" />
           Reported {formatDate(problem.createdAt)}
         </span>
-        <span className="inline-flex items-center gap-1.5">
-          <TrendingUp className="size-3.5" aria-hidden="true" />
-          {formatNumber(problem.voteCount)} supporters
-        </span>
-        <span className="inline-flex items-center gap-1.5">
-          <MessageSquare className="size-3.5" aria-hidden="true" />
-          {formatNumber(problem.commentCount)} comments
-        </span>
+        <SeverityBadge severity={problem.severity} size="sm" />
       </div>
+
+      {engagement ? (
+        <EngagementBar className="mt-5" />
+      ) : (
+        // The engagement read failed. Show the counts the problem itself
+        // carries, without controls that could not report their result.
+        <p className="mt-5 flex flex-wrap items-center gap-x-4 gap-y-2 type-body-sm text-ink-muted">
+          <span className="inline-flex items-center gap-1.5">
+            <Heart className="size-4" aria-hidden="true" />
+            {formatNumber(problem.voteCount)} supporters
+          </span>
+          <span className="inline-flex items-center gap-1.5">
+            <MessageSquare className="size-4" aria-hidden="true" />
+            {formatNumber(problem.commentCount)} comments
+          </span>
+        </p>
+      )}
 
       <div className="mt-8 grid gap-5 lg:grid-cols-[minmax(0,1fr)_20rem]">
         <div className="space-y-5">
@@ -173,6 +193,12 @@ async function ProblemContent({ publicId }: { publicId: string }) {
               it.
             </Alert>
           )}
+
+          <CommunityDiscussion
+            publicId={problem.publicId}
+            initial={comments}
+            acceptsEngagement={engagement?.acceptsEngagement ?? true}
+          />
         </div>
 
         <aside className="space-y-5">
@@ -247,6 +273,17 @@ async function ProblemContent({ publicId }: { publicId: string }) {
         </aside>
       </div>
     </>
+  );
+
+  // The provider is a client boundary around server-rendered content: the
+  // header and the discussion both read engagement state, and everything
+  // between them stays a server component passed through as children.
+  return engagement ? (
+    <EngagementProvider publicId={problem.publicId} initial={engagement}>
+      {content}
+    </EngagementProvider>
+  ) : (
+    content
   );
 }
 

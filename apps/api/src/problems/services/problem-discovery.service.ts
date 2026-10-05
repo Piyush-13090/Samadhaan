@@ -12,6 +12,7 @@ import {
   type ProblemUrgency,
 } from '@samadhaan/shared';
 import { AppException } from '../../common/app.exception.js';
+import { decodeIdCursor, encodeIdCursor } from '../../common/id-cursor.js';
 import { PrismaService } from '../../database/prisma.service.js';
 import { StorageService } from '../../storage/storage.types.js';
 import type { DiscoverProblemsQueryDto } from '../dto/discover-problems.dto.js';
@@ -47,6 +48,8 @@ interface FeedRow {
   reporterId: string;
   thumbnailKey: string | null;
   hasAiAnalysis: boolean;
+  supportedByViewer: boolean;
+  followedByViewer: boolean;
   distanceMeters: number | null;
   rank: number;
 }
@@ -97,7 +100,7 @@ export class ProblemDiscoveryService {
     const anchorMs = cursor?.anchorMs ?? Date.now();
 
     const rows = await this.prisma.$queryRaw<FeedRow[]>(
-      this.buildQuery(query, hasCoordinates, cursor, anchorMs),
+      this.buildQuery(query, hasCoordinates, cursor, anchorMs, viewerId),
     );
 
     // One extra row was requested, purely to learn whether another page exists.
@@ -127,6 +130,7 @@ export class ProblemDiscoveryService {
     hasCoordinates: boolean,
     cursor: DiscoveryCursor | null,
     anchorMs: number,
+    viewerId: string | null,
   ): Prisma.Sql {
     const origin = hasCoordinates
       ? Prisma.sql`ST_SetSRID(ST_MakePoint(${query.longitude}, ${query.latitude}), 4326)::geography`
@@ -159,6 +163,28 @@ export class ProblemDiscoveryService {
     if (query.category) {
       conditions.push(Prisma.sql`p."category" = ${query.category}::"ProblemCategory"`);
     }
+
+    if (query.sort === 'discussed') {
+      // "Recently discussed" means discussed at all; an undiscussed problem
+      // would otherwise sort to the end with a meaningless zero.
+      conditions.push(Prisma.sql`p."lastCommentAt" IS NOT NULL`);
+    }
+
+    // The viewer's own engagement, as two indexed existence checks per row on
+    // the `(problemId, userId)` unique indexes. With no viewer, constant false
+    // and the planner drops them.
+    const supportedByViewer = viewerId
+      ? Prisma.sql`EXISTS (
+          SELECT 1 FROM problem_votes v
+          WHERE v."problemId" = p."id" AND v."userId" = ${viewerId}::uuid
+        )`
+      : Prisma.sql`false`;
+    const followedByViewer = viewerId
+      ? Prisma.sql`EXISTS (
+          SELECT 1 FROM problem_follows f
+          WHERE f."problemId" = p."id" AND f."userId" = ${viewerId}::uuid
+        )`
+      : Prisma.sql`false`;
 
     if (origin) {
       conditions.push(Prisma.sql`ST_DWithin(p."location", ${origin}, ${query.radiusMeters})`);
@@ -204,6 +230,8 @@ export class ProblemDiscoveryService {
             AND a."analysisType" = 'INITIAL_ANALYSIS'
             AND a."processingStatus" = 'COMPLETED'
         )                                                   AS "hasAiAnalysis",
+        ${supportedByViewer}                                AS "supportedByViewer",
+        ${followedByViewer}                                 AS "followedByViewer",
         ${distance}                                         AS "distanceMeters",
         ${rank}                                             AS "rank"
       FROM problems p
@@ -246,6 +274,20 @@ export class ProblemDiscoveryService {
     }
     if (query.sort === 'recent') {
       return Prisma.sql`EXTRACT(EPOCH FROM p."createdAt")::double precision`;
+    }
+    // Community orderings. Deterministic and explainable — a count or a
+    // timestamp, with recency breaking ties — and nothing a person could
+    // mistake for the AI priority engine.
+    if (query.sort === 'supported') {
+      // Support dominates; creation time breaks ties within a count. Epoch
+      // seconds stay below 1e10 until the year 2286, so the bands never
+      // overlap, and the product is exact in a double up to ~900k supporters.
+      return Prisma.sql`(
+        p."voteCount"::double precision * 1e10 + EXTRACT(EPOCH FROM p."createdAt")
+      )::double precision`;
+    }
+    if (query.sort === 'discussed') {
+      return Prisma.sql`EXTRACT(EPOCH FROM p."lastCommentAt")::double precision`;
     }
     if (query.sort === 'severity') {
       return Prisma.sql`(
@@ -365,6 +407,8 @@ export class ProblemDiscoveryService {
             select: { id: true },
             take: 1,
           },
+          votes: { where: { userId }, select: { id: true }, take: 1 },
+          follows: { where: { userId }, select: { id: true }, take: 1 },
         },
       }),
       this.prisma.problem.count({ where }),
@@ -396,6 +440,8 @@ export class ProblemDiscoveryService {
         createdAt: problem.createdAt.toISOString(),
         hasAiAnalysis: problem.aiAnalyses.length > 0,
         isOwnReport: true,
+        supportedByCurrentUser: problem.votes.length > 0,
+        followedByCurrentUser: problem.follows.length > 0,
       })),
     );
 
@@ -448,7 +494,13 @@ export class ProblemDiscoveryService {
       createdAt: row.createdAt.toISOString(),
       hasAiAnalysis: row.hasAiAnalysis,
       // `reporterId` is selected to answer this and is never published itself.
-      ...(viewerId ? { isOwnReport: row.reporterId === viewerId } : {}),
+      ...(viewerId
+        ? {
+            isOwnReport: row.reporterId === viewerId,
+            supportedByCurrentUser: row.supportedByViewer,
+            followedByCurrentUser: row.followedByViewer,
+          }
+        : {}),
     };
   }
 }
@@ -499,20 +551,4 @@ function decodeCursor(cursor?: string): DiscoveryCursor | null {
   }
 
   return { rank: parsedRank, publicId, anchorMs: parsedAnchor };
-}
-
-function encodeIdCursor(id: string): string {
-  return Buffer.from(id, 'utf8').toString('base64url');
-}
-
-function decodeIdCursor(cursor: string): string {
-  const id = Buffer.from(cursor, 'base64url').toString('utf8');
-
-  // Prisma's `cursor` needs a real row id; anything else throws deep in the
-  // client with a message about a where clause.
-  if (!/^[0-9a-f-]{36}$/i.test(id)) {
-    throw AppException.badRequest('That page cursor is not valid.');
-  }
-
-  return id;
 }

@@ -8,6 +8,13 @@ vi.mock('@/components/discovery/nearby-problems', () => ({
   NearbyProblems: () => <div data-testid="nearby-problems" />,
 }));
 
+// Community activity fetches on mount too, and is tested on its own.
+vi.mock('@/components/community/community-activity', () => ({
+  CommunityActivity: ({ city }: { city: string | null }) => (
+    <div data-testid="community-activity" data-city={city ?? ''} />
+  ),
+}));
+
 function report(overrides: Record<string, unknown> = {}) {
   return {
     publicId: 'SAM-1023',
@@ -36,6 +43,7 @@ function dashboard(overrides: Partial<CitizenDashboardData> = {}): CitizenDashbo
     activity: {
       problemsReported: 7,
       problemsSupported: 2,
+      problemsFollowed: 4,
       commentsPosted: 0,
       suggestionsMade: 0,
       problemsResolved: 1,
@@ -82,6 +90,21 @@ describe('CitizenDashboard', () => {
     expect(screen.getByText('7')).toBeInTheDocument();
     expect(screen.getByText('Problems supported')).toBeInTheDocument();
     expect(screen.getByText('Resolved')).toBeInTheDocument();
+  });
+
+  it('shows real engagement metrics: following and comments', () => {
+    render(<CitizenDashboard data={dashboard()} hour={9} />);
+
+    expect(screen.getByText('Following')).toBeInTheDocument();
+    expect(screen.getByText('4')).toBeInTheDocument();
+    expect(screen.getByText('Comments posted')).toBeInTheDocument();
+  });
+
+  it('renders community activity scoped to the profile city', () => {
+    render(<CitizenDashboard data={dashboard()} hour={9} />);
+
+    expect(screen.getByTestId('community-activity')).toHaveAttribute('data-city', 'Gurugram');
+    expect(screen.getByText('What people in Gurugram are supporting and discussing.')).toBeInTheDocument();
   });
 
   /**
@@ -159,7 +182,7 @@ describe('CitizenDashboard', () => {
   it('gives each section an accessible heading', () => {
     render(<CitizenDashboard data={dashboard()} hour={9} />);
 
-    for (const name of ['Your impact', 'Nearby problems', 'Your reports']) {
+    for (const name of ['Your impact', 'Nearby problems', 'Community activity', 'Your reports']) {
       expect(screen.getByRole('heading', { name, level: 2 })).toBeInTheDocument();
     }
   });

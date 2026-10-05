@@ -13,6 +13,20 @@ import { PendingUploadService } from './services/pending-upload.service.js';
 import { DuplicateDetectionService } from './services/duplicate-detection.service.js';
 import { ProblemAnalysisService } from './services/problem-analysis.service.js';
 
+/**
+ * The minimum the community features need to act on a problem: who filed it,
+ * whether it is open, and where a duplicate points. Deliberately not a
+ * `ProblemView` — resolving image URLs and serialising the reporter on every
+ * support tap would be wasted work.
+ */
+export interface AccessibleProblem {
+  id: string;
+  publicId: string;
+  reporterId: string;
+  status: string;
+  duplicateOfPublicId: string | null;
+}
+
 @Injectable()
 export class ProblemsService {
   private readonly logger = new Logger(ProblemsService.name);
@@ -130,9 +144,18 @@ export class ProblemsService {
             latitude: dto.location.latitude,
             longitude: dto.location.longitude,
             locationAccuracyM: dto.location.accuracyMeters ?? null,
+            // The reporter's own follow, inserted just below in this transaction.
+            followCount: 1,
             // `location` (PostGIS) is populated by the database trigger from
             // these coordinates — see docs/DATABASE.md §5.
           },
+        });
+
+        // A reporter follows their own report from the moment it exists, so
+        // the updates Prompt 11 delivers to followers reach them too. Written
+        // in the same transaction as the `followCount: 1` above.
+        await tx.problemFollow.create({
+          data: { problemId: created.id, userId: user.id },
         });
 
         if (claimedKeys.length > 0) {
@@ -264,14 +287,42 @@ export class ProblemsService {
       include: { images: true, reporter: true },
     });
 
-    if (!problem) throw AppException.notFound('Problem');
-
-    // A draft is not yet public — only its reporter may see it.
-    if (problem.status === 'DRAFT' && problem.reporterId !== viewer?.id) {
-      throw AppException.notFound('Problem');
-    }
+    if (!problem || !isVisibleTo(problem, viewer)) throw AppException.notFound('Problem');
 
     return toProblemView(problem, this.resolveUrl, { viewerId: viewer?.id });
+  }
+
+  /**
+   * A problem the viewer may see, in the lean shape community actions need.
+   *
+   * Applies exactly the visibility rule `findByPublicId` does, so supporting,
+   * following or commenting can never reach a problem the page would not show —
+   * a draft stays a 404 to everyone but its reporter.
+   */
+  async findAccessible(
+    publicId: string,
+    viewer: RequestUser | null,
+  ): Promise<AccessibleProblem> {
+    const problem = await this.prisma.problem.findFirst({
+      where: { publicId: publicId.toUpperCase(), deletedAt: null },
+      select: {
+        id: true,
+        publicId: true,
+        reporterId: true,
+        status: true,
+        duplicateOf: { select: { publicId: true } },
+      },
+    });
+
+    if (!problem || !isVisibleTo(problem, viewer)) throw AppException.notFound('Problem');
+
+    return {
+      id: problem.id,
+      publicId: problem.publicId,
+      reporterId: problem.reporterId,
+      status: problem.status,
+      duplicateOfPublicId: problem.duplicateOf?.publicId ?? null,
+    };
   }
 
   private validationError(message: string, field: string): AppException {
@@ -282,4 +333,12 @@ export class ProblemsService {
       [{ field, message }],
     );
   }
+}
+
+/** A draft is not yet public — only its reporter may see it. */
+function isVisibleTo(
+  problem: { status: string; reporterId: string },
+  viewer: RequestUser | null,
+): boolean {
+  return problem.status !== 'DRAFT' || problem.reporterId === viewer?.id;
 }

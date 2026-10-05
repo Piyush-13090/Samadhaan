@@ -1,4 +1,4 @@
-import { MapPin, MessageSquare, TrendingUp } from 'lucide-react';
+import { BellRing, Heart, MapPin, MessageSquare } from 'lucide-react';
 import Link from 'next/link';
 import type { ProblemListItem } from '@samadhaan/shared';
 import { cn } from '@/lib/cn';
@@ -90,17 +90,41 @@ export function ProblemListCard({
           <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
             <CategoryBadge category={problem.category} short size="sm" />
 
+            {/* Compact engagement: supporters, comments, and whether you
+                follow it. Read-only — acting on a problem happens on its
+                page, so a card stays one large link rather than a cluster of
+                small targets. */}
             <div className="flex items-center gap-3 type-caption text-ink-muted">
-              <span className="inline-flex items-center gap-1">
-                <TrendingUp className="size-3.5" aria-hidden="true" />
-                <span className="tabular">{formatCompactNumber(problem.voteCount)}</span>
-                <span className="sr-only">people also affected</span>
+              <span
+                className={cn(
+                  'inline-flex items-center gap-1',
+                  problem.supportedByCurrentUser && 'text-danger',
+                )}
+              >
+                <Heart
+                  className={cn('size-3.5', problem.supportedByCurrentUser && 'fill-current')}
+                  aria-hidden="true"
+                />
+                <span className="tabular">{formatCompactNumber(problem.voteCount)}</span>{' '}
+                <span className="sr-only">
+                  {problem.voteCount === 1 ? 'supporter' : 'supporters'}
+                  {problem.supportedByCurrentUser ? ', including you' : ''}
+                </span>
               </span>
               <span className="inline-flex items-center gap-1">
                 <MessageSquare className="size-3.5" aria-hidden="true" />
-                <span className="tabular">{problem.commentCount}</span>
-                <span className="sr-only">comments</span>
+                <span className="tabular">{formatCompactNumber(problem.commentCount)}</span>{' '}
+                <span className="sr-only">
+                  {problem.commentCount === 1 ? 'comment' : 'comments'}
+                </span>
               </span>
+              {problem.followedByCurrentUser && (
+                // Text, not just an icon: state never rests on a glyph alone.
+                <span className="inline-flex items-center gap-1 text-primary">
+                  <BellRing className="size-3.5" aria-hidden="true" />
+                  Following
+                </span>
+              )}
             </div>
           </div>
         </div>

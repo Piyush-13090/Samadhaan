@@ -6,6 +6,7 @@ export * from './types/report.js';
 export * from './types/analysis.js';
 export * from './types/duplicate.js';
 export * from './types/discovery.js';
+export * from './types/community.js';
 export * from './types/api.js';
 export * from './types/health.js';
 export * from './constants/api.js';

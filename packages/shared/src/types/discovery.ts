@@ -26,7 +26,16 @@ export const MAX_DISCOVERY_RADIUS_METERS = 50_000;
 export const DEFAULT_DISCOVERY_RADIUS_METERS = 5000;
 
 /** How a discovery feed is ordered. */
-export const DISCOVERY_SORTS = ['relevance', 'distance', 'recent', 'severity'] as const;
+export const DISCOVERY_SORTS = [
+  'relevance',
+  'distance',
+  'recent',
+  'severity',
+  /** Community activity: most supported first. */
+  'supported',
+  /** Community activity: most recent comment first. Only discussed problems. */
+  'discussed',
+] as const;
 
 export type DiscoverySort = (typeof DISCOVERY_SORTS)[number];
 
@@ -53,6 +62,7 @@ export interface ProblemListItem {
   /** Metres from the search origin. Null when the search had no origin. */
   distanceMeters: number | null;
 
+  /** Supporters. Read from the server; never sent by a client. */
   voteCount: number;
   commentCount: number;
   /** Primary image, when the report has one. */
@@ -63,6 +73,10 @@ export interface ProblemListItem {
   hasAiAnalysis: boolean;
   /** True when the viewer filed this report. Absent for anonymous viewers. */
   isOwnReport?: boolean;
+  /** True when the viewer supports this problem. Absent for anonymous viewers. */
+  supportedByCurrentUser?: boolean;
+  /** True when the viewer follows this problem. Absent for anonymous viewers. */
+  followedByCurrentUser?: boolean;
 }
 
 /** Where a discovery search was centred. */

@@ -698,8 +698,9 @@ reports and their own activity; refusing them a home page would be arbitrary.
 ### `GET /api/v1/problems/nearby`
 
 The discovery feed. **Public**, like every other read of a civic report. A
-signed-in caller additionally gets `isOwnReport` on each row — the only thing
-identity changes. It never widens what is visible.
+signed-in caller additionally gets `isOwnReport`, `supportedByCurrentUser` and
+`followedByCurrentUser` on each row — the only things identity changes. It never
+widens what is visible.
 
 | Parameter | Default | Notes |
 | --- | --- | --- |
@@ -708,9 +709,14 @@ identity changes. It never widens what is visible.
 | `city` | — | Fallback origin, used only without coordinates |
 | `category` | all | Must be a known `ProblemCategory` |
 | `status` | active only | Must be a known `ProblemStatus` |
-| `sort` | `relevance` | `relevance`, `distance`, `recent`, `severity` |
+| `sort` | `relevance` | `relevance`, `distance`, `recent`, `severity`, `supported`, `discussed` |
 | `limit` | `20` | Bounded `1`–`50` |
 | `cursor` | — | Opaque; from the previous page's `nextCursor` |
+
+`supported` orders by supporter count, newest first within a count.
+`discussed` orders by the most recent comment and includes **only** problems
+that have been discussed. Both are plain counts and timestamps — community
+activity, not the AI priority engine.
 
 ```json
 {
@@ -821,8 +827,225 @@ pending uploads.
 | --- | --- |
 | Full-text and semantic search | Prompt 25 |
 | AI priority engine | Prompt 21 |
-| Voting, comments and suggestions | Prompt 10 |
 | Notifications | Prompt 11 |
+
+Support, follow and comments landed in Prompt 10 — see
+[Community](#community--support-follow-and-discussion).
+
+---
+
+## Community — support, follow and discussion
+
+Three separate things a citizen can do around a problem. **Support** and
+**follow** are deliberately different signals:
+
+| | Support | Follow |
+| --- | --- | --- |
+| Means | "This issue matters." | "Keep me posted about this issue." |
+| Visibility | Public count, a civic signal | Count public; who follows is private |
+| Later used by | Priority and civic impact | Notifications (Prompt 11) |
+
+### Rules every community endpoint shares
+
+- **The problem is resolved with the same visibility rule as the problem page.**
+  A `DRAFT` is a `404` to everyone but its reporter, here as there.
+- **Identity comes only from the session.** No route takes a user id in its
+  path, query or body. Comment DTOs cannot express one, and the global
+  `forbidNonWhitelisted` turns `userId`, `commentCount`, `isEdited` or
+  `problemId` in a body into a `400`.
+- **Counts are never accepted from the client.** Every response returns the
+  server's own, and the UI displays those.
+- **Reads are public; writes need a session** (`401` without one).
+- **A confirmed duplicate is closed** to new support, follows and comments:
+  `409`, with a message naming the canonical report. Withdrawing support or
+  unfollowing is always allowed.
+
+### Rate limits
+
+Per **user**, not per IP — a campus NAT puts hundreds of legitimate citizens
+behind one address. Fixed window on Redis; fails open, like the auth limiter.
+Exceeding one returns `429 RATE_LIMITED` with `retry-after`.
+
+| Bucket | Endpoints | Limit |
+| --- | --- | --- |
+| `engagement` | support / follow, add and remove | 60 per minute |
+| `comment:create` | `POST …/comments` | 10 per minute |
+| `comment:edit` | `PATCH` / `DELETE …/comments/:id` | 30 per minute |
+
+### `GET /api/v1/problems/:publicId/engagement`
+
+The problem page header in one read. **Public.** Viewer flags are `false` for an
+anonymous caller.
+
+```json
+{
+  "supportCount": 127,
+  "supportedByCurrentUser": true,
+  "followerCount": 23,
+  "followedByCurrentUser": false,
+  "commentCount": 12,
+  "acceptsEngagement": true,
+  "duplicateOfPublicId": null
+}
+```
+
+Three counters read from the problem row plus two indexed existence checks — no
+`COUNT(*)`.
+
+### Support
+
+| Method | Path | Auth | Returns |
+| --- | --- | --- | --- |
+| `GET` | `/api/v1/problems/:publicId/support` | Public | `SupportState` |
+| `POST` | `/api/v1/problems/:publicId/support` | Session | `SupportState` (200) |
+| `DELETE` | `/api/v1/problems/:publicId/support` | Session | `SupportState` (200) |
+
+```json
+{ "supportCount": 128, "supportedByCurrentUser": true }
+```
+
+**Idempotent.** Supporting twice leaves one support and returns the same state;
+removing support you never gave is a no-op. Neither is an error, so a retried
+request after a network blip needs no special case.
+
+**Race-safe.** The insert is `ON CONFLICT DO NOTHING` against the
+`(problemId, userId)` unique constraint, and the counter moves by the number of
+rows actually inserted or deleted, in the same transaction. Eight simultaneous
+requests from one user produce one support — asserted by the e2e suite.
+
+The counter update does not touch the problem's `updatedAt`: support is not an
+edit to the report.
+
+### Follow
+
+Same shape and guarantees as support, on `/follow`.
+
+```json
+{ "followerCount": 24, "followedByCurrentUser": true }
+```
+
+Filing a report **follows it on the reporter's behalf**, in the same
+transaction, so Prompt 11's follower updates reach them too. They can unfollow.
+
+### `GET /api/v1/problems/:publicId/comments`
+
+**Public.** Paginated — never the whole discussion.
+
+| Parameter | Default | Notes |
+| --- | --- | --- |
+| `limit` | `20` | Bounded `1`–`50` |
+| `cursor` | — | Opaque; from `nextCursor` (or a thread's `repliesCursor`) |
+| `parentCommentId` | — | List this comment's replies instead |
+
+Without `parentCommentId`: **top-level comments, newest first**, each carrying
+its first **3** replies (oldest first), the thread's `replyCount`, and a
+`repliesCursor` when more exist. With it: that thread's replies, oldest first, so
+a thread reads as a conversation.
+
+```json
+{
+  "items": [
+    {
+      "id": "6f1c…",
+      "body": "This road becomes very dangerous after rain.",
+      "author": {
+        "id": "…",
+        "name": "piyush",
+        "avatarUrl": null,
+        "role": "CITIZEN",
+        "isReporter": true
+      },
+      "parentCommentId": null,
+      "createdAt": "2026-10-05T10:00:00.000Z",
+      "isEdited": false,
+      "isRemoved": false,
+      "canEdit": false,
+      "canDelete": false,
+      "replies": [
+        { "id": "…", "body": "Same issue near the next intersection.", "parentCommentId": "6f1c…", "…": "…" }
+      ],
+      "replyCount": 1,
+      "repliesCursor": null
+    }
+  ],
+  "nextCursor": null,
+  "commentCount": 2
+}
+```
+
+A page costs four queries however many comments it holds: the page, a
+`ROW_NUMBER()` over each thread's replies (so one busy thread cannot load
+hundreds of rows), those replies with authors, and per-thread counts. No N+1.
+
+**Author privacy.** Name (display name where set) and avatar, the role, and
+whether they filed the problem. Never the email or account state. A departed
+account's comments keep their words but read as "Former member".
+
+**`canEdit` / `canDelete`** are computed by the server for the viewer and drive
+which controls the UI shows. They are a courtesy; every write re-checks.
+
+### `POST /api/v1/problems/:publicId/comments`
+
+**Session.** Returns `201` with `CommentMutationResult`.
+
+```json
+{ "body": "Same issue near the next intersection.", "parentCommentId": "6f1c…" }
+```
+
+```json
+{ "comment": { "id": "…", "body": "…", "…": "…" }, "commentCount": 3 }
+```
+
+Validation — none of it trusts the client's own checks:
+
+| Rule | Result |
+| --- | --- |
+| `body` missing or not a string | `400` |
+| Fewer than 2 characters **after** normalisation | `400`, field `body` |
+| More than 2000 characters after normalisation | `400`, field `body` |
+| `parentCommentId` not a UUID | `400` |
+| Parent does not exist, is on another problem, or was removed | `400`, field `parentCommentId` — one message for all three |
+| Parent is itself a reply | `400` — threads are one level deep |
+
+**Normalisation** trims, normalises line endings, collapses runs of blank lines,
+and strips invisible control and bidi-override characters — so a body of only
+those is "empty". It does **not** HTML-escape: comments are stored as written
+and rendered as text, so `<script>` displays as those characters. The database
+also enforces `length(btrim(body)) BETWEEN 1 AND 2000`.
+
+### `PATCH /api/v1/problems/:publicId/comments/:commentId`
+
+**Session; author only.** `{ "body": "…" }`. Updates the same row and sets
+`isEdited`; saving unchanged text does not. Admins cannot edit others' comments
+either — removing words is moderation, rewriting them is not.
+
+### `DELETE /api/v1/problems/:publicId/comments/:commentId`
+
+**Session; the author, or a platform `ADMIN`.** Soft delete: the row keeps its
+content for moderation, and the API never returns it again. A removed top-level
+comment that still has replies stays in the listing as a placeholder
+(`isRemoved: true`, `body` and `author` null) so its replies keep their place;
+without replies it disappears. Idempotent. An admin removing someone else's
+comment writes an `AuditLog` entry (`COMMENT_REMOVED_BY_MODERATOR`).
+
+| Caller | `PATCH` | `DELETE` |
+| --- | --- | --- |
+| Anonymous | `401` | `401` |
+| The author | `200` | `200` |
+| Another user | `403` | `403` |
+| `ADMIN`, not the author | `403` | `200`, audited |
+| Any caller, comment id from another problem's path | `404` | `404` |
+| Malformed comment id | `400` | `400` |
+
+The last row is the IDOR defence: a comment is looked up scoped to the problem
+in the path, so a valid comment id cannot be used through another problem's URL.
+
+### Events for Prompt 11
+
+Each successful write publishes a typed event — `PROBLEM_SUPPORTED`,
+`PROBLEM_FOLLOWED`, `COMMENT_CREATED`, `COMMENT_REPLIED`, `COMMENT_REMOVED` —
+**after** its transaction commits, carrying the ids a notification needs
+(reporter, parent author). Nothing is delivered yet; see `ARCHITECTURE.md`.
 
 ---
 
@@ -1142,9 +1365,8 @@ Not implemented — listed so the URL surface is predictable.
 | --- | --- | --- |
 | Problems | `PATCH /problems/:id`, `DELETE /problems/:id` | Editing |
 | Search | `GET /problems/search` (full-text, then semantic) | Prompt 25 |
-| Support | `POST /problems/:id/support`, `DELETE /problems/:id/support` | Prompt 10 |
-| Comments | `GET /problems/:id/comments`, `POST /problems/:id/comments` | Prompt 10 |
-| Suggestions | `GET /problems/:id/suggestions`, `POST /problems/:id/suggestions` | Prompt 10 |
+| Suggestions | `GET /problems/:id/suggestions`, `POST /problems/:id/suggestions` | Later milestone |
+| Moderation | `POST /comments/:id/report`, a review queue | Later milestone |
 | Notifications | `GET /notifications`, `POST /notifications/read` | Prompt 11 |
 | Organisations | `GET /organizations` (directory), `POST /organizations`, `POST /organizations/:id/verify`, invitations | Organisations |
 | Allocation | `POST /problems/:id/allocate` | Government |

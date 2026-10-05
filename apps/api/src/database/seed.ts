@@ -205,9 +205,6 @@ const PROBLEMS = [
     latitude: 28.4595,
     longitude: 77.0266,
     daysAgo: 6,
-    voteCount: 342,
-    commentCount: 2,
-    followCount: 51,
   },
   {
     n: 2,
@@ -228,9 +225,6 @@ const PROBLEMS = [
     latitude: 28.4667,
     longitude: 77.0312,
     daysAgo: 2,
-    voteCount: 87,
-    commentCount: 0,
-    followCount: 12,
   },
   {
     n: 3,
@@ -251,9 +245,6 @@ const PROBLEMS = [
     latitude: 28.4603,
     longitude: 77.0248,
     daysAgo: 1,
-    voteCount: 214,
-    commentCount: 0,
-    followCount: 33,
   },
   {
     n: 4,
@@ -275,9 +266,6 @@ const PROBLEMS = [
     longitude: 77.0389,
     daysAgo: 14,
     resolvedDaysAgo: 2,
-    voteCount: 156,
-    commentCount: 0,
-    followCount: 24,
   },
   {
     n: 5,
@@ -298,9 +286,6 @@ const PROBLEMS = [
     latitude: 28.4588,
     longitude: 77.0271,
     daysAgo: 1,
-    voteCount: 498,
-    commentCount: 0,
-    followCount: 88,
   },
   {
     // Deliberately near problem 1 and in the same category, so the duplicate
@@ -323,9 +308,6 @@ const PROBLEMS = [
     latitude: 28.4597,
     longitude: 77.0269,
     daysAgo: 3,
-    voteCount: 18,
-    commentCount: 0,
-    followCount: 4,
   },
   {
     // Duplicate-detection demonstration, part 1 of 2: the same pothole as
@@ -349,9 +331,6 @@ const PROBLEMS = [
     latitude: 28.4608,
     longitude: 77.0251,
     daysAgo: 0,
-    voteCount: 5,
-    commentCount: 0,
-    followCount: 1,
   },
   {
     // Part 2 of 2: nearly the same words as problem 7, 230 km away in Jaipur.
@@ -375,9 +354,6 @@ const PROBLEMS = [
     latitude: 26.9196,
     longitude: 75.8206,
     daysAgo: 0,
-    voteCount: 3,
-    commentCount: 0,
-    followCount: 0,
   },
 ] as const;
 
@@ -609,9 +585,8 @@ async function main(): Promise<void> {
           latitude: problem.latitude,
           longitude: problem.longitude,
           locationAccuracyM: 12,
-          voteCount: problem.voteCount,
-          commentCount: problem.commentCount,
-          followCount: problem.followCount,
+          // Counters are not seeded — they are recounted from the real vote,
+          // follow and comment rows at the end of this script.
           submittedAt: reportedAt,
           resolvedAt:
             'resolvedDaysAgo' in problem
@@ -822,6 +797,38 @@ async function main(): Promise<void> {
       },
     });
     console.log('  ✓ 3 comments (one threaded reply)');
+
+    // --- Reporters follow their own reports --------------------------------
+    // Matches the reporting flow, which follows a report on behalf of its
+    // reporter when it is filed.
+    for (const problem of PROBLEMS) {
+      await prisma.problemFollow.upsert({
+        where: {
+          problemId_userId: {
+            problemId: PROBLEM_ID(problem.n),
+            userId: uid(problem.reporter),
+          },
+        },
+        update: {},
+        create: { problemId: PROBLEM_ID(problem.n), userId: uid(problem.reporter) },
+      });
+    }
+
+    // --- Counters, recounted from the rows --------------------------------
+    // Earlier seeds hand-wrote figures like "342 supporters" with no rows
+    // behind them. Now that support is a real action, an invented count is a
+    // lie the first click exposes: supporting would take 342 to 343 while one
+    // row existed. Recounting makes every figure in development true.
+    await prisma.$executeRaw`
+      UPDATE problems p
+      SET "voteCount"     = (SELECT count(*) FROM problem_votes v WHERE v."problemId" = p.id),
+          "followCount"   = (SELECT count(*) FROM problem_follows f WHERE f."problemId" = p.id),
+          "commentCount"  = (SELECT count(*) FROM problem_comments c
+                             WHERE c."problemId" = p.id AND c."deletedAt" IS NULL),
+          "lastCommentAt" = (SELECT max(c."createdAt") FROM problem_comments c
+                             WHERE c."problemId" = p.id)
+    `;
+    console.log('  ✓ engagement counters recounted from rows');
 
     // --- Suggestions: one from an organisation, one from a citizen ---------
     await prisma.problemSuggestion.upsert({

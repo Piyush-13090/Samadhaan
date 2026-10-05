@@ -6,6 +6,7 @@ import { ActivitySummary } from './activity-summary';
 const BASE: ProfileActivity = {
   problemsReported: 8,
   problemsSupported: 24,
+  problemsFollowed: 11,
   commentsPosted: 3,
   suggestionsMade: 2,
   problemsResolved: 5,

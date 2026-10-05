@@ -482,6 +482,13 @@ model Problem {
   commentCount Int @default(0)
   followCount  Int @default(0)
 
+  /// When the most recent comment was posted. Drives "recently discussed" in
+  /// community discovery: ordering problems by their latest comment would
+  /// otherwise mean aggregating every comment row on every feed request.
+  /// Maintained in the same transaction as the comment insert. Not rewound when
+  /// a comment is removed — the discussion still happened.
+  lastCommentAt DateTime? @db.Timestamptz(3)
+
   // --- Relations ----------------------------------------------------------
   images      ProblemImage[]
   aiAnalyses  ProblemAiAnalysis[]
@@ -522,6 +529,8 @@ model Problem {
   @@index([severity, urgency])
   @@index([deletedAt])
   @@index([duplicateOfId])
+  /// "Recently discussed" community discovery.
+  @@index([lastCommentAt(sort: Desc)])
   /// Radius search and clustering. GiST, because a B-tree on lat/lng cannot
   /// answer "within 2 km of here" — declared here so Prisma owns it and a
   /// later `migrate dev` does not propose dropping it.
@@ -862,7 +871,9 @@ model ProblemComment {
 
   /// Loading a problem's thread in display order.
   @@index([problemId, createdAt])
-  @@index([parentCommentId])
+  /// A thread's replies in reading order. Replaces a bare `parentCommentId`
+  /// index, which found the replies but then had to sort them.
+  @@index([parentCommentId, createdAt])
   @@index([userId, createdAt])
   @@map("problem_comments")
 }

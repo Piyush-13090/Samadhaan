@@ -150,12 +150,14 @@ export class UsersRepository {
     const [
       problemsReported,
       problemsSupported,
+      problemsFollowed,
       commentsPosted,
       suggestionsMade,
       problemsResolved,
     ] = await this.prisma.$transaction([
       this.prisma.problem.count({ where: { reporterId: userId, deletedAt: null } }),
       this.prisma.problemVote.count({ where: { userId } }),
+      this.prisma.problemFollow.count({ where: { userId } }),
       this.prisma.problemComment.count({ where: { userId, deletedAt: null } }),
       this.prisma.problemSuggestion.count({
         where: { authorId: userId, deletedAt: null },
@@ -179,6 +181,7 @@ export class UsersRepository {
     return {
       problemsReported,
       problemsSupported,
+      problemsFollowed,
       commentsPosted,
       suggestionsMade,
       problemsResolved,

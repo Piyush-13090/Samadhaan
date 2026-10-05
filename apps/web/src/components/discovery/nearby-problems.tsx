@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { Compass, MapPinOff, Plus, RotateCw } from 'lucide-react';
 import {
   DEFAULT_DISCOVERY_RADIUS_METERS,
+  type DiscoverySort,
   type ProblemCategory,
   type ProblemFeed,
   type ProblemStatus,
@@ -36,6 +37,8 @@ export function NearbyProblems({
   profileCity,
   showMap = true,
   showFilters = true,
+  showSort = false,
+  paginate = false,
   limit = 6,
   className,
 }: {
@@ -43,6 +46,10 @@ export function NearbyProblems({
   profileCity: string | null;
   showMap?: boolean;
   showFilters?: boolean;
+  /** Offers the order control. Explore does; the dashboard keeps it simple. */
+  showSort?: boolean;
+  /** Offers "Show more" using the feed's cursor. */
+  paginate?: boolean;
   limit?: number;
   className?: string;
 }) {
@@ -52,6 +59,9 @@ export function NearbyProblems({
   const [category, setCategory] = useState<ProblemCategory | 'ALL'>('ALL');
   const [status, setStatus] = useState<ProblemStatus | 'ALL'>('ALL');
   const [radiusMeters, setRadiusMeters] = useState(DEFAULT_DISCOVERY_RADIUS_METERS);
+  const [sort, setSort] = useState<DiscoverySort>('relevance');
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [loadMoreError, setLoadMoreError] = useState(false);
 
   const [feed, setFeed] = useState<ProblemFeed | null>(null);
   // Starts true because a location that is already known triggers a fetch on
@@ -63,6 +73,10 @@ export function NearbyProblems({
   const [selected, setSelected] = useState<string | null>(null);
 
   const hasOrigin = location.source !== 'none';
+  // "Nearest" is meaningless without a device fix; fall back rather than send
+  // an order the API would silently ignore.
+  const effectiveSort: DiscoverySort =
+    sort === 'distance' && location.source !== 'device' ? 'relevance' : sort;
 
   /**
    * Bumped to re-run the search without changing any filter — the Try again
@@ -88,6 +102,7 @@ export function NearbyProblems({
           radiusMeters: location.source === 'device' ? radiusMeters : undefined,
           category: category === 'ALL' ? undefined : category,
           status: status === 'ALL' ? undefined : status,
+          sort: effectiveSort === 'relevance' ? undefined : effectiveSort,
           limit,
         });
 
@@ -124,9 +139,39 @@ export function NearbyProblems({
     radiusMeters,
     category,
     status,
+    effectiveSort,
     limit,
     reloadToken,
   ]);
+
+  /** Appends the next page. The cursor carries the ranking, so pages line up. */
+  async function loadMore() {
+    if (!feed?.nextCursor || loadingMore) return;
+    setLoadingMore(true);
+    setLoadMoreError(false);
+    try {
+      const next = await fetchNearbyProblems({
+        latitude: location.latitude,
+        longitude: location.longitude,
+        city: location.source === 'city' ? location.city : undefined,
+        radiusMeters: location.source === 'device' ? radiusMeters : undefined,
+        category: category === 'ALL' ? undefined : category,
+        status: status === 'ALL' ? undefined : status,
+        sort: effectiveSort === 'relevance' ? undefined : effectiveSort,
+        limit,
+        cursor: feed.nextCursor,
+      });
+      setFeed((current) =>
+        current
+          ? { ...next, items: [...current.items, ...next.items] }
+          : next,
+      );
+    } catch {
+      setLoadMoreError(true);
+    } finally {
+      setLoadingMore(false);
+    }
+  }
 
   /**
    * Wraps a filter change so the skeleton appears immediately.
@@ -163,6 +208,8 @@ export function NearbyProblems({
           onCategoryChange={onFilterChange(setCategory)}
           onStatusChange={onFilterChange(setStatus)}
           onRadiusChange={onFilterChange(setRadiusMeters)}
+          sort={showSort ? effectiveSort : undefined}
+          onSortChange={showSort ? onFilterChange(setSort) : undefined}
         />
       )}
 
@@ -281,6 +328,24 @@ export function NearbyProblems({
               </li>
             ))}
           </ul>
+
+          {paginate && feed.nextCursor && (
+            <div className="flex flex-col items-center gap-2">
+              <Button
+                variant="secondary"
+                size="sm"
+                loading={loadingMore}
+                onClick={() => void loadMore()}
+              >
+                Show more problems
+              </Button>
+              {loadMoreError && (
+                <p role="alert" className="type-caption text-danger">
+                  Couldn&rsquo;t load more. Please try again.
+                </p>
+              )}
+            </div>
+          )}
         </div>
       ) : null}
     </div>

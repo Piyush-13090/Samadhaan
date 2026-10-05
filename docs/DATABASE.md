@@ -414,6 +414,8 @@ workflows that need it — allocation, verification, role changes.
 20260912144258_core_domain_model         Problem and its satellites
 20260912144900_problem_public_id_default Aligns the sequence default with the schema
 20260913080353_profiles_and_expertise    Profile fields, OrganizationExpertise
+20260913120000_embedding_dimension_384   Embedding width matches the text encoder
+20261006090000_community_engagement      lastCommentAt, reply index, comment CHECKs (§14f)
 ```
 
 > The profiles migration is a worked example of the HNSW caveat below: Prisma
@@ -473,9 +475,15 @@ npm run db:seed
 ```
 
 Creates 8 users (one per role plus extra citizens), 4 organisations, 5
-memberships, 6 problems, 6 images, 4 AI analyses, 9 votes, 4 follows, 3 comments
-including a threaded reply, 2 suggestions, 1 duplicate candidate and 2 audit
-entries.
+memberships, 8 problems, 6 images, 4 AI analyses, 9 votes, follows (each
+reporter on their own report, plus supporters), 3 comments including a threaded
+reply, 2 suggestions and 2 audit entries.
+
+**Counters are recounted, never invented.** `voteCount`, `followCount`,
+`commentCount` and `lastCommentAt` are computed from the real rows at the end of
+the seed. Earlier seeds hand-wrote figures such as 342 supporters with no rows
+behind them; once support became a real action, the first click exposed that
+(342 → 343 with one row present).
 
 **Deterministic and idempotent.** Dates derive from a fixed epoch and new rows
 get fixed UUIDs, so a clean database always ends up identical. Accounts are
@@ -696,10 +704,43 @@ The problem and its `ProblemImage` rows are written in one transaction.
 
 ---
 
+## 14f. Community engagement
+
+Prompt 10 reuses `ProblemVote`, `ProblemFollow` and `ProblemComment` as they
+were modelled in Prompt 4 — no community tables were added. Migration
+`20261006090000_community_engagement` adds only what the feature needed:
+
+| Change | Why |
+| --- | --- |
+| `problems."lastCommentAt"` + descending index | "Recently discussed" without aggregating every comment on every feed request. Set in the comment-insert transaction; backfilled. |
+| `problem_comments (parentCommentId, createdAt)` replaces `(parentCommentId)` | Replies are always read in order per thread; the composite answers that directly. |
+| `CHECK (length(btrim(body)) BETWEEN 1 AND 2000)` | The API's length rule, held by the database too. |
+| `CHECK (parentCommentId <> id)` | A comment cannot be its own parent. |
+
+Unchanged and relied upon: `@@unique([problemId, userId])` on votes and follows
+(the concurrency guarantee), `(problemId, createdAt)` and `(userId, createdAt)`
+on comments, and the `problems_counts_non_negative` CHECK, which makes a counter
+bug fail loudly rather than display a negative number.
+
+**Counter maintenance.** `voteCount`, `followCount` and `commentCount` move in
+the same transaction as the row that justifies them, by the number of rows
+actually inserted, deleted or soft-deleted, using `SET x = x + n` (atomic under
+the row lock, and leaves `updatedAt` alone). `commentCount` counts comments that
+have not been removed.
+
+**One level of replies** is enforced in the service, not the schema — the
+adjacency list could hold deeper trees, and refusing them at write time keeps
+that possible later without a migration.
+
+Applied with `migrate deploy` rather than `migrate dev`: the HNSW index (§13)
+reads as drift to `migrate dev`, which then proposes resetting the database.
+
+---
+
 ## 15. Planned, not yet modelled
 
 Resolution rooms, progress updates, completion evidence, impact-point ledger,
-notifications, organisation↔problem allocation. Each attaches to `Problem`
+notifications, organisation↔problem allocation, comment reports for moderation. Each attaches to `Problem`
 through its own table.
 
 Also deliberately absent: **organisation invitations** (no email infrastructure

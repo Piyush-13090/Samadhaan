@@ -3,7 +3,7 @@ import { APP_FILTER, APP_INTERCEPTOR } from '@nestjs/core';
 import { LoggerModule } from 'nestjs-pino';
 import { AiModule } from './ai/ai.module.js';
 import { AuthModule } from './auth/auth.module.js';
-import { CommentsModule } from './comments/comments.module.js';
+import { CommunityModule } from './community/community.module.js';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter.js';
 import { ResponseInterceptor } from './common/interceptors/response.interceptor.js';
 import { createLoggerConfig } from './common/logger/logger.config.js';
@@ -56,7 +56,7 @@ import { UsersModule } from './users/users.module.js';
     ProblemsModule,
     DashboardModule,
     OrganizationsModule,
-    CommentsModule,
+    CommunityModule,
     SuggestionsModule,
     NotificationsModule,
   ],
