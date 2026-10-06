@@ -167,6 +167,66 @@ export class AppConfig {
     };
   }
 
+  get rag(): RagConfig {
+    return {
+      enabled: this.get('RAG_ENABLED'),
+      topK: this.get('RAG_TOP_K'),
+      candidates: this.get('RAG_CANDIDATES'),
+      similarityThreshold: this.get('RAG_SIMILARITY_THRESHOLD'),
+      weakSemantic: this.get('RAG_WEAK_SEMANTIC'),
+      rerankEnabled: this.get('RAG_RERANK_ENABLED'),
+      rerankTopK: this.get('RAG_RERANK_TOP_K'),
+      weights: {
+        semantic: this.get('RAG_WEIGHT_SEMANTIC'),
+        keyword: this.get('RAG_WEIGHT_KEYWORD'),
+        source: this.get('RAG_WEIGHT_SOURCE'),
+        context: this.get('RAG_WEIGHT_CONTEXT'),
+        recency: this.get('RAG_WEIGHT_RECENCY'),
+      },
+      maxPassageChars: this.get('RAG_MAX_PASSAGE_CHARS'),
+      chunk: {
+        maxTokens: this.get('RAG_CHUNK_MAX_TOKENS'),
+        overlapTokens: this.get('RAG_CHUNK_OVERLAP_TOKENS'),
+        maxChunks: this.get('RAG_MAX_CHUNKS_PER_SOURCE'),
+      },
+      queryCacheSeconds: this.get('RAG_QUERY_CACHE_SECONDS'),
+      coordinatorTopK: this.get('RAG_COORDINATOR_TOP_K'),
+      // No background ingestion sweep in tests: suites drive ingestion directly.
+      sweepOnStartup: this.nodeEnv !== 'test',
+    };
+  }
+
+  get coordinator(): CoordinatorConfig {
+    return {
+      // The background check never runs in tests; refreshes are explicit there.
+      enabled: this.get('COORDINATOR_ENABLED'),
+      scheduleEnabled: this.get('COORDINATOR_ENABLED') && this.nodeEnv !== 'test',
+      scheduleMinutes: this.get('COORDINATOR_SCHEDULE_MINUTES'),
+      minIntervalHours: this.get('COORDINATOR_MIN_INTERVAL_HOURS'),
+      batchSize: this.get('COORDINATOR_BATCH_SIZE'),
+      insightTtlHours: this.get('COORDINATOR_INSIGHT_TTL_HOURS'),
+      refreshCooldownSeconds: this.get('COORDINATOR_REFRESH_COOLDOWN_SECONDS'),
+      limits: {
+        messages: this.get('COORDINATOR_MAX_MESSAGES'),
+        events: this.get('COORDINATOR_MAX_EVENTS'),
+        completedTasks: this.get('COORDINATOR_MAX_COMPLETED_TASKS'),
+        updates: this.get('COORDINATOR_MAX_UPDATES'),
+        answeredQuestions: this.get('COORDINATOR_MAX_ANSWERED_QUESTIONS'),
+      },
+      health: {
+        inactivityDays: this.get('COORDINATOR_INACTIVITY_DAYS'),
+        deadlineWindowDays: this.get('COORDINATOR_DEADLINE_WINDOW_DAYS'),
+        atRiskOverdueTasks: this.get('COORDINATOR_AT_RISK_OVERDUE_TASKS'),
+        blockingPriorities: this.get('COORDINATOR_BLOCKING_PRIORITIES'),
+      },
+      questions: {
+        maxOpen: this.get('COORDINATOR_MAX_OPEN_QUESTIONS'),
+        cooldownDays: this.get('COORDINATOR_QUESTION_COOLDOWN_DAYS'),
+        expiryDays: this.get('COORDINATOR_QUESTION_EXPIRY_DAYS'),
+      },
+    };
+  }
+
   get duplicateDetection(): DuplicateDetectionConfig {
     return {
       geoRadiusMeters: this.get('DUPLICATE_GEO_RADIUS_METERS'),
@@ -231,6 +291,56 @@ export interface GeocodingConfig {
   userAgent: string;
   countryCodes: string[];
   timeoutMs: number;
+}
+
+export interface RagWeights {
+  semantic: number;
+  keyword: number;
+  source: number;
+  context: number;
+  recency: number;
+}
+
+export interface RagConfig {
+  enabled: boolean;
+  topK: number;
+  candidates: number;
+  similarityThreshold: number;
+  weakSemantic: number;
+  rerankEnabled: boolean;
+  rerankTopK: number;
+  weights: RagWeights;
+  maxPassageChars: number;
+  chunk: { maxTokens: number; overlapTokens: number; maxChunks: number };
+  queryCacheSeconds: number;
+  coordinatorTopK: number;
+  sweepOnStartup: boolean;
+}
+
+export interface CoordinatorHealthThresholds {
+  inactivityDays: number;
+  deadlineWindowDays: number;
+  atRiskOverdueTasks: number;
+  blockingPriorities: string[];
+}
+
+export interface CoordinatorConfig {
+  enabled: boolean;
+  scheduleEnabled: boolean;
+  scheduleMinutes: number;
+  minIntervalHours: number;
+  batchSize: number;
+  insightTtlHours: number;
+  refreshCooldownSeconds: number;
+  limits: {
+    messages: number;
+    events: number;
+    completedTasks: number;
+    updates: number;
+    answeredQuestions: number;
+  };
+  health: CoordinatorHealthThresholds;
+  questions: { maxOpen: number; cooldownDays: number; expiryDays: number };
 }
 
 export interface MatchingConfig {

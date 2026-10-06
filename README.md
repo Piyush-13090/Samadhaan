@@ -416,13 +416,70 @@ together.
   - In-app notifications, audit entries, dashboard counts, and a public
     "Government-assigned" card.
   - See [`docs/ALLOCATION.md`](./docs/ALLOCATION.md).
+- **Resolution rooms**:
+  - A private room opens in the same transaction as an organisation accepting
+    an allocation.
+  - Access is derived from membership: the allocating office (with its
+    jurisdiction) and the assigned organisation, and nobody else.
+  - Plain-text messages with mentions, edit and delete of your own messages
+    (soft delete), keyset pagination and unread state.
+  - Byte-verified image and PDF attachments, served only to participants.
+  - A system activity timeline, and quiet notifications.
+  - Realtime over Server-Sent Events, with Redis fan-out and a polling
+    fallback.
+  - Closure by the office.
+  - See [`docs/RESOLUTION_ROOMS.md`](./docs/RESOLUTION_ROOMS.md).
+- **Project management**:
+  - Every accepted allocation gets a resolution project, created in the same
+    transaction as its room.
+  - A project lifecycle (planned, active, paused, completed, cancelled) and a
+    task lifecycle with assignment to the organisation's members only.
+  - Milestones whose status is derived from dates and tasks.
+  - Progress counted from tasks, never typed in, and overdue from dates.
+  - A board and a table view, server-side filters, and optimistic
+    concurrency.
+  - Structured activity, quiet notifications, and due-soon reminders.
+  - Government oversight without planning rights.
+  - See [`docs/PROJECT_MANAGEMENT.md`](./docs/PROJECT_MANAGEMENT.md).
+- **AI Project Coordinator**:
+  - Project health from a deterministic, configurable rule engine, computed
+    live.
+  - On top of it, cached LLM insights: a summary, risks, potential blockers
+    noticed in messages, suggestions and context-aware questions.
+  - Every AI finding cites the real task, message or event it rests on.
+    Anything ungrounded is dropped, and health can only worsen, by one level,
+    with evidence.
+  - Questions are de-duplicated, with an answer flow. Structured progress
+    updates can be drafted by AI and are saved only when a person confirms
+    them.
+  - Model and prompt versions are stored, with freshness and staleness, rate
+    limits, a background check, and quiet notifications.
+  - Strictly advisory: it never changes the project. Locally,
+    `LLM_PROVIDER=development` runs no model and says so.
+  - See [`docs/AI_PROJECT_COORDINATOR.md`](./docs/AI_PROJECT_COORDINATOR.md).
+- **Knowledge & RAG** ("Ask Civic Knowledge"):
+  - Sources are civic guidelines, policies, and organisation and project
+    documents, as PDF, text, Markdown or HTML, or pasted text.
+  - Each source is chunked by heading and paragraph and embedded with the
+    real sentence-transformers model into pgvector (HNSW), in the background,
+    with status and retry.
+  - Hybrid retrieval combines vector and full-text search under an access
+    predicate **in SQL**: public, government-office, organisation, project and
+    private scopes. Restricted passages never reach a model.
+  - Answers come only from cited evidence; every [E1] opens the exact
+    passage. There is an explicit "not enough information" path, and
+    suggestions are labelled separately.
+  - Prompt-injection defences, versioned evaluation records, and no content
+    in logs.
+  - The AI Project Coordinator can cite public and project guidance.
+  - See [`docs/RAG_ARCHITECTURE.md`](./docs/RAG_ARCHITECTURE.md).
 - Monorepo with npm workspaces and a shared types package; health probes;
   Docker Compose for PostgreSQL (PostGIS, pgvector, pg_trgm) and Redis
-- Tests: 316 API unit, 483 API e2e, 354 web unit, 86 AI service
+- Tests: 367 API unit, 612 API e2e, 418 web unit, 128 AI service
 
 ### Not implemented
 
-Organisation applications, resolution rooms and projects, AI project coordination, RAG, the AI priority
+Organisation applications, project budgets, the AI priority
 engine, resolution verification, impact points and leaderboard, advanced
 analytics.
 
@@ -445,7 +502,7 @@ shows real probes against real services.
 | Community | Support, comments, suggestions, endorsement |
 | Organisations | Workspace, team, discovery, AI matching baseline (done); verification workflow, a trained matching model |
 | Government | Review portal, jurisdiction and allocation (done); priority prediction |
-| Resolution rooms | Collaboration workspace, AI Project Coordinator, progress extraction |
+| Resolution rooms | Collaboration workspace, project management and AI Project Coordinator, knowledge retrieval (RAG) (done) |
 | Verification | Completion evidence, AI-assisted verification, closure |
 | Impact | Impact Points, leaderboard, analytics |
 
@@ -465,6 +522,12 @@ Details: [`docs/PRODUCT.md`](./docs/PRODUCT.md) and [`docs/ML_PLAN.md`](./docs/M
 | [`docs/ML_DUPLICATE_DETECTION.md`](./docs/ML_DUPLICATE_DETECTION.md) | Duplicate detection: retrieval, signals, thresholds |
 | [`docs/GOVERNMENT_PORTAL.md`](./docs/GOVERNMENT_PORTAL.md) | Government access, jurisdiction, review, notes, audit |
 | [`docs/ALLOCATION.md`](./docs/ALLOCATION.md) | Government allocation: state machine, authorisation, races, privacy |
+| [`docs/RESOLUTION_ROOMS.md`](./docs/RESOLUTION_ROOMS.md) | Resolution rooms: lifecycle, access, messages, attachments, realtime, privacy |
+| [`docs/PROJECT_MANAGEMENT.md`](./docs/PROJECT_MANAGEMENT.md) | Resolution projects: lifecycles, tasks, milestones, progress, permissions |
+| [`docs/AI_PROJECT_COORDINATOR.md`](./docs/AI_PROJECT_COORDINATOR.md) | AI Project Coordinator: health engine, grounding, questions, updates, privacy |
+| [`docs/RAG_ARCHITECTURE.md`](./docs/RAG_ARCHITECTURE.md) | Knowledge & RAG: ingestion, hybrid retrieval, answering, coordinator integration |
+| [`docs/KNOWLEDGE_MODEL.md`](./docs/KNOWLEDGE_MODEL.md) | Knowledge sources, documents, chunks, answers; visibility scopes; lifecycle |
+| [`docs/RAG_SECURITY.md`](./docs/RAG_SECURITY.md) | RAG access control in SQL, prompt-injection defence, uploads, logging, caching |
 | [`docs/ML_ORGANIZATION_MATCHING.md`](./docs/ML_ORGANIZATION_MATCHING.md) | Organisation matching: baseline, signals, weights, fairness, evaluation |
 
 ## Troubleshooting

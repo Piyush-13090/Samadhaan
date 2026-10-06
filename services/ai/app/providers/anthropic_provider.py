@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 import anthropic
 
 from app.core.logging import get_logger
-from app.providers.base import ProviderError, ProviderInfo, VisionLanguageProvider
+from app.providers.base import ProviderError, ProviderInfo, T, VisionLanguageProvider
 from app.schemas.analysis import AnalysisImage, ModelAnalysis
 
 logger = get_logger(__name__)
@@ -139,6 +141,69 @@ class AnthropicVisionProvider(VisionLanguageProvider):
             )
 
         return parsed
+
+    async def generate(
+        self,
+        *,
+        system_prompt: str,
+        user_message: str,
+        output_type: type[T],
+        development_fallback: Callable[[], T] | None = None,
+        max_tokens: int = 2048,
+    ) -> T:
+        """Constrained structured output for a text-only task (Prompt 19)."""
+        try:
+            response = await self._client.messages.parse(
+                model=self._model,
+                max_tokens=max_tokens,
+                system=system_prompt,
+                messages=[{"role": "user", "content": user_message}],
+                output_format=output_type,
+            )
+        except anthropic.AuthenticationError as error:
+            raise ProviderError(
+                "PROVIDER_UNAVAILABLE", "The AI provider rejected our credentials.", retryable=False
+            ) from error
+        except anthropic.PermissionDeniedError as error:
+            raise ProviderError(
+                "PROVIDER_UNAVAILABLE",
+                "The AI provider denied access to this model.",
+                retryable=False,
+            ) from error
+        except anthropic.RateLimitError as error:
+            raise ProviderError(
+                "PROVIDER_ERROR", "The AI provider is rate limiting requests.", retryable=True
+            ) from error
+        except anthropic.APITimeoutError as error:
+            raise ProviderError(
+                "TIMEOUT", "The AI provider took too long to respond.", retryable=True
+            ) from error
+        except anthropic.APIConnectionError as error:
+            raise ProviderError(
+                "PROVIDER_ERROR", "Could not reach the AI provider.", retryable=True
+            ) from error
+        except anthropic.BadRequestError as error:
+            raise ProviderError(
+                "PROVIDER_ERROR", "The AI provider rejected the request.", retryable=False
+            ) from error
+        except anthropic.APIStatusError as error:
+            raise ProviderError(
+                "PROVIDER_ERROR",
+                "The AI provider returned an error.",
+                retryable=error.status_code >= 500,
+            ) from error
+
+        if response.stop_reason == "refusal":
+            raise ProviderError(
+                "PROVIDER_ERROR", "The AI model declined this request.", retryable=False
+            )
+        if response.parsed_output is None:
+            raise ProviderError(
+                "INVALID_MODEL_OUTPUT",
+                "The AI model returned an unusable response.",
+                retryable=True,
+            )
+        return response.parsed_output
 
 
 __all__ = ["AnthropicVisionProvider"]

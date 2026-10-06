@@ -83,6 +83,8 @@ export function governmentDashboard(
       pendingAllocations: 3,
       acceptedAllocations: 9,
       declinedAllocations: 2,
+      openRooms: 4,
+      activeProjects: 2,
     },
     trend: {
       rangeDays: 7,
@@ -93,6 +95,7 @@ export function governmentDashboard(
       })),
     },
     reviewQueue: [queueItem()],
+    projects: [],
     recentActivity: [
       {
         id: 'a1',
@@ -226,6 +229,7 @@ export function governmentAllocation(
     declinedAt: null,
     cancelledAt: null,
     ownedByThisOffice: true,
+    roomId: null,
     ...overrides,
   };
 }

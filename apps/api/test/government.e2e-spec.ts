@@ -469,6 +469,8 @@ describe('Government portal (e2e)', () => {
         pendingAllocations: 0,
         acceptedAllocations: 0,
         declinedAllocations: 0,
+        openRooms: 0,
+        activeProjects: 0,
       });
       expect(body.trend.rangeDays).toBe(7);
       expect(body.trend.points).toHaveLength(7);

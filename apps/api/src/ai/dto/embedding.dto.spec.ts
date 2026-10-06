@@ -127,7 +127,10 @@ describe('parseEmbeddingResponse', () => {
     const broken = vector();
     broken[3] = Number.NaN;
     expect(
-      parseEmbeddingResponse(response({ embeddings: [{ index: 0, embedding: broken }] }), 1),
+      parseEmbeddingResponse(
+        response({ embeddings: [{ index: 0, embedding: broken }] }),
+        1,
+      ),
     ).toBeNull();
 
     const infinite = vector();
@@ -144,7 +147,10 @@ describe('parseEmbeddingResponse', () => {
     const broken: unknown[] = vector();
     broken[3] = '0.5';
     expect(
-      parseEmbeddingResponse(response({ embeddings: [{ index: 0, embedding: broken }] }), 1),
+      parseEmbeddingResponse(
+        response({ embeddings: [{ index: 0, embedding: broken }] }),
+        1,
+      ),
     ).toBeNull();
   });
 
@@ -170,17 +176,17 @@ describe('parseEmbeddingResponse', () => {
 
   // Anything but an explicit `true` means "do not assume unit length".
   it('treats a missing normalized flag as false', () => {
-    expect(parseEmbeddingResponse(response({ normalized: undefined }), 1)?.normalized).toBe(
-      false,
-    );
+    expect(
+      parseEmbeddingResponse(response({ normalized: undefined }), 1)?.normalized,
+    ).toBe(false);
     expect(parseEmbeddingResponse(response({ normalized: 'yes' }), 1)?.normalized).toBe(
       false,
     );
   });
 
   it('defaults an unusable processing time to zero rather than failing', () => {
-    expect(parseEmbeddingResponse(response({ processing_ms: 'fast' }), 1)?.processingMs).toBe(
-      0,
-    );
+    expect(
+      parseEmbeddingResponse(response({ processing_ms: 'fast' }), 1)?.processingMs,
+    ).toBe(0);
   });
 });

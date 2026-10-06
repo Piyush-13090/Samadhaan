@@ -260,34 +260,71 @@ carry the weight until it builds one.
 
 ---
 
-## 10. RAG
+## 10. RAG — **implemented** (baseline)
 
-Ground answers about civic procedures, similar past resolutions and applicable
-regulations in retrieved documents.
+Answers about civic procedures and project documents are grounded in retrieved
+passages, with citations to real chunks (Prompt 20). Design:
+[`RAG_ARCHITECTURE.md`](./RAG_ARCHITECTURE.md).
 
-**Approach.** A document store of municipal procedures, resolved-problem
-histories and relevant regulation; chunked, embedded into pgvector, retrieved by
-hybrid search (vector plus `pg_trgm` keyword), and passed to an LLM with a
-strict instruction to answer only from the retrieved context.
+**What exists.**
+
+- **Ingestion.** Heading- and paragraph-aware chunking (`paragraph-v1`) of
+  PDF, text, Markdown and HTML. The chunks are embedded with the existing
+  `all-MiniLM-L6-v2` (384 dimensions) into pgvector, with an HNSW index.
+- **Hybrid retrieval.** Vector search plus PostgreSQL full-text search, both
+  under an access predicate in SQL. The baseline score combines semantic
+  0.60, keyword 0.15, source 0.10, context 0.10 and recency 0.05; it is
+  configurable and not learned.
+- **Re-ranking.** A similarity threshold, then MMR diversity re-ranking.
+- **Generation.** An evidence-only prompt with an explicit
+  insufficient-evidence path. Citations are validated in both services.
+- **Reproducibility.** Every answer records the model, prompt, embedding and
+  retrieval versions, the chunk ids and the scores.
 
 **Answers cite their sources.** In a civic context an uncited answer is unusable
 — an official needs to see the regulation, not be told about it.
+
+**Next, when there is data:**
+
+- tune the weights against labelled question–passage pairs;
+- add a cross-encoder or learned re-ranker;
+- measure answer faithfulness from `knowledge_answers`;
+- use multilingual embeddings for Hindi and Marathi sources;
+- add OCR for scanned PDFs.
 
 Uses the same PostgreSQL + pgvector instance; a dedicated vector database is not
 warranted at this scale.
 
 ---
 
-## 11. AI Project Coordinator
+## 11. AI Project Coordinator — **implemented** (baseline)
 
-Keep resolution rooms moving: request progress on schedule, and convert free-text
-replies into structured milestone updates.
+Keep resolution projects moving: say what is happening and what needs
+attention, ask the team the right questions, and turn free-text progress notes
+into structured updates. See [`AI_PROJECT_COORDINATOR.md`](./AI_PROJECT_COORDINATOR.md).
 
-**Approach.** A scheduled job (Redis-backed queue) prompts for updates based on
-milestone dates and silence. Replies go through LLM structured extraction —
-percentage complete, blockers, revised dates — stored **alongside** the original
-text, never replacing it. The organisation confirms the extraction; it is a
-draft, not a fact.
+**What exists (Prompt 19):**
+- **Deterministic health engine first.** Overdue and blocked tasks, missed
+  milestones, the target date and inactivity, under configurable thresholds.
+  It is computed live.
+- **Then LLM interpretation.** The model receives a bounded, ref-labelled
+  context and returns a summary, risks, potential blockers (from messages),
+  suggestions and questions, through constrained decoding.
+- **Grounding.** Every finding must cite refs from the context, or it is
+  dropped; health can only worsen, by one level, with evidence.
+- **Persistence.** Insights carry the model, version and prompt version, a TTL
+  and staleness. Questions are fingerprinted and de-duplicated.
+- **Update drafts** need human confirmation; there is no percentage
+  complete — progress stays arithmetic (Prompt 18).
+- **No model locally.** With `LLM_PROVIDER=development` the outputs are
+  deterministic restatements, clearly labelled.
+
+**Next:**
+- An offline evaluation set: did the questions surface real blockers, and did
+  the drafts match what people posted?
+- Retrieval context from Prompt 20.
+- Prompt tuning from the `droppedItems` and question-answer rates now
+  recorded.
 
 This is the clearest case of AI reducing coordination overhead rather than making
 decisions.

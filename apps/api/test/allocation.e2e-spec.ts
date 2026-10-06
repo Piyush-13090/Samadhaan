@@ -222,6 +222,15 @@ describe('Government allocation (e2e)', () => {
     await prisma.notification.deleteMany({
       where: { entityId: { in: [...ids, ...allocations.map((row) => row.id)] } },
     });
+    const rooms = await prisma.resolutionRoom.findMany({
+      where: { problemId: { in: ids } },
+      select: { id: true },
+    });
+    await deleteAuditLogs(prisma, {
+      entityType: 'ResolutionRoom',
+      entityId: { in: rooms.map((room) => room.id) },
+    });
+    await prisma.resolutionRoom.deleteMany({ where: { problemId: { in: ids } } });
     await prisma.problemAllocation.deleteMany({ where: { problemId: { in: ids } } });
     await deleteAuditLogs(prisma, { entityType: 'Problem', entityId: { in: ids } });
     await prisma.problem.deleteMany({ where: { id: { in: ids } } });

@@ -112,8 +112,101 @@ export class NotificationEventHandler implements OnModuleInit, OnModuleDestroy {
         return { allocationRecipientIds: officials.map((member) => member.userId) };
       }
 
+      case 'RESOLUTION_MESSAGE_POSTED':
+      case 'RESOLUTION_ROOM_CLOSED':
+      case 'PROJECT_MILESTONE_COMPLETED':
+      case 'PROJECT_STATUS_CHANGED':
+        return {
+          roomParticipants: await roomParticipantFacts(this.prisma, event.roomId),
+        };
+
+      case 'COORDINATOR_ALERT':
+      case 'COORDINATOR_QUESTIONS_ASKED':
+        return {
+          coordinatorRecipientIds: await coordinatorRecipientFacts(
+            this.prisma,
+            event.projectId,
+            event.type === 'COORDINATOR_QUESTIONS_ASKED' ? event.assigneeIds : [],
+          ),
+        };
+
       default:
         return {};
     }
   }
+}
+
+/**
+ * A room's current participants and their read markers. The same rule as
+ * room access: ACTIVE members of the assigned organisation, and ACTIVE
+ * members of the allocating office whose platform role is GOVERNMENT.
+ */
+async function roomParticipantFacts(
+  prisma: PrismaService,
+  roomId: string,
+): Promise<Array<{ userId: string; lastReadAt: string | null }>> {
+  const room = await prisma.resolutionRoom.findUnique({
+    where: { id: roomId },
+    select: { governmentOrganizationId: true, assignedOrganizationId: true },
+  });
+  if (!room) return [];
+  const [members, reads] = await Promise.all([
+    prisma.organizationMember.findMany({
+      where: {
+        status: 'ACTIVE',
+        user: { deletedAt: null },
+        OR: [
+          { organizationId: room.assignedOrganizationId },
+          { organizationId: room.governmentOrganizationId, user: { role: 'GOVERNMENT' } },
+        ],
+      },
+      select: { userId: true },
+    }),
+    prisma.resolutionRoomRead.findMany({
+      where: { roomId },
+      select: { userId: true, lastReadAt: true },
+    }),
+  ]);
+  const readBy = new Map(reads.map((read) => [read.userId, read.lastReadAt]));
+  const ids = [...new Set(members.map((member) => member.userId))];
+  return ids.map((userId) => ({
+    userId,
+    lastReadAt: readBy.get(userId)?.toISOString() ?? null,
+  }));
+}
+
+/**
+ * A project's coordinators: the assigned organisation's active OWNER/ADMIN,
+ * the allocating office's active officials, and any of the given assignees who
+ * are still active members of the assigned organisation.
+ */
+async function coordinatorRecipientFacts(
+  prisma: PrismaService,
+  projectId: string,
+  assigneeIds: string[],
+): Promise<string[]> {
+  const project = await prisma.resolutionProject.findUnique({
+    where: { id: projectId },
+    select: { assignedOrganizationId: true, governmentOrganizationId: true },
+  });
+  if (!project) return [];
+  const members = await prisma.organizationMember.findMany({
+    where: {
+      status: 'ACTIVE',
+      user: { deletedAt: null },
+      OR: [
+        {
+          organizationId: project.assignedOrganizationId,
+          membershipRole: { in: ['OWNER', 'ADMIN'] },
+        },
+        { organizationId: project.assignedOrganizationId, userId: { in: assigneeIds } },
+        {
+          organizationId: project.governmentOrganizationId,
+          user: { role: 'GOVERNMENT' },
+        },
+      ],
+    },
+    select: { userId: true },
+  });
+  return [...new Set(members.map((member) => member.userId))];
 }

@@ -6,6 +6,7 @@ import {
   Heart,
   Landmark,
   MapPin,
+  MessagesSquare,
   XCircle,
 } from 'lucide-react';
 import Link from 'next/link';
@@ -27,6 +28,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/components/ui/toast';
 import { DECLINE_REASON_EXAMPLES, allocationPath } from '@/lib/allocation';
 import { ApiError } from '@/lib/api-error';
+import { roomPath } from '@/lib/resolution';
 import { formatDateTime, formatNumber } from '@/lib/format';
 import { acceptAllocation, declineAllocation } from '@/services/allocation.service';
 import { AllocationStatusBadge } from './allocation-status-badge';
@@ -197,6 +199,22 @@ export function OrganizationAllocationDetail({
                     request.
                   </p>
                 ))}
+
+              {allocation.status === 'ACCEPTED' && allocation.roomId && (
+                <div className="flex flex-wrap items-center justify-between gap-3 rounded-control border border-success-border bg-success-soft/50 px-4 py-3">
+                  <p className="type-body-sm text-ink">
+                    Work with {allocation.government.name} in the private resolution room.
+                  </p>
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    leadingIcon={<MessagesSquare />}
+                    asChild
+                  >
+                    <Link href={roomPath(allocation.roomId)}>Open Resolution Room</Link>
+                  </Button>
+                </div>
+              )}
 
               {allocation.responseNote && (
                 <div>

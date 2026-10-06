@@ -1548,6 +1548,178 @@ The public viewport parameters, plus `status` (any but DRAFT), `severity`,
 
 ---
 
+## Knowledge & RAG (Prompt 20)
+
+Retrieval-augmented answers over civic knowledge. Design:
+[`RAG_ARCHITECTURE.md`](./RAG_ARCHITECTURE.md),
+[`KNOWLEDGE_MODEL.md`](./KNOWLEDGE_MODEL.md),
+[`RAG_SECURITY.md`](./RAG_SECURITY.md).
+
+- **Access.** Every endpoint requires a session. Lists, sources, passages,
+  files and answers are filtered **in SQL** to what the caller may read. A
+  source, problem or project the caller cannot see is `404`, exactly as if
+  it did not exist.
+- **Evidence, not authority.** No endpoint verifies, allocates or changes a
+  project.
+
+| Method | Path | Who | Notes |
+| --- | --- | --- | --- |
+| POST | `/knowledge/query` | Signed in | `{ query (3–1000), contextType?: 'GENERAL' \| 'PROBLEM' \| 'PROJECT', problemId? (SAM-…), projectId?, topK? (1–12), mode?: 'answer' \| 'retrieve' }` → `KnowledgeAnswerView`: `answer`, `insufficientEvidence`, `weakRetrieval`, `suggestions` (labelled as the model's), `sources[]` (`ref`, `sourceId`, `documentId`, `chunkId`, `title`, `sourceType`, `sectionTitle`, `pageNumber`, `relevanceScore`, `excerpt`, `href`, `cited`), `model`, `retrieval` versions. No passages → "does not contain enough information" with **no model call**. `404` for a problem or project you cannot see; `503` when retrieval or the model is unavailable (recorded as FAILED). 20 per minute |
+| GET | `/knowledge/authoring` | Signed in | The visibilities the caller may publish to, with the offices, organisations and projects for each |
+| GET | `/knowledge/sources?page&limit&q&status&sourceType&manageable&projectId` | Signed in | `KnowledgeSourcePage` of readable sources. PROJECT sources appear only with a `projectId` the caller participates in |
+| POST | `/knowledge/sources` | See `KNOWLEDGE_MODEL.md` §3 | `{ title, description?, sourceType, visibility, organizationId?, projectId?, externalUrl?, content?, categories?, city? }` → `201`; indexing is queued when `content` is given. `403` for a scope you may not publish to; ownership and pipeline fields are rejected (`400`). 30 per 10 min |
+| GET | `/knowledge/sources/:id` | Readers | `KnowledgeSourceView`, including `status`, `failureMessage`, `chunkCount`, embedding and chunker versions, and `permissions` |
+| GET | `/knowledge/sources/:id/chunks` | Readers | Every passage, in order (`id`, `chunkIndex`, `content`, `sectionTitle`, `pageNumber`, `tokenCount`). Never embeddings |
+| PATCH | `/knowledge/sources/:id` | Managers | `{ title?, description?, sourceType?, categories?, city?, externalUrl?, content? }`; new `content` re-indexes. Visibility and owner are immutable |
+| DELETE | `/knowledge/sources/:id` | Managers | `204`; documents, chunks and the stored file are removed; audited |
+| POST | `/knowledge/sources/:id/ingest` | Managers | Re-index or retry → `202`. `409` while processing. 10 per 10 min |
+| POST | `/knowledge/sources/:id/file` | Managers | Multipart `file` (PDF, text, Markdown or HTML; ≤ 10 MB; type checked from the bytes) → `202`, queued. 10 per 10 min |
+| GET | `/knowledge/sources/:id/file` | Readers | The original, as an attachment with `nosniff` and `CSP: sandbox`; HTML as `text/plain` |
+
+**Also changed:**
+- `/media/knowledge/…` is refused (`404`).
+- Coordinator findings may cite `{ kind: 'knowledge' }` sources.
+- **AI service (internal, token-guarded):**
+  - `POST /knowledge/chunk`: `{ text | file_base64, mime_type?, max_tokens, overlap_tokens, min_tokens, max_chunks }`
+    → chunks with section, page and content hash. `422` for unreadable
+    documents.
+  - `POST /knowledge/answer`: `{ question, application_context[], evidence[] (ref, title, section, content) }`
+    → `{ answer, insufficient_evidence, evidence_refs, suggestions, model…, prompt_version, dropped_citations }`.
+
+---
+
+## AI Project Coordinator (Prompt 19)
+
+Advisory insights over a project. Full design:
+[`AI_PROJECT_COORDINATOR.md`](./AI_PROJECT_COORDINATOR.md). Access is the
+project's (its room's): anyone else gets `404`. **No endpoint changes tasks,
+milestones or project status.**
+
+| Method | Path | Who | Notes |
+| --- | --- | --- | --- |
+| GET | `/resolution-projects/:id/ai-coordinator` | Participants | `CoordinatorView`: live deterministic `health { level, reasons, signals }`, rule `risks`/`blockers`, `deadlines`; cached `insight` (summary, AI risks and blockers, suggestions, `generatedAt`, `expiresAt`, `stale`, `model { provider, name, version, promptVersion }`) or null; `lastFailure`; `questions`; `refreshAvailableAt`; `canRefresh`/`canAnswer`/`canPostUpdates`. **Never calls the model** |
+| POST | `/resolution-projects/:id/ai-coordinator/refresh` | Participants | Runs the analysis now → `CoordinatorView`. `429` within the per-project cool-down (120 s) or over 5 per user per 10 min; `503` when the AI is unavailable or its output unusable (a FAILED insight is recorded, and the previous one kept); `409` for a finished project |
+| POST | `/resolution-projects/:id/ai-coordinator/questions/:questionId/answer` | Participants | `{ quick?: 'COMPLETED' \| 'NOT_YET', answer? }` (an answer is needed unless `quick`; ≤ 1000) → view. `409` if not open |
+| POST | `/resolution-projects/:id/ai-coordinator/questions/:questionId/dismiss` | Org OWNER/ADMIN, officials | → view |
+| POST | `/resolution-projects/:id/ai-coordinator/extract-update` | Assigned organisation | `{ text? , fromRecentMessages? }` → `ExtractedUpdateView` (`confidence: null`, `model`). **Saves nothing.** 10 per 10 min |
+| GET | `/resolution-projects/:id/updates?cursor` | Participants | Structured updates, newest first, 20 per page |
+| POST | `/resolution-projects/:id/updates` | Assigned organisation | `{ summary, completed?, current?, blockers?, nextSteps?, source?: 'MANUAL' \| 'AI_ASSISTED', aiModel? }` → `201` |
+
+**Also changed:**
+- New notification types `PROJECT_COORDINATOR_ALERT` and
+  `PROJECT_COORDINATOR_QUESTION`.
+- The room-event type `PROJECT_UPDATE_POSTED`.
+- **AI service (internal, token-guarded):**
+  - `POST /coordinator/analyze`: `CoordinatorRequest` → `CoordinatorResult`.
+  - `POST /coordinator/extract-update`: `{ text, project_name? }` →
+    `ExtractUpdateResult`.
+
+---
+
+## Resolution projects (Prompt 18)
+
+The deterministic plan inside a room. Full design:
+[`PROJECT_MANAGEMENT.md`](./PROJECT_MANAGEMENT.md).
+
+**Access is the room's access:** the allocating office's officials and the
+assigned organisation's active members. Anyone else gets `404`. Within that:
+- The organisation's OWNER/ADMIN manage the plan.
+- MEMBERs move their own assigned tasks.
+- Government reads, and may edit the project's name and description.
+
+Edits carry `version`; a stale one is a `409`.
+
+| Method | Path | Who | Notes |
+| --- | --- | --- | --- |
+| GET | `/resolution-rooms/:id/project` | Participants | `ProjectView`: project, problem, both organisations, `overview` (task counts, progress, milestones), `viewer`, `permissions { canManage, canUpdateOwnTasks, isEditable, allowedTransitions }`, `today` |
+| GET | `/resolution-projects/:id` | Participants | Same shape |
+| PATCH | `/resolution-projects/:id` | Managers; government for name and description | `{ version, name?, description?, startDate?, targetDate? }` (dates `YYYY-MM-DD`; target ≥ start; start not after open due dates) |
+| POST | `/resolution-projects/:id/status` | Managers | `{ status, reason? }`. Reason required for `CANCELLED`; `COMPLETED` needs no open tasks |
+| GET | `/resolution-projects/:id/assignees` | Participants | Active members of the assigned organisation |
+| GET | `/resolution-projects/:id/tasks` | Participants | Filters: `status` (comma list), `priority` (comma list), `assignee` (`<id>`, `me` or `unassigned`), `milestoneId`, `overdue=true`, `dueBefore`, `dueAfter`, `page`, `limit` (≤ 200). Ordered by due date, priority, then creation |
+| POST | `/resolution-projects/:id/tasks` | Managers | `{ title, description?, priority?, assignedToId?, dueDate?, milestoneId? }` → `201 TaskView` |
+| GET | `/resolution-projects/:id/tasks/:taskId` | Participants | `TaskView` with the viewer's `allowedTransitions` and `canEdit` |
+| PATCH | `/resolution-projects/:id/tasks/:taskId` | Managers | `{ version, …details }`. Open tasks only. Status is not editable here |
+| POST | `/resolution-projects/:id/tasks/:taskId/status` | Managers; the assignee for start, block and complete | `{ status }`. The task state machine applies; starting work on a PLANNED project activates it |
+| POST | `/resolution-projects/:id/tasks/:taskId/attachments` | Managers; the assignee | `{ attachmentId }` — a file in this room's store |
+| DELETE | `/resolution-projects/:id/tasks/:taskId/attachments/:attachmentId` | Managers; the assignee | Unlinks the file (the file itself stays) |
+| GET | `/resolution-projects/:id/milestones` | Participants | Derived `status`, task counts and `progress` |
+| POST | `/resolution-projects/:id/milestones` | Managers | `{ title, description?, dueDate? }` → the list |
+| PATCH | `/resolution-projects/:id/milestones/:milestoneId` | Managers | `{ version, title?, description?, dueDate? }` |
+| POST | `/resolution-projects/:id/milestones/:milestoneId/complete` · `/reopen` | Managers | Complete needs no open tasks in it |
+| GET | `/resolution-projects/:id/activity?cursor` | Participants | Project events, newest first, 30 per page |
+
+**Errors:**
+- `400`: validation, unknown fields, an assignee outside the organisation, a
+  due date before the start, an invalid milestone, or a file outside the room.
+- `403`: the role does not allow it.
+- `404`: not a participant, or not in this project.
+- `409`: a transition that is not allowed, a stale version, a race lost,
+  open tasks blocking completion, or a read-only project or room.
+- `429`: too many writes (60 per minute).
+
+**Also changed:**
+- Accepting an allocation also creates the project.
+- The government dashboard gains `metrics.activeProjects` and `projects`.
+- The organisation dashboard gains `projects` ("My active projects").
+- The room's activity endpoint returns room events only.
+- New notification types: `PROJECT_TASK_ASSIGNED`, `PROJECT_TASK_DUE_SOON`,
+  `PROJECT_TASK_COMPLETED`, `PROJECT_MILESTONE_COMPLETED` and
+  `PROJECT_STATUS_CHANGED`, with the entity type `RESOLUTION_PROJECT`.
+- Tasks are cancelled, never deleted, so there is no `DELETE` on tasks.
+
+---
+
+## Resolution rooms (Prompt 17)
+
+Private collaboration between the allocating office and the assigned
+organisation. Full design: [`RESOLUTION_ROOMS.md`](./RESOLUTION_ROOMS.md).
+
+Every `:id` route resolves the caller's access first:
+- **Government side:** role `GOVERNMENT`, ACTIVE member of the allocating
+  office, the office is operational, and the problem is inside its
+  jurisdiction.
+- **Organisation side:** ACTIVE member of the assigned organisation.
+
+Anyone else gets `404`, `401` without a session, and `400` for a malformed id.
+Author, room, organisation and side are never accepted from the client.
+
+| Method | Path | Notes |
+| --- | --- | --- |
+| GET | `/resolution-rooms` | Rooms the caller participates in, with `unreadCount` |
+| GET | `/resolution-rooms/:id` | `ResolutionRoomView`: problem context, government, organisation, allocation, `viewer { side, canPost, canClose, homePath }`, `unreadCount`. The first visit records `PARTICIPANT_JOINED` |
+| GET | `/resolution-rooms/:id/participants` | Active members of both sides: name, avatar, role, joined |
+| GET | `/resolution-rooms/:id/messages?cursor&limit` | Keyset on `(createdAt, id)`; `{ items (oldest first), nextCursor }`; limit 1–100 (default 30) |
+| POST | `/resolution-rooms/:id/messages` | `{ body, mentionUserIds?, attachmentIds? }` → `201`. 1–4000 chars; ≤ 10 mentions (participants only); ≤ 4 own unsent attachments. 20/min |
+| PATCH | `/resolution-rooms/:id/messages/:messageId` | `{ body }`. Own, live messages; room open. 30/min |
+| DELETE | `/resolution-rooms/:id/messages/:messageId` | Soft delete, own messages. `204` |
+| POST | `/resolution-rooms/:id/read` | Marks read up to now → `{ unreadCount }` |
+| GET | `/resolution-rooms/:id/activity` | Allocation, acceptance and room events. No message text |
+| GET | `/resolution-rooms/:id/attachments` | Attachments on live messages (plus your unsent uploads) |
+| POST | `/resolution-rooms/:id/attachments` | Multipart `file`: JPEG/PNG/WebP/PDF by content, ≤ 10 MB, extension must match → `201`. 10 per 10 min |
+| GET | `/resolution-rooms/:id/attachments/:attachmentId/file` | The bytes, after the room check. `nosniff`, `CSP: sandbox`, `private` cache |
+| POST | `/resolution-rooms/:id/close` | `{ reason }` (3–1000). Allocating office only (`403` otherwise); `409` if already closed |
+| GET | `/resolution-rooms/:id/stream` | `text/event-stream`: `message.created`, `message.updated`, `activity`, `room.closed`. Re-checks access every 60 s and ends after 15 min |
+
+| Error | HTTP | When |
+| --- | --- | --- |
+| `VALIDATION_FAILED` | 400 | Empty or too-long body, unknown fields, bad cursor, a refused file, an attachment that is not yours |
+| `FORBIDDEN` | 403 | Changing someone else's message; the organisation closing; a suspended organisation |
+| `NOT_FOUND` | 404 | Not a participant (any reason); a message or attachment outside the room |
+| `CONFLICT` | 409 | Room closed; message already deleted |
+| `RATE_LIMITED` | 429 | Posting, editing, uploading or closing too fast |
+
+**Also changed:**
+- Accepting an allocation now opens the room in the same transaction.
+- `GovernmentAllocationView` and the organisation's allocation items and
+  detail gain `roomId`.
+- The government and organisation dashboards gain `openRooms`.
+- `/media/*` refuses `resolution/` keys.
+- New notification types `RESOLUTION_MESSAGE`, `RESOLUTION_MENTION` and
+  `RESOLUTION_ROOM_CLOSED`, with the entity type `RESOLUTION_ROOM`.
+
+---
+
 ## Government allocation (Prompt 16)
 
 An official assigns a verified problem to an eligible organisation, which
@@ -1919,6 +2091,7 @@ Base URL: `http://localhost:8001`
 | `GET /docs` | OpenAPI UI (disabled when `NODE_ENV=production`) |
 | `POST /analyze/problem` | Multimodal problem analysis. Requires `x-internal-token`. |
 | `POST /embeddings/text` | Text embedding generation. Requires `x-internal-token`. |
+| `POST /knowledge/chunk`, `POST /knowledge/answer` | Knowledge extraction and chunking; evidence-only answers. Require `x-internal-token`. |
 
 Health endpoints are intentionally unauthenticated so orchestrators can probe
 them. Capability endpoints require the `x-internal-token` shared secret
@@ -2022,5 +2195,4 @@ Not implemented — listed so the URL surface is predictable.
 | Notification delivery | Email, push and realtime channels; per-type preferences | Later milestone |
 | Organisations | `GET /organizations` (directory), `POST /organizations` (onboarding), `POST /organizations/:id/verify`, leaving an organisation, invitation emails | Later milestones |
 | Jurisdiction management | Setting an office's boundary, cities or postal codes | Later milestone |
-| Resolution | `GET /resolution-rooms/:id`, `POST /resolution-rooms/:id/updates` | Resolution |
 | Impact | `GET /leaderboard`, `GET /users/:id/impact` — the ledger behind `impactPoints` | Impact |

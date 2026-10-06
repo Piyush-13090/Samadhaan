@@ -19,3 +19,6 @@ anthropic>=1.5.0
 # transformers, which dominate the image size — the trade accepted in
 # docs/ML_DUPLICATE_DETECTION.md.
 sentence-transformers>=6.0.0
+
+# Knowledge ingestion (RAG): text extraction from uploaded PDFs. Pure Python.
+pypdf>=5.0.0

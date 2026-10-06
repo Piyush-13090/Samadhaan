@@ -25,6 +25,8 @@ export interface NotificationMetadata {
   allocationId?: string;
   organizationSlug?: string;
   governmentSlug?: string;
+  /** Resolution room notifications (Prompt 17). */
+  roomId?: string;
 }
 
 const PUBLIC_ID = /^SAM-\d{1,10}$/;
@@ -68,6 +70,9 @@ export function sanitizeMetadata(raw: unknown): NotificationMetadata {
   }
   if (isStatus(input.fromStatus)) clean.fromStatus = input.fromStatus;
   if (isStatus(input.toStatus)) clean.toStatus = input.toStatus;
+  if (typeof input.roomId === 'string' && UUID.test(input.roomId)) {
+    clean.roomId = input.roomId;
+  }
   if (typeof input.allocationId === 'string' && UUID.test(input.allocationId)) {
     clean.allocationId = input.allocationId;
   }
@@ -97,6 +102,17 @@ function isStatus(value: unknown): value is ProblemStatus {
  * nowhere.
  */
 export function hrefFor(type: NotificationType, metadata: NotificationMetadata): string {
+  if (type.startsWith('PROJECT_') && metadata.roomId) {
+    return `/resolution/${metadata.roomId}/project`;
+  }
+  if (
+    (type === 'RESOLUTION_MESSAGE' ||
+      type === 'RESOLUTION_MENTION' ||
+      type === 'RESOLUTION_ROOM_CLOSED') &&
+    metadata.roomId
+  ) {
+    return `/resolution/${metadata.roomId}`;
+  }
   // Allocations open where the recipient acts on them: the organisation's
   // inbox, or the office's review page for the problem.
   if (

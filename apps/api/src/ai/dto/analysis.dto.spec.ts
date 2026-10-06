@@ -73,8 +73,12 @@ describe('parseAnalysisResponse', () => {
   });
 
   it('clamps a severity score into range', () => {
-    expect(parseAnalysisResponse({ ...VALID, severity_score: 99 })?.severityScore).toBe(10);
-    expect(parseAnalysisResponse({ ...VALID, severity_score: -5 })?.severityScore).toBe(0);
+    expect(parseAnalysisResponse({ ...VALID, severity_score: 99 })?.severityScore).toBe(
+      10,
+    );
+    expect(parseAnalysisResponse({ ...VALID, severity_score: -5 })?.severityScore).toBe(
+      0,
+    );
   });
 
   // A misbehaving provider must not be able to store an unbounded string.
@@ -100,7 +104,9 @@ describe('parseAnalysisResponse', () => {
   });
 
   it('treats a missing subcategory as absent', () => {
-    expect(parseAnalysisResponse({ ...VALID, subcategory: null })?.subcategory).toBeNull();
+    expect(
+      parseAnalysisResponse({ ...VALID, subcategory: null })?.subcategory,
+    ).toBeNull();
   });
 });
 

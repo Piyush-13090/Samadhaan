@@ -36,6 +36,17 @@ export interface PlanningFacts {
   /** Allocation recipients: the organisation's owners and admins, or the
    *  allocating office's officials — whichever the event is for. */
   allocationRecipientIds?: string[];
+  /**
+   * Resolution rooms: every current participant, and each one's read marker
+   * (ISO time, or null if they never read the room).
+   */
+  roomParticipants?: Array<{ userId: string; lastReadAt: string | null }>;
+  /**
+   * The people who coordinate a project: the assigned organisation's
+   * OWNER/ADMIN and the allocating office's officials — plus, for questions,
+   * the active assignees the questions are about.
+   */
+  coordinatorRecipientIds?: string[];
 }
 
 /**
@@ -271,6 +282,153 @@ export function planNotifications(
     // Allocation (Prompt 16). Recipients come from the handler: the
     // organisation's OWNER/ADMIN for a request or a withdrawal, the office's
     // officials for a response. Never the person who acted.
+    // Room messages are deliberately quiet. A participant gets **one** "new
+    // messages" notification per unread streak — the dedupe key carries their
+    // read marker, so until they open the room again, further messages add
+    // nothing. Being mentioned always notifies, once per message. Never the
+    // author; never anyone who is not a current participant.
+    case 'RESOLUTION_MESSAGE_POSTED': {
+      const participants = facts.roomParticipants ?? [];
+      const participantIds = new Set(participants.map((p) => p.userId));
+      const mentioned = new Set(
+        event.mentionedUserIds.filter(
+          (id) => participantIds.has(id) && id !== event.authorUserId,
+        ),
+      );
+      const metadata = { problemPublicId: event.problemPublicId, roomId: event.roomId };
+      const drafts: NotificationDraft[] = [...mentioned].map((recipientId) => ({
+        recipientId,
+        type: 'RESOLUTION_MENTION',
+        title: `You were mentioned in ${event.problemPublicId}`,
+        message: `${event.authorName} (${event.authorOrganizationName}) mentioned you in the resolution room.`,
+        entityType: 'RESOLUTION_ROOM',
+        entityId: event.roomId,
+        metadata,
+        dedupeKey: `resolution_mention:${event.messageId}`,
+      }));
+      for (const participant of participants) {
+        if (
+          participant.userId === event.authorUserId ||
+          mentioned.has(participant.userId)
+        ) {
+          continue;
+        }
+        drafts.push({
+          recipientId: participant.userId,
+          type: 'RESOLUTION_MESSAGE',
+          title: `New messages in ${event.problemPublicId}`,
+          message: `${event.authorName} (${event.authorOrganizationName}) wrote in the resolution room.`,
+          entityType: 'RESOLUTION_ROOM',
+          entityId: event.roomId,
+          metadata,
+          dedupeKey: `resolution_message:${event.roomId}:${participant.lastReadAt ?? 'never'}`,
+        });
+      }
+      return drafts;
+    }
+
+    // Projects: a task goes to one person — its assignee, or its creator when
+    // someone else completes it. Milestones and project status go to every
+    // participant but the actor. Due-soon fires once per task per due date.
+    case 'PROJECT_TASK_ASSIGNED':
+      return event.assigneeId === event.actorUserId
+        ? []
+        : [
+            projectDraft(event, event.assigneeId, {
+              type: 'PROJECT_TASK_ASSIGNED',
+              title: 'New task assigned',
+              message: `You were assigned "${event.taskTitle}" in project ${event.problemPublicId}.`,
+              dedupeKey: `project_task_assigned:${event.taskId}:v${event.taskVersion}`,
+            }),
+          ];
+
+    case 'PROJECT_TASK_DUE_SOON':
+      return [
+        projectDraft(event, event.assigneeId, {
+          type: 'PROJECT_TASK_DUE_SOON',
+          title: 'Task due soon',
+          message: `"${event.taskTitle}" in project ${event.problemPublicId} is due on ${event.dueDate}.`,
+          dedupeKey: `project_task_due:${event.taskId}:${event.dueDate}`,
+        }),
+      ];
+
+    case 'PROJECT_TASK_COMPLETED':
+      return event.creatorId === event.actorUserId
+        ? []
+        : [
+            projectDraft(event, event.creatorId, {
+              type: 'PROJECT_TASK_COMPLETED',
+              title: 'Task completed',
+              message: `${event.actorName} completed "${event.taskTitle}" in project ${event.problemPublicId}.`,
+              dedupeKey: `project_task_completed:${event.taskId}`,
+            }),
+          ];
+
+    case 'PROJECT_MILESTONE_COMPLETED':
+      return (facts.roomParticipants ?? [])
+        .filter((participant) => participant.userId !== event.actorUserId)
+        .map((participant) =>
+          projectDraft(event, participant.userId, {
+            type: 'PROJECT_MILESTONE_COMPLETED',
+            title: 'Milestone completed',
+            message: `${event.actorOrganizationName} completed "${event.milestoneTitle}" in project ${event.problemPublicId}.`,
+            dedupeKey: `project_milestone_completed:${event.milestoneId}:${event.completedAt}`,
+          }),
+        );
+
+    case 'PROJECT_STATUS_CHANGED':
+      return (facts.roomParticipants ?? [])
+        .filter((participant) => participant.userId !== event.actorUserId)
+        .map((participant) =>
+          projectDraft(event, participant.userId, {
+            type: 'PROJECT_STATUS_CHANGED',
+            title: `Project ${PROJECT_STATUS_WORD[event.to] ?? 'updated'}`,
+            message: `${event.actorOrganizationName} marked the project for ${event.problemPublicId} as ${PROJECT_STATUS_WORD[event.to] ?? event.to.toLowerCase()}.`,
+            dedupeKey: `project_status:${event.changeId}`,
+          }),
+        );
+
+    // The coordinator is quiet by design: only a worsening health or a new
+    // potential blocker alerts, and new questions notify once per analysis.
+    // Never the person who asked for the refresh; never on every refresh.
+    case 'COORDINATOR_ALERT':
+      return (facts.coordinatorRecipientIds ?? [])
+        .filter((id) => id !== event.actorUserId)
+        .map((recipientId) =>
+          projectDraft(event, recipientId, {
+            type: 'PROJECT_COORDINATOR_ALERT',
+            title: `Project ${event.problemPublicId} needs attention`,
+            message: event.headline,
+            dedupeKey: `coordinator_alert:${event.insightId}`,
+          }),
+        );
+
+    case 'COORDINATOR_QUESTIONS_ASKED':
+      return (facts.coordinatorRecipientIds ?? [])
+        .filter((id) => id !== event.actorUserId)
+        .map((recipientId) =>
+          projectDraft(event, recipientId, {
+            type: 'PROJECT_COORDINATOR_QUESTION',
+            title: 'The project coordinator has questions',
+            message: `${event.count === 1 ? 'A question needs' : `${event.count} questions need`} a response in project ${event.problemPublicId}.`,
+            dedupeKey: `coordinator_questions:${event.insightId}`,
+          }),
+        );
+
+    case 'RESOLUTION_ROOM_CLOSED':
+      return (facts.roomParticipants ?? [])
+        .filter((participant) => participant.userId !== event.actorUserId)
+        .map((participant) => ({
+          recipientId: participant.userId,
+          type: 'RESOLUTION_ROOM_CLOSED',
+          title: 'Resolution room closed',
+          message: `${event.governmentName} closed the resolution room for ${event.problemPublicId}.`,
+          entityType: 'RESOLUTION_ROOM',
+          entityId: event.roomId,
+          metadata: { problemPublicId: event.problemPublicId, roomId: event.roomId },
+          dedupeKey: `resolution_room_closed:${event.roomId}`,
+        }));
+
     case 'ALLOCATION_CREATED':
     case 'ALLOCATION_ACCEPTED':
     case 'ALLOCATION_DECLINED':
@@ -387,4 +545,30 @@ export function statusLabel(status: ProblemStatus): string {
 /** "PUBLIC_SAFETY" → "public safety". Words, not an enum, in a sentence. */
 export function categoryLabel(category: ProblemCategory): string {
   return category.toLowerCase().replace(/_/g, ' ');
+}
+
+const PROJECT_STATUS_WORD: Record<string, string> = {
+  ACTIVE: 'started',
+  PAUSED: 'paused',
+  COMPLETED: 'completed',
+  CANCELLED: 'cancelled',
+};
+
+function projectDraft(
+  event: { projectId: string; roomId: string; problemPublicId: string },
+  recipientId: string,
+  draft: {
+    type: NotificationDraft['type'];
+    title: string;
+    message: string;
+    dedupeKey: string;
+  },
+): NotificationDraft {
+  return {
+    recipientId,
+    ...draft,
+    entityType: 'RESOLUTION_PROJECT',
+    entityId: event.projectId,
+    metadata: { problemPublicId: event.problemPublicId, roomId: event.roomId },
+  };
 }

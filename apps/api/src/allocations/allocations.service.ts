@@ -27,6 +27,7 @@ import {
   type OrganizationMember,
 } from '../generated/prisma/client.js';
 import { coarseArea } from '../problems/services/problem-discovery.service.js';
+import { openRoomInTransaction } from '../resolution/room-opening.js';
 
 /** What the government side passes in: a proven office and jurisdiction. */
 export interface AllocatingOffice {
@@ -45,6 +46,7 @@ type AllocationRow = Prisma.ProblemAllocationGetPayload<{
     organization: { select: { slug: true; name: true; type: true; logoUrl: true } };
     governmentOrganization: { select: { name: true } };
     allocatedBy: { select: { fullName: true } };
+    resolutionRoom: { select: { id: true } };
   };
 }>;
 
@@ -52,6 +54,7 @@ const GOVERNMENT_INCLUDE = {
   organization: { select: { slug: true, name: true, type: true, logoUrl: true } },
   governmentOrganization: { select: { name: true } },
   allocatedBy: { select: { fullName: true } },
+  resolutionRoom: { select: { id: true } },
 } satisfies Prisma.ProblemAllocationInclude;
 
 /**
@@ -393,18 +396,25 @@ export class AllocationsService {
     pendingAllocations: number;
     acceptedAllocations: number;
     declinedAllocations: number;
+    openRooms: number;
   }> {
-    const groups = await this.prisma.problemAllocation.groupBy({
-      by: ['status'],
-      where: { governmentOrganizationId: officeId },
-      _count: { _all: true },
-    });
+    const [groups, openRooms] = await Promise.all([
+      this.prisma.problemAllocation.groupBy({
+        by: ['status'],
+        where: { governmentOrganizationId: officeId },
+        _count: { _all: true },
+      }),
+      this.prisma.resolutionRoom.count({
+        where: { governmentOrganizationId: officeId, status: 'OPEN' },
+      }),
+    ]);
     const count = (status: AllocationStatus) =>
       groups.find((group) => group.status === status)?._count._all ?? 0;
     return {
       pendingAllocations: count('PENDING'),
       acceptedAllocations: count('ACCEPTED'),
       declinedAllocations: count('DECLINED'),
+      openRooms,
     };
   }
 
@@ -537,6 +547,15 @@ export class AllocationsService {
         );
       }
 
+      // The third part of the same decision: the resolution room. If it
+      // cannot be opened, nothing above is committed either.
+      const room = await openRoomInTransaction(
+        tx,
+        allocation,
+        user.id,
+        context.organization.name,
+      );
+
       const metadata = auditMetadata(allocation, allocation.governmentOrganization, {
         from: 'PENDING',
         to: 'ACCEPTED',
@@ -569,7 +588,7 @@ export class AllocationsService {
           },
         },
       });
-      return { allocation, changeId: statusChange.id };
+      return { allocation, changeId: statusChange.id, roomId: room.id };
     });
 
     const { allocation } = result;
@@ -675,8 +694,9 @@ export class AllocationsService {
   async organizationMetrics(organizationId: string): Promise<{
     pendingAllocations: number;
     activeAssignments: number;
+    openRooms: number;
   }> {
-    const [pendingAllocations, activeAssignments] = await Promise.all([
+    const [pendingAllocations, activeAssignments, openRooms] = await Promise.all([
       this.prisma.problemAllocation.count({
         where: { organizationId, status: 'PENDING' },
       }),
@@ -687,8 +707,11 @@ export class AllocationsService {
           problem: { status: 'IN_PROGRESS', deletedAt: null },
         },
       }),
+      this.prisma.resolutionRoom.count({
+        where: { assignedOrganizationId: organizationId, status: 'OPEN' },
+      }),
     ]);
-    return { pendingAllocations, activeAssignments };
+    return { pendingAllocations, activeAssignments, openRooms };
   }
 
   // ================================================================ public
@@ -749,6 +772,7 @@ export class AllocationsService {
 
 const ORGANIZATION_INCLUDE = {
   governmentOrganization: { select: { name: true } },
+  resolutionRoom: { select: { id: true } },
   problem: {
     select: {
       publicId: true,
@@ -765,6 +789,7 @@ const ORGANIZATION_INCLUDE = {
 
 const ORGANIZATION_DETAIL_INCLUDE = {
   governmentOrganization: { select: { name: true } },
+  resolutionRoom: { select: { id: true } },
   problem: {
     select: {
       publicId: true,
@@ -882,6 +907,7 @@ function toGovernmentView(
     declinedAt: row.declinedAt?.toISOString() ?? null,
     cancelledAt: row.cancelledAt?.toISOString() ?? null,
     ownedByThisOffice: ours,
+    roomId: ours ? (row.resolutionRoom?.id ?? null) : null,
   };
 }
 
@@ -906,6 +932,7 @@ function toOrganizationItem(row: OrganizationRow): OrganizationAllocationItem {
     government: { name: row.governmentOrganization.name },
     proposedAt: row.proposedAt.toISOString(),
     respondedAt: row.respondedAt?.toISOString() ?? null,
+    roomId: row.resolutionRoom?.id ?? null,
   };
 }
 

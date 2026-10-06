@@ -3,6 +3,8 @@ import type { Response } from 'express';
 import { API_VERSION } from '@samadhaan/shared';
 import { Public } from '../auth/decorators/public.decorator.js';
 import { AppException } from '../common/app.exception.js';
+import { RESOLUTION_STORAGE_PREFIX } from '../resolution/resolution-attachments.service.js';
+import { KNOWLEDGE_STORAGE_PREFIX } from '../knowledge/knowledge-sources.service.js';
 import { isSafeStorageKey } from '../storage/storage-key.js';
 import { StorageService } from '../storage/storage.types.js';
 
@@ -44,6 +46,14 @@ export class MediaController {
     const key = Array.isArray(path) ? path.join('/') : path;
 
     if (!isSafeStorageKey(key)) throw AppException.notFound('File');
+    // Resolution-room files are private; they are served only through the
+    // room's authorised endpoint, never from this public route.
+    if (
+      key.startsWith(RESOLUTION_STORAGE_PREFIX) ||
+      key.startsWith(KNOWLEDGE_STORAGE_PREFIX)
+    ) {
+      throw AppException.notFound('File');
+    }
 
     const body = await this.storage.get(key);
     if (!body) throw AppException.notFound('File');

@@ -4,6 +4,7 @@ import type {
   OrganizationMemberRole,
   OrganizationWorkspace,
 } from '@samadhaan/shared';
+import { ProjectsService } from '../../resolution/projects.service.js';
 import { AllocationsService } from '../../allocations/allocations.service.js';
 import { AppException } from '../../common/app.exception.js';
 import { PrismaService } from '../../database/prisma.service.js';
@@ -32,6 +33,7 @@ export class OrganizationWorkspaceService {
     private readonly prisma: PrismaService,
     private readonly problems: OrganizationProblemsService,
     private readonly allocations: AllocationsService,
+    private readonly projectSummaries: ProjectsService,
   ) {}
 
   /** The organisation, the caller's membership, and what they may do. */
@@ -104,6 +106,7 @@ export class OrganizationWorkspaceService {
       expertiseCount,
       recommended,
       allocationCounts,
+      projects,
     ] = await Promise.all([
       this.prisma.user.findUniqueOrThrow({
         where: { id: userId },
@@ -175,6 +178,7 @@ export class OrganizationWorkspaceService {
         4,
       ),
       this.allocations.organizationMetrics(organization.id),
+      this.projectSummaries.summaries({ assignedOrganizationId: organization.id }),
     ]);
 
     const byRole: Record<OrganizationMemberRole, number> = {
@@ -208,6 +212,7 @@ export class OrganizationWorkspaceService {
       relevantProblems: relevant.items,
       recommendations: { total: recommended.totalCount, items: recommended.items },
       recentProblems: recent.items,
+      projects,
       teamSummary: {
         total: teamTotal,
         byRole,

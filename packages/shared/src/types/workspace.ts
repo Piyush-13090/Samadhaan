@@ -1,4 +1,5 @@
 import type { ProblemListItem } from './discovery.js';
+import type { ProjectSummary } from './project.js';
 import type { RecommendationItem } from './matching.js';
 import type {
   OrganizationMemberRole,
@@ -236,7 +237,11 @@ export interface OrganizationDashboard {
     pendingAllocations: number;
     /** Accepted allocations whose problem is in progress. */
     activeAssignments: number;
+    /** Open resolution rooms with this organisation (Prompt 17). */
+    openRooms: number;
   };
+  /** "My active projects" — live projects, most overdue first (Prompt 18). */
+  projects: ProjectSummary[];
   /** Open opportunities per area of work, for the declared categories. */
   opportunitiesByCategory: Array<{ category: ProblemCategory; count: number }>;
   /** Top opportunities by the deterministic rules, most relevant first. */

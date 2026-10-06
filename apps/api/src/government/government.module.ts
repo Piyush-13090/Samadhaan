@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { AllocationsModule } from '../allocations/allocations.module.js';
+import { ResolutionModule } from '../resolution/resolution.module.js';
 import { ProblemsModule } from '../problems/problems.module.js';
 import { GovernmentAccessService } from './government-access.service.js';
 import { GovernmentController } from './government.controller.js';
@@ -14,7 +15,7 @@ import { GovernmentService } from './government.service.js';
  * of completed work are later milestones.
  */
 @Module({
-  imports: [ProblemsModule, AllocationsModule],
+  imports: [ProblemsModule, AllocationsModule, ResolutionModule],
   controllers: [GovernmentController],
   providers: [
     GovernmentAccessService,

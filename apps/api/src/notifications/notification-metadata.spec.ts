@@ -79,6 +79,17 @@ describe('hrefFor', () => {
     );
   });
 
+  it('sends room notifications to the room', () => {
+    const metadata = sanitizeMetadata({ roomId: '11111111-1111-4111-8111-111111111111' });
+    expect(hrefFor('RESOLUTION_MESSAGE', metadata)).toBe(
+      '/resolution/11111111-1111-4111-8111-111111111111',
+    );
+    expect(sanitizeMetadata({ roomId: '../admin' })).toEqual({});
+    expect(hrefFor('PROJECT_TASK_ASSIGNED', metadata)).toBe(
+      '/resolution/11111111-1111-4111-8111-111111111111/project',
+    );
+  });
+
   it('drops allocation metadata that could build a hostile link', () => {
     expect(
       sanitizeMetadata({

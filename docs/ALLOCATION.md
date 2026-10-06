@@ -193,5 +193,7 @@ card, and the status *In progress*.
 - Allocating to several organisations, or co-assignment.
 - Reassigning after acceptance: an accepted allocation cannot be cancelled,
   and changing course after acceptance belongs to resolution.
+- Acceptance now also opens the resolution room in the same transaction —
+  see [`RESOLUTION_ROOMS.md`](./RESOLUTION_ROOMS.md).
 - Finer government roles. Every active member of an office may allocate.
 - Email or push delivery of allocation notifications.

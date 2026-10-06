@@ -3,7 +3,11 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from dataclasses import dataclass
+from typing import TypeVar
+
+from pydantic import BaseModel
 
 from app.schemas.analysis import AnalysisImage, ModelAnalysis
 
@@ -43,6 +47,9 @@ class ProviderInfo:
     model_version: str
 
 
+T = TypeVar("T", bound=BaseModel)
+
+
 class VisionLanguageProvider(ABC):
     """A model that can read an image and some text and return structured output.
 
@@ -69,6 +76,31 @@ class VisionLanguageProvider(ABC):
         Implementations must not return unvalidated model output: the caller
         trusts the returned object, so schema enforcement belongs here.
         """
+
+    async def generate(
+        self,
+        *,
+        system_prompt: str,
+        user_message: str,
+        output_type: type[T],
+        development_fallback: Callable[[], T] | None = None,
+        max_tokens: int = 2048,
+    ) -> T:
+        """Text in, a validated instance of ``output_type`` out (Prompt 19).
+
+        The general structured-generation entry point: the coordinator and the
+        update extractor use it. Like ``analyze``, the result is schema-checked
+        before it is returned, and failures raise ``ProviderError``.
+
+        ``development_fallback`` is used **only** by the development provider,
+        which runs no model: the caller supplies a deterministic result built
+        from its own inputs, so nothing is invented. Real providers ignore it.
+        """
+        raise ProviderError(
+            "PROVIDER_UNAVAILABLE",
+            "This provider does not support structured text generation.",
+            retryable=False,
+        )
 
 
 __all__ = ["ProviderError", "ProviderInfo", "VisionLanguageProvider"]

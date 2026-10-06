@@ -11,6 +11,7 @@ import Link from 'next/link';
 import type { GovernmentContext, GovernmentProblemDetail } from '@samadhaan/shared';
 import { GovernmentAllocationPanel } from '@/components/allocation/government-allocation-panel';
 import { ProblemOrganizationMatches } from '@/components/matching/problem-organization-matches';
+import { AskKnowledge } from '@/components/knowledge/ask-knowledge';
 import { ProblemLocationMap } from '@/components/map/problem-location-map';
 import { CategoryBadge } from '@/components/problems/category-badge';
 import { ProblemStatusBadge } from '@/components/problems/problem-status-badge';
@@ -303,6 +304,8 @@ export function GovernmentProblemView({
             detail.allocation.history.length === 0 && (
               <ProblemOrganizationMatches publicId={problem.publicId} />
             )}
+
+          <AskKnowledge problemId={problem.publicId} />
 
           <Card>
             <CardHeader

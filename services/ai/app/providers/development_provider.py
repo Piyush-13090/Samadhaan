@@ -17,8 +17,10 @@ long after the fact.
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from app.core.taxonomy import CATEGORIES
-from app.providers.base import ProviderInfo, VisionLanguageProvider
+from app.providers.base import ProviderError, ProviderInfo, T, VisionLanguageProvider
 from app.schemas.analysis import AnalysisImage, ModelAnalysis
 
 # Keyword rules, most specific first. Deliberately crude — this is a stub, and
@@ -100,6 +102,28 @@ class DevelopmentProvider(VisionLanguageProvider):
             confidence=0.35,
             observations=observations,
         )
+
+    async def generate(
+        self,
+        *,
+        system_prompt: str,
+        user_message: str,
+        output_type: type[T],
+        development_fallback: Callable[[], T] | None = None,
+        max_tokens: int = 2048,
+    ) -> T:
+        """Returns the caller's deterministic result — never generated text.
+
+        Without a fallback there is nothing honest to return, so this refuses
+        rather than inventing output.
+        """
+        if development_fallback is None:
+            raise ProviderError(
+                "PROVIDER_UNAVAILABLE",
+                "The development provider cannot generate text.",
+                retryable=False,
+            )
+        return output_type.model_validate(development_fallback().model_dump())
 
 
 __all__ = ["DevelopmentProvider"]

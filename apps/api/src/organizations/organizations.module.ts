@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { AllocationsModule } from '../allocations/allocations.module.js';
+import { ResolutionModule } from '../resolution/resolution.module.js';
 import { OrganizationAccessService } from './organization-access.service.js';
 import { OrganizationsController } from './organizations.controller.js';
 import { OrganizationsService } from './organizations.service.js';
@@ -18,7 +19,7 @@ import { OrganizationWorkspaceService } from './workspace/organization-workspace
  * organisation" end up in the codebase.
  */
 @Module({
-  imports: [AllocationsModule],
+  imports: [AllocationsModule, ResolutionModule],
   // Workspace first: its literal `mine` and `invitations` routes must be
   // registered before the public `:slug` profile route would swallow them.
   controllers: [OrganizationWorkspaceController, OrganizationsController],

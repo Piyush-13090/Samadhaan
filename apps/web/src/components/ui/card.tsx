@@ -38,6 +38,10 @@ export interface CardProps extends VariantProps<typeof cardVariants> {
   className?: string;
   /** Element to render as. Use `article` for feed items, `section` for panels. */
   as?: 'div' | 'section' | 'article' | 'li';
+  /** An anchor target, e.g. for links to `#coordinator`. */
+  id?: string;
+  'aria-busy'?: boolean | 'true' | 'false';
+  'aria-labelledby'?: string;
 }
 
 export function Card({
@@ -46,9 +50,10 @@ export function Card({
   as: Component = 'section',
   className,
   children,
+  ...attributes
 }: CardProps) {
   return (
-    <Component className={cn(cardVariants({ variant, interactive }), className)}>
+    <Component className={cn(cardVariants({ variant, interactive }), className)} {...attributes}>
       {children}
     </Component>
   );

@@ -120,6 +120,111 @@ export type DomainEvent =
       governmentName: string;
       actorUserId: string;
     }
+  // ------------------------------------------------- resolution rooms (P17)
+  | {
+      /**
+       * A participant posted in a resolution room. Carries no message text:
+       * notifications say who wrote, never what.
+       */
+      type: 'RESOLUTION_MESSAGE_POSTED';
+      roomId: string;
+      messageId: string;
+      problemPublicId: string;
+      authorUserId: string;
+      authorName: string;
+      authorOrganizationName: string;
+      /** Already intersected with the room's participants. */
+      mentionedUserIds: string[];
+    }
+  // ------------------------------------------------------ projects (P18)
+  | {
+      /** Every project event names the room (for links) and the problem. */
+      type: 'PROJECT_TASK_ASSIGNED';
+      projectId: string;
+      roomId: string;
+      problemPublicId: string;
+      taskId: string;
+      taskTitle: string;
+      assigneeId: string;
+      /** The task version that made this assignment — stable for dedupe. */
+      taskVersion: number;
+      actorUserId: string;
+    }
+  | {
+      type: 'PROJECT_TASK_DUE_SOON';
+      projectId: string;
+      roomId: string;
+      problemPublicId: string;
+      taskId: string;
+      taskTitle: string;
+      assigneeId: string;
+      dueDate: string;
+    }
+  | {
+      type: 'PROJECT_TASK_COMPLETED';
+      projectId: string;
+      roomId: string;
+      problemPublicId: string;
+      taskId: string;
+      taskTitle: string;
+      creatorId: string;
+      actorUserId: string;
+      actorName: string;
+    }
+  | {
+      type: 'PROJECT_MILESTONE_COMPLETED';
+      projectId: string;
+      roomId: string;
+      problemPublicId: string;
+      milestoneId: string;
+      milestoneTitle: string;
+      /** ISO completion time — a reopened, re-completed milestone notifies again. */
+      completedAt: string;
+      actorUserId: string;
+      actorOrganizationName: string;
+    }
+  | {
+      type: 'PROJECT_STATUS_CHANGED';
+      projectId: string;
+      roomId: string;
+      problemPublicId: string;
+      from: string;
+      to: string;
+      actorUserId: string;
+      actorOrganizationName: string;
+      /** Distinguishes repeated transitions (paused twice) for dedupe. */
+      changeId: string;
+    }
+  // ---------------------------------------------- AI coordinator (P19)
+  | {
+      /** Health worsened to AT_RISK/BLOCKED, or a new potential blocker. */
+      type: 'COORDINATOR_ALERT';
+      projectId: string;
+      roomId: string;
+      problemPublicId: string;
+      insightId: string;
+      headline: string;
+      /** Who asked for the refresh; null for a scheduled check. */
+      actorUserId: string | null;
+    }
+  | {
+      type: 'COORDINATOR_QUESTIONS_ASKED';
+      projectId: string;
+      roomId: string;
+      problemPublicId: string;
+      insightId: string;
+      count: number;
+      /** Assignees of the tasks the questions are about. */
+      assigneeIds: string[];
+      actorUserId: string | null;
+    }
+  | {
+      type: 'RESOLUTION_ROOM_CLOSED';
+      roomId: string;
+      problemPublicId: string;
+      governmentName: string;
+      actorUserId: string;
+    }
   // --------------------------------------------------------------- lifecycle
   | {
       /**

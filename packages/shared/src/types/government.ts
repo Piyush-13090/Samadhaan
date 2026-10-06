@@ -1,4 +1,5 @@
 import type { GovernmentAllocationPanel } from './allocation.js';
+import type { ProjectSummary } from './project.js';
 import type { BoundingBox } from './geo.js';
 import type { ProblemListItem } from './discovery.js';
 import type {
@@ -194,6 +195,10 @@ export interface GovernmentMetrics {
   pendingAllocations: number;
   acceptedAllocations: number;
   declinedAllocations: number;
+  /** Open resolution rooms with this office (Prompt 17). */
+  openRooms: number;
+  /** Projects in PLANNED, ACTIVE or PAUSED (Prompt 18). */
+  activeProjects: number;
 }
 
 export interface TrendPoint {
@@ -236,6 +241,8 @@ export interface GovernmentDashboard {
   trend: { rangeDays: TrendRange; points: TrendPoint[] };
   reviewQueue: GovernmentQueueItem[];
   recentActivity: GovernmentActivityEntry[];
+  /** Live projects with this office, most overdue first (Prompt 18). */
+  projects: ProjectSummary[];
 }
 
 // ---------------------------------------------------------------------------

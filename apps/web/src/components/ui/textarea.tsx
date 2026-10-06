@@ -1,11 +1,12 @@
 'use client';
 
-import type { TextareaHTMLAttributes } from 'react';
+import type { ComponentProps } from 'react';
 import { cn } from '@/lib/cn';
 import { useFieldControl } from './field';
 import { controlBaseClasses } from './input';
 
-export interface TextareaProps extends TextareaHTMLAttributes<HTMLTextAreaElement> {
+/** `ref` is a plain prop in React 19, so it passes through `...props`. */
+export interface TextareaProps extends ComponentProps<'textarea'> {
   /** Shows a live `used / max` counter. Requires `maxLength`. */
   showCount?: boolean;
 }

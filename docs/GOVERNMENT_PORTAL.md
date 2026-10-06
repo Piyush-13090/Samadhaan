@@ -6,7 +6,8 @@ jurisdiction (Prompt 15).
 
 > **Scope.** Review and civic intelligence. Allocating a verified problem to an
 > organisation was added in Prompt 16 — see [`ALLOCATION.md`](./ALLOCATION.md).
-> Applications, resolution rooms, project management, the AI
+> Resolution rooms (Prompt 17) — see [`RESOLUTION_ROOMS.md`](./RESOLUTION_ROOMS.md).
+> Applications, project management, the AI
 > priority engine, verification of completed work, impact points and the
 > analytics platform are later milestones. Nothing here performs or imitates
 > them.

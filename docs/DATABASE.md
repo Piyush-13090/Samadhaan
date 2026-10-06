@@ -944,9 +944,91 @@ Audit entries `ALLOCATION_CREATED`, `ALLOCATION_ACCEPTED`,
 As with every migration, Prisma's diff proposed dropping both HNSW indexes;
 those statements were removed.
 
+## 14k. Resolution rooms (Prompt 17)
+
+Migration `20261010090000_resolution_rooms`. Detail:
+[`RESOLUTION_ROOMS.md`](./RESOLUTION_ROOMS.md).
+
+| Table | Purpose | Notable constraints and indexes |
+| --- | --- | --- |
+| `resolution_rooms` | One per accepted allocation: problem, allocation, office, assigned organisation, `status` (`OPEN`/`CLOSED`/`ARCHIVED`), close time, closer and reason | `allocationId` UNIQUE; trigger `resolution_rooms_accepted_allocation` (allocation must be ACCEPTED and match); CHECK `resolution_rooms_closed_consistent`; `(governmentOrganizationId, status)`, `(assignedOrganizationId, status)`, `(problemId)` |
+| `resolution_messages` | Plain-text messages: author, author's organisation and side (fixed at write), `editedAt`, `deletedAt` (soft) | CHECK body 1–4000; `(roomId, createdAt, id)` for keyset pages |
+| `resolution_message_mentions` | Structured mentions | PK `(messageId, userId)`; `(userId)` |
+| `resolution_attachments` | File metadata; bytes in storage under `resolution/…` | `storageKey` UNIQUE; `(roomId, createdAt)`, `(messageId)` |
+| `resolution_room_events` | System activity (never message text) | `(roomId, createdAt)` |
+| `resolution_room_reads` | Per-participant read marker and first visit | PK `(roomId, userId)` |
+
+- **Participants are not a table.** They are the ACTIVE members of the two
+  organisations, resolved per request.
+- **Rooms are never deleted by the application.** Their child rows cascade
+  from the room for test clean-up only. Users are `Restrict` everywhere, so
+  history keeps its authors.
+- **The migration** backfills rooms for already-accepted allocations, and
+  removes Prisma's usual proposal to drop the HNSW indexes.
+- **Notification enums** gain `RESOLUTION_MESSAGE`, `RESOLUTION_MENTION` and
+  `RESOLUTION_ROOM_CLOSED`, and the entity type `RESOLUTION_ROOM`.
+
+## 14l. Resolution projects (Prompt 18)
+
+Migration `20261011090000_resolution_projects`. Detail:
+[`PROJECT_MANAGEMENT.md`](./PROJECT_MANAGEMENT.md).
+
+| Table | Purpose | Notable constraints and indexes |
+| --- | --- | --- |
+| `resolution_projects` | One per room: references to the room, problem, allocation and both organisations; `name`, `description`, `status` (`PLANNED`/`ACTIVE`/`PAUSED`/`COMPLETED`/`CANCELLED`), `startDate`/`targetDate` (`date`), `startedAt`/`completedAt`/`cancelledAt`, `version`, `createdById` | `roomId` and `allocationId` UNIQUE; trigger `resolution_projects_room_match`; CHECK `resolution_projects_state_consistent` (status timestamps, target ≥ start, name 1–200); `(governmentOrganizationId, status)`, `(assignedOrganizationId, status)`, `(problemId)` |
+| `resolution_milestones` | Title, description, `dueDate`, `completedAt`/`completedById`, `version`; status derived | CHECK completion pair and title length; `(projectId, dueDate)` |
+| `resolution_tasks` | Title, description, `status`, `priority`, `assignedToId`, `milestoneId?`, `dueDate`, start/complete/cancel stamps, `version`, `createdById` | CHECK `resolution_tasks_state_consistent`; trigger `resolution_tasks_milestone_project` (the milestone is in the same project); `(projectId, status)`, `(projectId, dueDate)`, `(projectId, milestoneId)`, `(assignedToId, status)` |
+| `resolution_task_attachments` | Links a task to an existing room attachment | PK `(taskId, attachmentId)`; `(attachmentId)` |
+
+- **Activity events** extend `ResolutionRoomEventType` (`PROJECT_*`,
+  `TASK_*`, `MILESTONE_*`) rather than adding a second event table.
+- **Notification enums** gain five `PROJECT_*` types and the entity type
+  `RESOLUTION_PROJECT`.
+- **The migration** backfills a project for every existing room. It records
+  no `PROJECT_CREATED` event: a new enum value cannot be used in the
+  transaction that adds it.
+- **Prisma's** proposal to drop the HNSW indexes was removed again.
+
+## 14m. AI Project Coordinator (Prompt 19)
+
+Migration `20261012090000_ai_project_coordinator`. Detail:
+[`AI_PROJECT_COORDINATOR.md`](./AI_PROJECT_COORDINATOR.md).
+
+| Table | Purpose | Notable constraints and indexes |
+| --- | --- | --- |
+| `project_ai_insights` | One row per analysis attempt, never overwritten: status (`COMPLETED`/`FAILED`), trigger (`MANUAL`/`SCHEDULED`), requester, `baselineHealth`, `health`, reason, summary, JSON `risks`/`blockers`/`suggestions`/`deadlines`/`signals` (ref-cited), `provider`, `modelName`, `modelVersion`, `promptVersion`, `processingMs`, `droppedItems`, `basedOnChangeAt`, `generatedAt`, `expiresAt` | CHECK `project_ai_insights_state_consistent`; `(projectId, status, generatedAt)` |
+| `coordinator_questions` | Question, category, `fingerprint`, `targetRef`, `sourceRefs`, status (`OPEN`/`ANSWERED`/`DISMISSED`/`EXPIRED`), answer and answerer, dismisser, expiry | Partial unique `coordinator_questions_one_open (projectId, fingerprint) WHERE status = 'OPEN'` (also in `post-migrate.sql`); CHECK `coordinator_questions_state_consistent`; `(projectId, status, askedAt)`, `(projectId, fingerprint)` |
+| `project_updates` | A person's structured update: summary, `completed[]`, `current[]`, `blockers[]`, `nextSteps[]` (text arrays), `source` (`MANUAL`/`AI_ASSISTED`), `aiModel` | CHECK summary 1–400; `(projectId, createdAt)` |
+
+- **JSON columns, deliberately.** Findings are read as a unit, never queried
+  field by field, so they are JSON rather than a dozen tables.
+- **New enums:** `ProjectHealth`, `CoordinatorInsightStatus`,
+  `CoordinatorTrigger`, `CoordinatorQuestionStatus` and `ProjectUpdateSource`.
+- **New event and notification types:** the room-event type
+  `PROJECT_UPDATE_POSTED`, and the notification types
+  `PROJECT_COORDINATOR_ALERT` and `PROJECT_COORDINATOR_QUESTION`.
+- **Prisma's** proposal to drop the HNSW indexes was removed again.
+
+## 14n. Knowledge & RAG (Prompt 20)
+
+Migration `20261013090000_knowledge_rag`. Detail:
+[`KNOWLEDGE_MODEL.md`](./KNOWLEDGE_MODEL.md).
+
+| Table | Purpose | Notable constraints and indexes |
+| --- | --- | --- |
+| `knowledge_sources` | A guideline, policy or document: type, visibility, owner, file or text, categories, city, ingestion status and versions | CHECK `knowledge_sources_scope_consistent`; `(visibility, status)`, `(organizationId, visibility)` |
+| `knowledge_documents` | Extracted, cleaned text of one ingestion | Cascades from source |
+| `knowledge_chunks` | Retrievable passage with `embedding vector(384)`, section, page, content hash, embedding model/version | **HNSW** `knowledge_chunks_embedding_hnsw`; **GIN** `knowledge_chunks_content_fts`; UNIQUE `(documentId, chunkIndex)` |
+| `knowledge_answers` | One row per question: answer, status, model/prompt/embedding/retrieval versions, retrieved chunk ids, scores, timings | `(userId, createdAt)` |
+
+- **New enums:** `KnowledgeSourceType`, `KnowledgeVisibility`,
+  `KnowledgeIngestionStatus`.
+- **Both vector and full-text indexes** are also kept in `post-migrate.sql`.
+- **Access is enforced in the retrieval SQL itself.** See `RAG_SECURITY.md`.
+
 ## 15. Planned, not yet modelled
 
-Resolution rooms, progress updates, completion evidence, impact-point ledger,
+Completion evidence and verification, impact-point ledger,
 comment reports for moderation, notification
 preferences and delivery channels beyond in-app. Each attaches to `Problem`
 through its own table.

@@ -1,4 +1,11 @@
-import { ArrowRight, ClipboardCheck, History, Map as MapIcon, Send } from 'lucide-react';
+import {
+  ArrowRight,
+  ClipboardCheck,
+  ClipboardList,
+  History,
+  Map as MapIcon,
+  Send,
+} from 'lucide-react';
 import Link from 'next/link';
 import {
   TREND_RANGES,
@@ -8,6 +15,7 @@ import {
 import type { ImpactStat } from '@/types/domain';
 import { ImpactMetricGroup } from '@/components/common/impact-metric';
 import { SectionHeading } from '@/components/layout/page-container';
+import { ProjectCard } from '@/components/project/project-card';
 import { Button } from '@/components/ui/button';
 import { Card, CardBody, CardHeader } from '@/components/ui/card';
 import { EmptyState } from '@/components/ui/states';
@@ -136,6 +144,31 @@ export function GovernmentDashboard({
         </CardBody>
       </Card>
 
+      <section aria-label="Active projects">
+        <SectionHeading
+          title="Active projects"
+          description="Work in progress with the organisations your office allocated to. You oversee; they manage the plan."
+        />
+        {data.projects.length === 0 ? (
+          <Card className="mt-4">
+            <EmptyState
+              size="sm"
+              icon={ClipboardList}
+              title="No active projects"
+              description="Projects open when an organisation accepts one of your allocations."
+            />
+          </Card>
+        ) : (
+          <ul className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {data.projects.map((project) => (
+              <li key={project.id} className="flex">
+                <ProjectCard project={project} partner="organization" />
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
       <div className="grid gap-8 lg:grid-cols-3">
         <section aria-label="Needs review" className="lg:col-span-2">
           <SectionHeading
@@ -196,6 +229,14 @@ export function GovernmentDashboard({
                   </dd>
                 </div>
               </dl>
+              <Link
+                href="/resolution"
+                className="mt-3 inline-flex items-center gap-1 type-body-sm font-medium text-primary underline-offset-2 hover:underline"
+              >
+                {metrics.openRooms} active resolution{' '}
+                {metrics.openRooms === 1 ? 'room' : 'rooms'}
+                <ArrowRight className="size-3.5" aria-hidden="true" />
+              </Link>
             </CardBody>
           </Card>
 

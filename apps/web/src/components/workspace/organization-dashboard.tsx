@@ -1,4 +1,13 @@
-import { ArrowRight, Inbox, Search, Settings, Target, Users } from 'lucide-react';
+import {
+  ArrowRight,
+  ClipboardList,
+  Inbox,
+  MessagesSquare,
+  Search,
+  Settings,
+  Target,
+  Users,
+} from 'lucide-react';
 import Link from 'next/link';
 import type {
   OrganizationDashboard as OrganizationDashboardData,
@@ -20,6 +29,7 @@ import { MEMBERSHIP_ROLE_LABEL } from '@/lib/profile-display';
 import { workspacePath } from '@/lib/workspace';
 import { OrganizationOpportunityCard } from '@/components/matching/organization-opportunity-card';
 import { OrganizationProblemCard } from './organization-problem-card';
+import { ProjectCard } from '@/components/project/project-card';
 
 /**
  * The organisation's home.
@@ -57,7 +67,7 @@ export function OrganizationDashboard({
       id: 'active-assignments',
       label: 'Active assignments',
       value: metrics.activeAssignments,
-      hint: 'Allocated problems your organisation accepted that are in progress.',
+      hint: `Allocated problems your organisation accepted that are in progress. ${metrics.openRooms} open resolution ${metrics.openRooms === 1 ? 'room' : 'rooms'}.`,
     },
     {
       id: 'recommended',
@@ -117,9 +127,21 @@ export function OrganizationDashboard({
             Here&rsquo;s what&rsquo;s happening for {organization.name}.
           </p>
         </div>
-        <Button variant="primary" size="lg" leadingIcon={<Target />} asChild>
-          <Link href={workspacePath(slug, 'opportunities')}>View opportunities</Link>
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          {metrics.openRooms > 0 && (
+            <Button
+              variant="secondary"
+              size="lg"
+              leadingIcon={<MessagesSquare />}
+              asChild
+            >
+              <Link href="/resolution">Resolution rooms ({metrics.openRooms})</Link>
+            </Button>
+          )}
+          <Button variant="primary" size="lg" leadingIcon={<Target />} asChild>
+            <Link href={workspacePath(slug, 'opportunities')}>View opportunities</Link>
+          </Button>
+        </div>
       </section>
 
       {metrics.pendingAllocations > 0 && (
@@ -315,6 +337,31 @@ export function OrganizationDashboard({
           </Card>
         </div>
       </div>
+
+      <section aria-label="My active projects">
+        <SectionHeading
+          title="My active projects"
+          description="Resolution projects your organisation is working on, from real task counts."
+        />
+        {data.projects.length === 0 ? (
+          <Card className="mt-4">
+            <EmptyState
+              size="sm"
+              icon={ClipboardList}
+              title="No active projects"
+              description="A project opens when your organisation accepts a government allocation."
+            />
+          </Card>
+        ) : (
+          <ul className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {data.projects.map((project) => (
+              <li key={project.id} className="flex">
+                <ProjectCard project={project} partner="government" />
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
 
       <section aria-label="Recently reported in your area">
         <SectionHeading

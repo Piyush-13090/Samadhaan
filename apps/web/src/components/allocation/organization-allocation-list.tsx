@@ -11,6 +11,7 @@ import { Card } from '@/components/ui/card';
 import { EmptyState } from '@/components/ui/states';
 import { ALLOCATION_VIEW_LABEL, allocationPath } from '@/lib/allocation';
 import { cn } from '@/lib/cn';
+import { roomPath } from '@/lib/resolution';
 import { formatRelativeTime, formatDateTime } from '@/lib/format';
 import { AllocationStatusBadge } from './allocation-status-badge';
 
@@ -120,14 +121,26 @@ export function OrganizationAllocationList({
                       </time>
                     </span>
                   </div>
-                  <Link
-                    href={allocationPath(slug, item.id)}
-                    className="mt-3 inline-flex items-center gap-1 type-body-sm font-medium text-primary underline-offset-2 hover:underline"
-                  >
-                    {item.status === 'PENDING' ? 'Review request' : 'View details'}
-                    <span className="sr-only">: {item.problem.title}</span>
-                    <ArrowRight className="size-3.5" aria-hidden="true" />
-                  </Link>
+                  <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1">
+                    {item.roomId && (
+                      <Link
+                        href={roomPath(item.roomId)}
+                        className="inline-flex items-center gap-1 type-body-sm font-medium text-primary underline-offset-2 hover:underline"
+                      >
+                        Open Resolution Room
+                        <span className="sr-only">: {item.problem.title}</span>
+                        <ArrowRight className="size-3.5" aria-hidden="true" />
+                      </Link>
+                    )}
+                    <Link
+                      href={allocationPath(slug, item.id)}
+                      className="inline-flex items-center gap-1 type-body-sm font-medium text-primary underline-offset-2 hover:underline"
+                    >
+                      {item.status === 'PENDING' ? 'Review request' : 'View details'}
+                      <span className="sr-only">: {item.problem.title}</span>
+                      <ArrowRight className="size-3.5" aria-hidden="true" />
+                    </Link>
+                  </div>
                 </Card>
               </li>
             );

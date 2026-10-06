@@ -9,6 +9,7 @@ import type {
 import { PrismaService } from '../database/prisma.service.js';
 import { Prisma } from '../generated/prisma/client.js';
 import type { GovernmentScope } from './government-access.service.js';
+import { ProjectsService } from '../resolution/projects.service.js';
 import { AllocationsService } from '../allocations/allocations.service.js';
 import { GovernmentProblemsService } from './government-problems.service.js';
 
@@ -25,6 +26,7 @@ export class GovernmentService {
     private readonly prisma: PrismaService,
     private readonly problems: GovernmentProblemsService,
     private readonly allocations: AllocationsService,
+    private readonly projects: ProjectsService,
   ) {}
 
   async context(scope: GovernmentScope, userId: string): Promise<GovernmentContext> {
@@ -58,16 +60,21 @@ export class GovernmentService {
     scope: GovernmentScope,
     range: TrendRange,
   ): Promise<GovernmentDashboard> {
-    const [counts, allocationCounts, points, queue, activity] = await Promise.all([
+    const office = { governmentOrganizationId: scope.organization.id };
+    const [counts, allocationCounts, points, queue, activity, projects, activeProjects] =
+      await Promise.all([
       this.metrics(scope),
       this.allocations.governmentMetrics(scope.organization.id),
       this.trend(scope, range),
       this.problems.list(scope, { view: 'queue', sort: 'queue' }, 1, 6),
       this.problems.audit(scope, { limit: 8 }),
+      this.projects.summaries(office),
+      this.projects.countLive(office),
     ]);
 
     return {
-      metrics: { ...counts, ...allocationCounts },
+      metrics: { ...counts, ...allocationCounts, activeProjects },
+      projects,
       trend: { rangeDays: range, points },
       reviewQueue: queue.items,
       recentActivity: activity.map(({ note: _note, ...entry }) => entry),

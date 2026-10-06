@@ -4,6 +4,7 @@ import { LoggerModule } from 'nestjs-pino';
 import { AiModule } from './ai/ai.module.js';
 import { AuthModule } from './auth/auth.module.js';
 import { CommunityModule } from './community/community.module.js';
+import { CoordinatorModule } from './coordinator/coordinator.module.js';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter.js';
 import { ResponseInterceptor } from './common/interceptors/response.interceptor.js';
 import { createLoggerConfig } from './common/logger/logger.config.js';
@@ -15,6 +16,7 @@ import { EventsModule } from './events/domain-event-bus.js';
 import { MatchingModule } from './matching/matching.module.js';
 import { GovernmentModule } from './government/government.module.js';
 import { GeoModule } from './geo/geo.module.js';
+import { KnowledgeModule } from './knowledge/knowledge.module.js';
 import { HealthModule } from './health/health.module.js';
 import { MediaModule } from './media/media.module.js';
 import { NotificationsModule } from './notifications/notifications.module.js';
@@ -22,6 +24,7 @@ import { OrganizationsModule } from './organizations/organizations.module.js';
 import { DashboardModule } from './dashboard/dashboard.module.js';
 import { ProblemsModule } from './problems/problems.module.js';
 import { RedisModule } from './redis/redis.module.js';
+import { ResolutionModule } from './resolution/resolution.module.js';
 import { StorageModule } from './storage/storage.module.js';
 import { SuggestionsModule } from './suggestions/suggestions.module.js';
 import { UsersModule } from './users/users.module.js';
@@ -59,6 +62,9 @@ import { UsersModule } from './users/users.module.js';
     // Domain modules (boundaries established, implemented in later milestones)
     AuthModule,
     UsersModule,
+    ResolutionModule,
+    CoordinatorModule,
+    KnowledgeModule,
     ProblemsModule,
     DashboardModule,
     OrganizationsModule,

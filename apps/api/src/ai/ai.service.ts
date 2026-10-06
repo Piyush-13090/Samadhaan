@@ -7,7 +7,20 @@ import {
   type AiAnalysis,
   type AiAnalysisFailure,
 } from './dto/analysis.dto.js';
+import {
+  parseCoordinatorResponse,
+  parseExtractResponse,
+  type AiCoordinatorResult,
+  type AiExtractedUpdate,
+  type CoordinatorContext,
+} from './dto/coordinator.dto.js';
 import { parseEmbeddingResponse, type AiEmbeddings } from './dto/embedding.dto.js';
+import {
+  parseAnswerResponse,
+  parseChunkResponse,
+  type AiChunkResult,
+  type AiKnowledgeAnswer,
+} from './dto/knowledge.dto.js';
 import {
   parseMatchResponse,
   toMatchRequest,
@@ -44,6 +57,19 @@ export type AnalysisOutcome =
 /** Either validated matches or a structured reason they could not be produced. */
 export type MatchOutcome =
   { ok: true; result: AiMatchResult } | { ok: false; failure: AiAnalysisFailure };
+
+/** Either a grounded coordinator result or why it could not be produced. */
+export type CoordinatorOutcome =
+  { ok: true; result: AiCoordinatorResult } | { ok: false; failure: AiAnalysisFailure };
+
+export type ChunkOutcome =
+  { ok: true; result: AiChunkResult } | { ok: false; failure: AiAnalysisFailure };
+
+export type KnowledgeAnswerOutcome =
+  { ok: true; answer: AiKnowledgeAnswer } | { ok: false; failure: AiAnalysisFailure };
+
+export type ExtractOutcome =
+  { ok: true; update: AiExtractedUpdate } | { ok: false; failure: AiAnalysisFailure };
 
 /** Either validated vectors or a structured reason they could not be produced. */
 export type EmbeddingOutcome =
@@ -221,6 +247,152 @@ export class AiService {
     }
 
     return { ok: true, analysis };
+  }
+
+  /**
+   * AI Project Coordinator (Prompt 19). Sends the structured context the API
+   * built; returns a result re-grounded against that context's refs. Never
+   * throws.
+   */
+  async coordinateProject(
+    context: CoordinatorContext,
+    knownRefs: ReadonlySet<string>,
+    targetRefs: ReadonlySet<string>,
+    requestId?: string,
+  ): Promise<CoordinatorOutcome> {
+    const result = await this.client.post<unknown>('/coordinator/analyze', context, {
+      requestId,
+      timeoutMs: 90_000,
+    });
+    if (!result.ok) return { ok: false, failure: this.toFailure(result.error) };
+
+    const parsed = parseCoordinatorResponse(
+      result.value,
+      knownRefs,
+      targetRefs,
+      context.baseline.health,
+    );
+    if (!parsed) {
+      this.logger.error(
+        `AI service returned an unusable coordinator result for ${context.project_id}`,
+      );
+      return {
+        ok: false,
+        failure: {
+          code: 'INVALID_MODEL_OUTPUT',
+          message: 'The coordinator result could not be understood.',
+          retryable: true,
+        },
+      };
+    }
+    return { ok: true, result: parsed };
+  }
+
+  /** Drafts a structured update from free text. A person confirms it. */
+  async extractProjectUpdate(
+    text: string,
+    projectName: string | null,
+    requestId?: string,
+  ): Promise<ExtractOutcome> {
+    const result = await this.client.post<unknown>(
+      '/coordinator/extract-update',
+      { text, project_name: projectName },
+      { requestId, timeoutMs: 60_000 },
+    );
+    if (!result.ok) return { ok: false, failure: this.toFailure(result.error) };
+    const update = parseExtractResponse(result.value);
+    if (!update) {
+      return {
+        ok: false,
+        failure: {
+          code: 'INVALID_MODEL_OUTPUT',
+          message: 'The update draft could not be understood.',
+          retryable: true,
+        },
+      };
+    }
+    return { ok: true, update };
+  }
+
+  /**
+   * Knowledge ingestion (Prompt 20): extraction, cleaning and chunking in the
+   * AI service. Embedding is a separate call (`embedText`). Never throws.
+   */
+  async chunkDocument(
+    input: { text?: string; fileBase64?: string; mimeType?: string | null },
+    settings: { maxTokens: number; overlapTokens: number; maxChunks: number },
+    requestId?: string,
+  ): Promise<ChunkOutcome> {
+    const result = await this.client.post<unknown>(
+      '/knowledge/chunk',
+      {
+        ...(input.text !== undefined
+          ? { text: input.text }
+          : { file_base64: input.fileBase64 }),
+        ...(input.mimeType ? { mime_type: input.mimeType } : {}),
+        max_tokens: settings.maxTokens,
+        overlap_tokens: settings.overlapTokens,
+        max_chunks: settings.maxChunks,
+      },
+      { requestId, timeoutMs: 120_000 },
+    );
+    if (!result.ok) return { ok: false, failure: this.toFailure(result.error) };
+    const parsed = parseChunkResponse(result.value, settings.maxChunks);
+    if (!parsed) {
+      return {
+        ok: false,
+        failure: {
+          code: 'INVALID_MODEL_OUTPUT',
+          message: 'The chunking result could not be understood.',
+          retryable: true,
+        },
+      };
+    }
+    return { ok: true, result: parsed };
+  }
+
+  /**
+   * RAG answer generation over evidence the API already authorised. The
+   * response's citations are re-checked against that evidence. Never throws.
+   */
+  async answerKnowledge(
+    input: {
+      question: string;
+      applicationContext: string[];
+      evidence: Array<{
+        ref: string;
+        title: string;
+        section: string | null;
+        content: string;
+      }>;
+    },
+    requestId?: string,
+  ): Promise<KnowledgeAnswerOutcome> {
+    const result = await this.client.post<unknown>(
+      '/knowledge/answer',
+      {
+        question: input.question,
+        application_context: input.applicationContext,
+        evidence: input.evidence,
+      },
+      { requestId, timeoutMs: 90_000 },
+    );
+    if (!result.ok) return { ok: false, failure: this.toFailure(result.error) };
+    const parsed = parseAnswerResponse(
+      result.value,
+      new Set(input.evidence.map((e) => e.ref)),
+    );
+    if (!parsed) {
+      return {
+        ok: false,
+        failure: {
+          code: 'INVALID_MODEL_OUTPUT',
+          message: 'The answer could not be understood.',
+          retryable: true,
+        },
+      };
+    }
+    return { ok: true, answer: parsed };
   }
 
   /** Maps a transport or HTTP failure onto the structured failure shape. */

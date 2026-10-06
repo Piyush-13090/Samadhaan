@@ -17,3 +17,7 @@ export * from './types/api.js';
 export * from './types/health.js';
 export * from './constants/api.js';
 export * from './utils/result.js';
+export * from './types/resolution.js';
+export * from './types/project.js';
+export * from './types/coordinator.js';
+export * from './types/knowledge.js';

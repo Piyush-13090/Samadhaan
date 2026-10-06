@@ -253,3 +253,184 @@ describe('allocation', () => {
     ).toEqual([]);
   });
 });
+
+describe('resolution rooms', () => {
+  const posted = {
+    type: 'RESOLUTION_MESSAGE_POSTED' as const,
+    roomId: '11111111-1111-4111-8111-111111111111',
+    messageId: '22222222-2222-4222-8222-222222222222',
+    problemPublicId: 'SAM-1023',
+    authorUserId: 'author',
+    authorName: 'Aarav Sharma',
+    authorOrganizationName: 'RoadSafe Foundation',
+    mentionedUserIds: ['priya', 'outsider', 'author'],
+  };
+  const participants = [
+    { userId: 'author', lastReadAt: null },
+    { userId: 'priya', lastReadAt: null },
+    { userId: 'rahul', lastReadAt: '2026-10-06T10:00:00.000Z' },
+  ];
+
+  it('mentions participants only, never the author, and does not double-notify them', () => {
+    const drafts = planNotifications(posted, { roomParticipants: participants });
+    expect(drafts.map((d) => [d.recipientId, d.type])).toEqual([
+      ['priya', 'RESOLUTION_MENTION'],
+      ['rahul', 'RESOLUTION_MESSAGE'],
+    ]);
+    expect(drafts[0]?.dedupeKey).toBe(`resolution_mention:${posted.messageId}`);
+    expect(drafts.every((d) => !d.message.includes('inspect'))).toBe(true);
+  });
+
+  it('keys message notifications on the recipient’s read marker — one per unread streak', () => {
+    const [draft] = planNotifications(
+      { ...posted, mentionedUserIds: [] },
+      { roomParticipants: [{ userId: 'rahul', lastReadAt: '2026-10-06T10:00:00.000Z' }] },
+    );
+    expect(draft?.dedupeKey).toBe(
+      `resolution_message:${posted.roomId}:2026-10-06T10:00:00.000Z`,
+    );
+    expect(draft?.metadata).toEqual({
+      problemPublicId: 'SAM-1023',
+      roomId: posted.roomId,
+    });
+  });
+
+  it('tells everyone but the closer when a room closes', () => {
+    const drafts = planNotifications(
+      {
+        type: 'RESOLUTION_ROOM_CLOSED',
+        roomId: posted.roomId,
+        problemPublicId: 'SAM-1023',
+        governmentName: 'Gurugram MC',
+        actorUserId: 'priya',
+      },
+      { roomParticipants: participants },
+    );
+    expect(drafts.map((d) => d.recipientId)).toEqual(['author', 'rahul']);
+  });
+});
+
+describe('projects', () => {
+  const base = {
+    projectId: 'p1',
+    roomId: '11111111-1111-4111-8111-111111111111',
+    problemPublicId: 'SAM-1023',
+  };
+
+  it('tells the assignee, never someone assigning themselves', () => {
+    const event = {
+      type: 'PROJECT_TASK_ASSIGNED' as const,
+      ...base,
+      taskId: 't1',
+      taskTitle: 'Inspect affected road section',
+      assigneeId: 'aarav',
+      taskVersion: 2,
+      actorUserId: 'neha',
+    };
+    const [draft] = planNotifications(event);
+    expect(draft).toMatchObject({
+      recipientId: 'aarav',
+      title: 'New task assigned',
+      message: 'You were assigned "Inspect affected road section" in project SAM-1023.',
+      entityType: 'RESOLUTION_PROJECT',
+      dedupeKey: 'project_task_assigned:t1:v2',
+      metadata: { roomId: base.roomId },
+    });
+    expect(planNotifications({ ...event, actorUserId: 'aarav' })).toEqual([]);
+  });
+
+  it('tells the creator when someone else completes a task', () => {
+    const event = {
+      type: 'PROJECT_TASK_COMPLETED' as const,
+      ...base,
+      taskId: 't1',
+      taskTitle: 'Site visit',
+      creatorId: 'neha',
+      actorUserId: 'aarav',
+      actorName: 'Aarav Sharma',
+    };
+    expect(planNotifications(event).map((d) => d.recipientId)).toEqual(['neha']);
+    expect(planNotifications({ ...event, actorUserId: 'neha' })).toEqual([]);
+  });
+
+  it('sends status changes to every participant but the actor, once per change', () => {
+    const drafts = planNotifications(
+      {
+        type: 'PROJECT_STATUS_CHANGED',
+        ...base,
+        from: 'ACTIVE',
+        to: 'PAUSED',
+        actorUserId: 'neha',
+        actorOrganizationName: 'RoadSafe Foundation',
+        changeId: 'e1',
+      },
+      {
+        roomParticipants: [
+          { userId: 'neha', lastReadAt: null },
+          { userId: 'priya', lastReadAt: null },
+        ],
+      },
+    );
+    expect(drafts).toHaveLength(1);
+    expect(drafts[0]).toMatchObject({
+      recipientId: 'priya',
+      title: 'Project paused',
+      dedupeKey: 'project_status:e1',
+    });
+  });
+
+  it('reminds once per task and due date', () => {
+    const [draft] = planNotifications({
+      type: 'PROJECT_TASK_DUE_SOON',
+      ...base,
+      taskId: 't1',
+      taskTitle: 'Upload inspection report',
+      assigneeId: 'aarav',
+      dueDate: '2026-10-08',
+    });
+    expect(draft?.dedupeKey).toBe('project_task_due:t1:2026-10-08');
+  });
+});
+
+describe('AI coordinator', () => {
+  const base = {
+    projectId: 'p1',
+    roomId: '11111111-1111-4111-8111-111111111111',
+    problemPublicId: 'SAM-1023',
+    insightId: 'i1',
+  };
+
+  it('alerts coordinators once per insight, never the requester', () => {
+    const drafts = planNotifications(
+      {
+        type: 'COORDINATOR_ALERT',
+        ...base,
+        headline: 'Project health is now at risk: 2 tasks are overdue',
+        actorUserId: 'neha',
+      },
+      { coordinatorRecipientIds: ['neha', 'priya'] },
+    );
+    expect(drafts).toHaveLength(1);
+    expect(drafts[0]).toMatchObject({
+      recipientId: 'priya',
+      type: 'PROJECT_COORDINATOR_ALERT',
+      dedupeKey: 'coordinator_alert:i1',
+      metadata: { roomId: base.roomId },
+    });
+  });
+
+  it('a scheduled analysis notifies everyone relevant', () => {
+    const drafts = planNotifications(
+      {
+        type: 'COORDINATOR_QUESTIONS_ASKED',
+        ...base,
+        count: 2,
+        assigneeIds: ['aarav'],
+        actorUserId: null,
+      },
+      { coordinatorRecipientIds: ['neha', 'aarav'] },
+    );
+    expect(drafts.map((d) => d.recipientId)).toEqual(['neha', 'aarav']);
+    expect(drafts[0]!.message).toBe('2 questions need a response in project SAM-1023.');
+  });
+});

@@ -189,7 +189,9 @@ export function dashboardFixture(
       pendingInvitations: 1,
       pendingAllocations: 0,
       activeAssignments: 0,
+      openRooms: 0,
     },
+    projects: [],
     opportunitiesByCategory: [
       { category: 'DRAINAGE', count: 11 },
       { category: 'WATER', count: 6 },

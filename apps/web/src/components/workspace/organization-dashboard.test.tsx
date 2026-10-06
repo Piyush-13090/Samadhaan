@@ -10,6 +10,61 @@ import {
 import { OrganizationDashboard } from './organization-dashboard';
 
 describe('OrganizationDashboard', () => {
+  it('lists my active projects from real counts', () => {
+    render(
+      <OrganizationDashboard
+        workspace={workspaceFixture()}
+        data={{
+          ...dashboardFixture(),
+          projects: [
+            {
+              id: 'p1',
+              roomId: 'r1',
+              name: 'Resolve: Water standing outside Sector 12 shops',
+              status: 'ACTIVE',
+              problemPublicId: 'SAM-1005',
+              government: { name: 'Ward 12 Municipal Office' },
+              organization: { name: 'Samadhaan Foundation' },
+              targetDate: null,
+              overview: {
+                tasks: {
+                  total: 4,
+                  todo: 1,
+                  inProgress: 1,
+                  blocked: 0,
+                  completed: 2,
+                  cancelled: 0,
+                  overdue: 1,
+                },
+                taskProgress: 50,
+                milestones: { total: 0, completed: 0, overdue: 0 },
+                milestoneProgress: 0,
+              },
+            },
+          ],
+        }}
+      />,
+    );
+    const section = screen.getByRole('region', { name: 'My active projects' });
+    expect(within(section).getByText('50% complete')).toBeInTheDocument();
+    expect(within(section).getByText('1 overdue')).toBeInTheDocument();
+    expect(within(section).getByRole('link', { name: /Open project/ })).toHaveAttribute(
+      'href',
+      '/resolution/r1/project',
+    );
+  });
+
+  it('explains when there are no projects', () => {
+    render(
+      <OrganizationDashboard workspace={workspaceFixture()} data={dashboardFixture()} />,
+    );
+    expect(
+      within(screen.getByRole('region', { name: 'My active projects' })).getByText(
+        'No active projects',
+      ),
+    ).toBeInTheDocument();
+  });
+
   it('counts allocations and points to waiting requests', () => {
     const base = dashboardFixture();
     render(

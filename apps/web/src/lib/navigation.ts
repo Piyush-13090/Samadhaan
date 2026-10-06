@@ -1,5 +1,6 @@
 import {
   Bell,
+  BookOpen,
   Building2,
   ClipboardCheck,
   Compass,
@@ -9,6 +10,7 @@ import {
   LayoutDashboard,
   Map as MapIcon,
   MapPin,
+  MessagesSquare,
   Plus,
   Settings,
   ShieldCheck,
@@ -52,6 +54,12 @@ export interface NavSection {
   items: NavItem[];
 }
 
+const KNOWLEDGE_ITEM: NavItem = {
+  href: '/knowledge',
+  label: 'Knowledge',
+  icon: BookOpen,
+};
+
 const NOTIFICATIONS_ITEM: NavItem = {
   href: '/notifications',
   label: 'Notifications',
@@ -77,6 +85,7 @@ const CITIZEN_NAV: NavSection[] = [
       { href: '/report', label: 'Report', icon: Plus },
       { href: '/my-problems', label: 'My reports', icon: FileText },
       { href: '/leaderboard', label: 'Leaderboard', icon: Trophy },
+      KNOWLEDGE_ITEM,
       NOTIFICATIONS_ITEM,
     ],
   },
@@ -94,6 +103,7 @@ const ORGANIZATION_NAV: NavSection[] = [
       { href: '/organization', label: 'Organisations', icon: Building2 },
       { href: '/explore', label: 'Explore', icon: Compass },
       { href: '/map', label: 'Map', icon: MapIcon },
+      KNOWLEDGE_ITEM,
       NOTIFICATIONS_ITEM,
     ],
   },
@@ -127,6 +137,8 @@ export function workspaceNavigation(slug: string): NavSection[] {
           label: 'Allocations',
           icon: Inbox,
         },
+        { href: '/resolution', label: 'Resolution rooms', icon: MessagesSquare },
+        KNOWLEDGE_ITEM,
         { href: workspacePath(slug, 'team'), label: 'Team', icon: Users },
         { href: workspacePath(slug, 'profile'), label: 'Organisation', icon: Building2 },
         { href: workspacePath(slug, 'settings'), label: 'Settings', icon: Settings },
@@ -154,6 +166,7 @@ const GOVERNMENT_NAV: NavSection[] = [
     items: [
       { href: '/government', label: 'Command centre', icon: Gauge },
       { href: '/explore', label: 'Explore', icon: Compass },
+      KNOWLEDGE_ITEM,
       NOTIFICATIONS_ITEM,
     ],
   },
@@ -172,6 +185,8 @@ export function governmentNavigation(slug: string): NavSection[] {
           icon: ClipboardCheck,
         },
         { href: governmentPath(slug, 'map'), label: 'Map', icon: MapIcon },
+        { href: '/resolution', label: 'Resolution rooms', icon: MessagesSquare },
+        KNOWLEDGE_ITEM,
         NOTIFICATIONS_ITEM,
       ],
     },
@@ -201,6 +216,7 @@ const ADMIN_NAV: NavSection[] = [
       { href: '/admin/users', label: 'Users', icon: Users },
       { href: '/admin/organizations', label: 'Organisations', icon: Building2 },
       { href: '/admin/moderation', label: 'Moderation', icon: ShieldCheck },
+      KNOWLEDGE_ITEM,
       NOTIFICATIONS_ITEM,
     ],
   },

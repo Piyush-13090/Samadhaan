@@ -34,3 +34,15 @@ CREATE INDEX IF NOT EXISTS "organization_embeddings_vector_hnsw"
 CREATE UNIQUE INDEX IF NOT EXISTS "problem_allocations_one_active"
   ON "problem_allocations" ("problemId")
   WHERE "status" IN ('PENDING', 'ACCEPTED');
+
+-- Prompt 19: one OPEN coordinator question per fingerprint (partial index,
+-- which Prisma cannot express).
+CREATE UNIQUE INDEX IF NOT EXISTS "coordinator_questions_one_open"
+  ON "coordinator_questions" ("projectId", "fingerprint")
+  WHERE "status" = 'OPEN';
+
+-- Prompt 20: knowledge retrieval indexes (Prisma cannot express them).
+CREATE INDEX IF NOT EXISTS "knowledge_chunks_embedding_hnsw"
+  ON "knowledge_chunks" USING hnsw ("embedding" vector_cosine_ops);
+CREATE INDEX IF NOT EXISTS "knowledge_chunks_content_fts"
+  ON "knowledge_chunks" USING gin (to_tsvector('english', "content"));

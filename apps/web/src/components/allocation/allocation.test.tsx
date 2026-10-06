@@ -73,6 +73,7 @@ function orgDetail(overrides: Partial<Detail> = {}): Detail {
     declinedAt: null,
     cancelledAt: null,
     canRespond: true,
+    roomId: null,
     ...overrides,
   };
 }
@@ -538,5 +539,71 @@ describe('ProblemAssignmentCard', () => {
       '/organizations/green-earth',
     );
     expect(screen.getByText('Government-assigned')).toBeInTheDocument();
+  });
+});
+
+describe('Resolution room entry points', () => {
+  const ROOM = '33333333-3333-4333-8333-333333333333';
+
+  it('lets the office open the room once the allocation is accepted', () => {
+    const active = governmentAllocation({
+      status: 'ACCEPTED',
+      acceptedAt: '2026-10-06T11:20:00.000Z',
+      respondedAt: '2026-10-06T11:20:00.000Z',
+      roomId: ROOM,
+    });
+    render(
+      <GovernmentAllocationPanel
+        slug="gurgaon-mc"
+        publicId="SAM-1023"
+        panel={allocationPanel({
+          canAllocate: false,
+          blockedReason: 'NOT_VERIFIED',
+          active,
+          history: [active],
+        })}
+      />,
+    );
+    expect(screen.getByRole('link', { name: 'Open Resolution Room' })).toHaveAttribute(
+      'href',
+      `/resolution/${ROOM}`,
+    );
+  });
+
+  it('offers no room while the allocation is pending', () => {
+    const active = governmentAllocation();
+    render(
+      <GovernmentAllocationPanel
+        slug="gurgaon-mc"
+        publicId="SAM-1023"
+        panel={allocationPanel({
+          canAllocate: false,
+          blockedReason: 'ACTIVE_ALLOCATION',
+          active,
+          history: [active],
+        })}
+      />,
+    );
+    expect(
+      screen.queryByRole('link', { name: 'Open Resolution Room' }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('lets the organisation open the room from an accepted allocation', () => {
+    render(
+      <OrganizationAllocationDetail
+        slug="green-earth"
+        allocation={orgDetail({
+          status: 'ACCEPTED',
+          canRespond: false,
+          acceptedAt: '2026-10-06T11:20:00.000Z',
+          roomId: ROOM,
+        })}
+      />,
+    );
+    expect(screen.getByRole('link', { name: 'Open Resolution Room' })).toHaveAttribute(
+      'href',
+      `/resolution/${ROOM}`,
+    );
   });
 });

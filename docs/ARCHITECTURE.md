@@ -784,6 +784,147 @@ Detail: [`GOVERNMENT_PORTAL.md`](./GOVERNMENT_PORTAL.md).
   analytics are gone, because those do not exist yet. Allocation (Prompt 16)
   lives on the problem review page.
 
+## Knowledge & RAG
+
+Detail: [`RAG_ARCHITECTURE.md`](./RAG_ARCHITECTURE.md),
+[`KNOWLEDGE_MODEL.md`](./KNOWLEDGE_MODEL.md),
+[`RAG_SECURITY.md`](./RAG_SECURITY.md).
+
+```
+KnowledgeController
+  ├─ sources CRUD ─▶ KnowledgeAccessService (scope, assertCanCreate, canManage) ─▶ storage (knowledge/…)
+  │                  └─▶ KnowledgeIngestionService (in-process queue; boot sweep)
+  │                        AiService.chunkDocument ─▶ FastAPI /knowledge/chunk  (extract · clean · chunk)
+  │                        AiService.embedText     ─▶ FastAPI /embeddings/text  (reuse by content hash)
+  │                        transaction: replace document + chunks (raw INSERT, vector(384))
+  └─ POST query ─▶ KnowledgeQueryService
+                     KnowledgeContextBuilder (problem via public rules · project via ProjectsService.resolve)
+                     KnowledgeRetrievalService: one SQL — HNSW top-N ∪ full-text top-M, access predicate in WHERE
+                       ─▶ hybrid score (scoring.ts) ─▶ threshold ─▶ MMR ─▶ top-K
+                     AiService.answerKnowledge ─▶ FastAPI /knowledge/answer (evidence-only prompt, citation check)
+                     persist knowledge_answers (versions, chunk ids, scores)
+CoordinatorContextService ─▶ KnowledgeRetrievalService (PUBLIC + this project only)
+```
+
+- **Authorise, then retrieve.** The access predicate is part of the
+  retrieval SQL, so restricted passages are never read, scored or sent to a
+  model.
+- **Evidence, not authority.** Answers cite real chunks. Nothing in the
+  module changes problems, allocations or projects.
+- **Web:**
+  - `/knowledge`: Ask, plus the sources library and the add-knowledge dialog.
+  - `/knowledge/sources/[id]`: metadata, status and passages with
+    `#chunk-…` anchors.
+  - `components/knowledge/AskKnowledge`, also on the project page and the
+    government problem view.
+
+## AI Project Coordinator
+
+Detail: [`AI_PROJECT_COORDINATOR.md`](./AI_PROJECT_COORDINATOR.md).
+
+```
+CoordinatorController ─▶ ProjectsService.resolve (room access)
+        │
+        ├─ GET  view: CoordinatorContextService.health()  ──▶ health-engine (pure, live)
+        │              + latest insight (refs re-resolved) + questions
+        │
+        └─ POST refresh / CoordinatorSchedulerService (Redis lock, cadence, batch)
+                   │
+                   ▼
+          CoordinatorService.analyse
+            build bounded context (refs) ─▶ AiService.coordinateProject ─▶ AiClient ─▶ FastAPI /coordinator/analyze
+                                                 │ parseCoordinatorResponse            │ prompt + provider.generate
+                                                 │ (re-ground refs, bound health)      │ validate_insight
+            persist insight + questions (fingerprint, partial unique index)
+            DomainEventBus: COORDINATOR_ALERT / COORDINATOR_QUESTIONS_ASKED ─▶ notifications
+```
+
+- **Deterministic before generative.** Health is a pure function of the data
+  and is computed on every read. The model interprets on top, within bounds
+  both services enforce.
+- **Grounded output.** Every AI claim carries refs to real entities; refs are
+  validated on write and resolved again on read.
+- **One provider abstraction.** `VisionLanguageProvider.generate()` serves the
+  coordinator and the update drafts. The development provider runs no model
+  and is clearly labelled.
+- **Read-only towards the project.** The coordinator writes insights and
+  questions, and updates only on a person's confirmation.
+- **Web.**
+  - `components/coordinator/*`: `AIProjectCoordinator`,
+    `CoordinatorQuestions`, `ProjectUpdates` and `SourceLinks`, on the project
+    page.
+  - Source links target `#task-…`, `#milestone-…`, `#update-…` and the room's
+    `#message-…`.
+
+## Resolution projects
+
+Detail: [`PROJECT_MANAGEMENT.md`](./PROJECT_MANAGEMENT.md).
+
+```
+openRoomInTransaction ──▶ createProjectInTransaction   (inside AllocationsService.accept)
+
+RoomProjectController  GET /resolution-rooms/:id/project ┐
+ProjectsController     /resolution-projects/:id/…       ├─▶ ProjectsService.resolve
+                                                         │     └─ ResolutionAccessService (room access)
+                                                         ├─ project: view, update, transition
+                                                         ├─ tasks: list (filtered), create, update, transition, attach
+                                                         ├─ milestones: list (derived status), create, update, complete, reopen
+                                                         └─ activity (room events, PROJECT_*/TASK_*/MILESTONE_*)
+ProjectRemindersService ── hourly due-soon sweep ─▶ DomainEventBus ─▶ notification planner
+GovernmentService / OrganizationWorkspaceService ─▶ ProjectsService.summaries + overviews (batched)
+```
+
+- **No second access model.** A project is reachable exactly when its room
+  is. Roles inside it come from the same membership row.
+- **State is shared.** `@samadhaan/shared` defines both state machines,
+  overdue, milestone status and the progress functions, and the API and web
+  import the same code.
+- **Every write is conditional:**
+  - edits are optimistic on `version`;
+  - status moves are conditional on the status that was read;
+  - auto-activation of a project happens inside the task transaction, and its
+    notification is published after commit.
+- **Web.**
+  - `components/project/*`: the workspace, board, table, task dialog,
+    milestones, activity and timeline, plus `ProjectCard` for dashboards.
+  - `services/project.service.ts`.
+  - The room and project link to each other.
+
+## Resolution rooms
+
+Detail: [`RESOLUTION_ROOMS.md`](./RESOLUTION_ROOMS.md).
+
+```
+AllocationsService.accept ──(same transaction)──▶ openRoomInTransaction
+                                                       │
+ResolutionController ──▶ ResolutionAccessService.resolve(roomId, user)
+                           (government: role + membership + operational + jurisdiction,
+                            organisation: membership + operational; else 404)
+        │
+        ├─ ResolutionRoomsService ── view, participants, messages (keyset), edit/delete,
+        │                            read markers, activity, close
+        ├─ ResolutionAttachmentsService ── byte-sniffed uploads via StorageService
+        └─ ResolutionRealtimeService ── Redis pub/sub ─▶ SSE streams (/stream)
+                         │
+        DomainEventBus: RESOLUTION_MESSAGE_POSTED / RESOLUTION_ROOM_CLOSED
+                         └─▶ NotificationEventHandler (participants + read markers) ─▶ planner
+```
+
+- **Access is one function.** Every room route and every stream goes through
+  `ResolutionAccessService`, reusing `resolveJurisdiction` and
+  `OrganizationAccessService.isOperational`. There is no second permission
+  model.
+- **Realtime uses SSE.** It goes through the existing same-origin proxy and
+  cookie session. Redis pub/sub fans out across instances, and the client
+  polls when the stream is unavailable. WebSockets would need a separate
+  origin or a custom server, for no gain at this scale.
+- **Messages and system events are separate tables**, so later AI processing
+  can tell authored text from recorded fact.
+- **Web.**
+  - One shared route, `/resolution/[roomId]`, with role-aware controls.
+  - `components/resolution/*`, plus the `useRoomStream` hook.
+  - The government and workspace navigation gain *Resolution rooms*.
+
 ## Government allocation
 
 Detail: [`ALLOCATION.md`](./ALLOCATION.md).

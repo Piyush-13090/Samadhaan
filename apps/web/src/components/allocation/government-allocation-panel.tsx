@@ -1,6 +1,16 @@
 'use client';
 
-import { AlertTriangle, Check, Info, MapPin, Search, Send, Undo2 } from 'lucide-react';
+import {
+  AlertTriangle,
+  Check,
+  Info,
+  MapPin,
+  MessagesSquare,
+  Search,
+  Send,
+  Undo2,
+} from 'lucide-react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import {
@@ -23,6 +33,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/components/ui/toast';
 import { INELIGIBILITY_LABEL } from '@/lib/allocation';
 import { ApiError } from '@/lib/api-error';
+import { roomPath } from '@/lib/resolution';
 import { formatDateTime } from '@/lib/format';
 import { describeReason } from '@/lib/matching';
 import { ORGANIZATION_TYPE_LABEL } from '@/lib/workspace';
@@ -173,6 +184,17 @@ function ActiveAllocation({
           <Note label="Organisation's note">{allocation.responseNote}</Note>
         )}
       </dl>
+
+      {allocation.status === 'ACCEPTED' && allocation.roomId && (
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-border-subtle pt-4">
+          <p className="type-caption text-ink-muted">
+            Accepted. Coordinate with the organisation in the private resolution room.
+          </p>
+          <Button variant="primary" size="sm" leadingIcon={<MessagesSquare />} asChild>
+            <Link href={roomPath(allocation.roomId)}>Open Resolution Room</Link>
+          </Button>
+        </div>
+      )}
 
       {allocation.status === 'PENDING' && (
         <div className="mt-4 flex flex-wrap items-center justify-between gap-3">

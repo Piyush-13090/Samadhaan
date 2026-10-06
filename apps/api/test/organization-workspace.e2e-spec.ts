@@ -782,6 +782,7 @@ describe('Organisation workspace (e2e)', () => {
         pendingInvitations: 0,
         pendingAllocations: 0,
         activeAssignments: 0,
+        openRooms: 0,
       });
       expect(body.opportunitiesByCategory).toEqual([
         { category: 'DRAINAGE', count: 1 },
@@ -1238,6 +1239,9 @@ describe('Organisation workspace (e2e)', () => {
     });
 
     it('audits a profile change by field name only', async () => {
+      // Only rows from this request: an earlier change in the suite can share
+      // a millisecond, so "latest by createdAt" alone is ambiguous.
+      const since = new Date(Date.now() - 1);
       await request(server)
         .patch(`/api/v1/organizations/${trustId}`)
         .set('Cookie', owner)
@@ -1245,8 +1249,12 @@ describe('Organisation workspace (e2e)', () => {
         .expect(200);
 
       const entry = await prisma.auditLog.findFirstOrThrow({
-        where: { entityId: trustId, action: 'ORGANIZATION_PROFILE_UPDATED' },
-        orderBy: { createdAt: 'desc' },
+        where: {
+          entityId: trustId,
+          action: 'ORGANIZATION_PROFILE_UPDATED',
+          createdAt: { gte: since },
+          metadata: { equals: { fields: ['phone'] } },
+        },
       });
       expect(entry.metadata).toEqual({ fields: ['phone'] });
       expect(JSON.stringify(entry)).not.toContain('90000');

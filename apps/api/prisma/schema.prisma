@@ -107,6 +107,24 @@ model User {
   allocationsMade      ProblemAllocation[]         @relation("AllocationAllocatedBy")
   allocationResponses  ProblemAllocation[]         @relation("AllocationRespondedBy")
   allocationsCancelled ProblemAllocation[]         @relation("AllocationCancelledBy")
+  roomsClosed          ResolutionRoom[]            @relation("RoomClosedBy")
+  roomMessages         ResolutionMessage[]
+  roomMentions         ResolutionMessageMention[]
+  roomAttachments      ResolutionAttachment[]
+  roomEvents           ResolutionRoomEvent[]
+  roomReads            ResolutionRoomRead[]
+  projectsCreated      ResolutionProject[]         @relation("ProjectCreatedBy")
+  tasksCreated         ResolutionTask[]            @relation("TaskCreatedBy")
+  tasksAssigned        ResolutionTask[]            @relation("TaskAssignee")
+  tasksCompleted       ResolutionTask[]            @relation("TaskCompletedBy")
+  milestonesCreated    ResolutionMilestone[]       @relation("MilestoneCreatedBy")
+  milestonesCompleted  ResolutionMilestone[]       @relation("MilestoneCompletedBy")
+  coordinatorRefreshes ProjectAIInsight[]
+  coordinatorAnswers   CoordinatorQuestion[]       @relation("QuestionAnsweredBy")
+  coordinatorDismissed CoordinatorQuestion[]       @relation("QuestionDismissedBy")
+  knowledgeSources     KnowledgeSource[]
+  knowledgeAnswers     KnowledgeAnswer[]
+  projectUpdates       ProjectUpdate[]
   notifications        Notification[]
 
   createdAt DateTime  @default(now()) @db.Timestamptz(3)
@@ -268,14 +286,21 @@ model Organization {
 
   isActive Boolean @default(true)
 
-  members             OrganizationMember[]
-  internalNotes       ProblemInternalNote[]
-  suggestions         ProblemSuggestion[]
-  allocationsReceived ProblemAllocation[]        @relation("AllocatedOrganization")
-  allocationsMade     ProblemAllocation[]        @relation("AllocatingOffice")
-  expertise           OrganizationExpertise[]
-  embeddings          OrganizationEmbedding[]
-  matches             OrganizationProblemMatch[]
+  members              OrganizationMember[]
+  internalNotes        ProblemInternalNote[]
+  suggestions          ProblemSuggestion[]
+  allocationsReceived  ProblemAllocation[]        @relation("AllocatedOrganization")
+  allocationsMade      ProblemAllocation[]        @relation("AllocatingOffice")
+  roomsAsGovernment    ResolutionRoom[]           @relation("RoomGovernment")
+  roomsAsAssigned      ResolutionRoom[]           @relation("RoomOrganization")
+  roomMessages         ResolutionMessage[]
+  projectsAsGovernment ResolutionProject[]        @relation("ProjectGovernment")
+  projectsAsAssigned   ResolutionProject[]        @relation("ProjectOrganization")
+  knowledgeSources     KnowledgeSource[]
+  projectUpdates       ProjectUpdate[]
+  expertise            OrganizationExpertise[]
+  embeddings           OrganizationEmbedding[]
+  matches              OrganizationProblemMatch[]
 
   createdAt DateTime  @default(now()) @db.Timestamptz(3)
   updatedAt DateTime  @updatedAt @db.Timestamptz(3)
@@ -552,6 +577,8 @@ model Problem {
   updatedAt          DateTime            @updatedAt @db.Timestamptz(3)
   deletedAt          DateTime?           @db.Timestamptz(3)
   problemAllocations ProblemAllocation[]
+  resolutionRooms    ResolutionRoom[]
+  resolutionProjects ResolutionProject[]
 
   /// The default feed: newest active problems first.
   @@index([status, createdAt])
@@ -1098,6 +1125,28 @@ enum NotificationType {
   ALLOCATION_DECLINED
   /// To the organisation whose pending allocation was withdrawn.
   ALLOCATION_CANCELLED
+  // --- Resolution rooms (Prompt 17) ---------------------------------------
+  /// New messages in a room, once per unread streak.
+  RESOLUTION_MESSAGE
+  /// Named in a message.
+  RESOLUTION_MENTION
+  /// The allocating office closed the room.
+  RESOLUTION_ROOM_CLOSED
+  // --- Projects (Prompt 18) -------------------------------------------------
+  /// To the person a task was assigned to.
+  PROJECT_TASK_ASSIGNED
+  /// To the assignee, the day before a task is due.
+  PROJECT_TASK_DUE_SOON
+  /// To the task's creator, when someone else completes it.
+  PROJECT_TASK_COMPLETED
+  /// To every participant but the actor.
+  PROJECT_MILESTONE_COMPLETED
+  PROJECT_STATUS_CHANGED
+  // --- AI Project Coordinator (Prompt 19) -----------------------------------
+  /// Health worsened to AT_RISK/BLOCKED, or a new potential blocker.
+  PROJECT_COORDINATOR_ALERT
+  /// New coordinator questions for the team.
+  PROJECT_COORDINATOR_QUESTION
 }
 
 /// The kind of record a notification points at.
@@ -1107,6 +1156,8 @@ enum NotificationEntityType {
   DUPLICATE
   SYSTEM
   ALLOCATION
+  RESOLUTION_ROOM
+  RESOLUTION_PROJECT
 }
 
 /// One in-app notification for one person.
@@ -1262,6 +1313,9 @@ model ProblemAllocation {
   createdAt DateTime @default(now()) @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @db.Timestamptz(3)
 
+  resolutionRoom    ResolutionRoom?
+  resolutionProject ResolutionProject?
+
   /// A problem's allocation history, newest first.
   @@index([problemId, createdAt])
   /// An organisation's inbox.
@@ -1304,4 +1358,732 @@ model AuditLog {
   @@index([actorUserId, createdAt])
   @@index([action, createdAt])
   @@map("audit_logs")
+}
+
+// ===========================================================================
+// Resolution rooms (Prompt 17)
+// ===========================================================================
+
+enum ResolutionRoomStatus {
+  OPEN
+  /// Closed by the allocating office, with a reason. Read-only.
+  CLOSED
+  /// Reserved for a later retention workflow. Nothing sets it yet.
+  ARCHIVED
+}
+
+/// Which side of a room a participant speaks for.
+enum ResolutionParticipantSide {
+  GOVERNMENT
+  ORGANIZATION
+}
+
+enum ResolutionRoomEventType {
+  ROOM_CREATED
+  PARTICIPANT_JOINED
+  MESSAGE_SENT
+  MESSAGE_EDITED
+  MESSAGE_DELETED
+  ATTACHMENT_ADDED
+  ROOM_CLOSED
+  // --- Project (Prompt 18): structured events, never chat -----------------
+  PROJECT_CREATED
+  PROJECT_UPDATED
+  /// metadata: { from, to, reason? }
+  PROJECT_STATUS_CHANGED
+  TASK_CREATED
+  TASK_UPDATED
+  /// metadata: { taskId, assigneeName }
+  TASK_ASSIGNED
+  /// metadata: { taskId, from, to }
+  TASK_STATUS_CHANGED
+  MILESTONE_CREATED
+  MILESTONE_UPDATED
+  MILESTONE_COMPLETED
+  MILESTONE_REOPENED
+  // --- Coordinator (Prompt 19) --------------------------------------------
+  /// A person posted a structured project update.
+  PROJECT_UPDATE_POSTED
+}
+
+/// The private collaboration space between the allocating office and the
+/// organisation that accepted. Opens in the same transaction as the
+/// acceptance; one per accepted allocation (unique `allocationId`, and a
+/// trigger that refuses a room for an allocation that is not ACCEPTED).
+///
+/// Participants are not stored: they are the current ACTIVE members of the two
+/// organisations, resolved on every request.
+model ResolutionRoom {
+  id String @id @default(uuid()) @db.Uuid
+
+  problemId String  @db.Uuid
+  problem   Problem @relation(fields: [problemId], references: [id], onDelete: Restrict)
+
+  allocationId String            @unique @db.Uuid
+  allocation   ProblemAllocation @relation(fields: [allocationId], references: [id], onDelete: Restrict)
+
+  governmentOrganizationId String       @db.Uuid
+  governmentOrganization   Organization @relation("RoomGovernment", fields: [governmentOrganizationId], references: [id], onDelete: Restrict)
+
+  assignedOrganizationId String       @db.Uuid
+  assignedOrganization   Organization @relation("RoomOrganization", fields: [assignedOrganizationId], references: [id], onDelete: Restrict)
+
+  status ResolutionRoomStatus @default(OPEN)
+
+  closedAt    DateTime? @db.Timestamptz(3)
+  closedById  String?   @db.Uuid
+  closedBy    User?     @relation("RoomClosedBy", fields: [closedById], references: [id], onDelete: Restrict)
+  closeReason String?
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  messages    ResolutionMessage[]
+  attachments ResolutionAttachment[]
+  events      ResolutionRoomEvent[]
+  reads       ResolutionRoomRead[]
+  project     ResolutionProject?
+
+  @@index([governmentOrganizationId, status])
+  @@index([assignedOrganizationId, status])
+  @@index([problemId])
+  @@map("resolution_rooms")
+}
+
+/// A participant-authored message. Soft-deleted: the row and its text are
+/// kept for the record, and never returned once `deletedAt` is set.
+model ResolutionMessage {
+  id String @id @default(uuid()) @db.Uuid
+
+  roomId String         @db.Uuid
+  room   ResolutionRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
+
+  authorId String @db.Uuid
+  author   User   @relation(fields: [authorId], references: [id], onDelete: Restrict)
+
+  /// The organisation the author spoke for, fixed at write time.
+  authorOrganizationId String                    @db.Uuid
+  authorOrganization   Organization              @relation(fields: [authorOrganizationId], references: [id], onDelete: Restrict)
+  authorSide           ResolutionParticipantSide
+
+  /// Plain text. Rendered as text, never as markup.
+  body String
+
+  editedAt  DateTime? @db.Timestamptz(3)
+  deletedAt DateTime? @db.Timestamptz(3)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  mentions    ResolutionMessageMention[]
+  attachments ResolutionAttachment[]
+
+  /// Keyset pagination: newest first, ties broken by id.
+  @@index([roomId, createdAt, id])
+  @@map("resolution_messages")
+}
+
+/// A participant named in a message. Stored, not re-parsed from text.
+model ResolutionMessageMention {
+  messageId String            @db.Uuid
+  message   ResolutionMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  userId String @db.Uuid
+  user   User   @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@id([messageId, userId])
+  @@index([userId])
+  @@map("resolution_message_mentions")
+}
+
+/// File metadata. The bytes live in storage under a server-generated key and
+/// are served only through the room's authorised endpoint.
+model ResolutionAttachment {
+  id String @id @default(uuid()) @db.Uuid
+
+  roomId String         @db.Uuid
+  room   ResolutionRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
+
+  /// Null until the uploader attaches it to a message.
+  messageId String?            @db.Uuid
+  message   ResolutionMessage? @relation(fields: [messageId], references: [id], onDelete: SetNull)
+
+  uploadedById String @db.Uuid
+  uploadedBy   User   @relation(fields: [uploadedById], references: [id], onDelete: Restrict)
+
+  /// Display only — sanitised, never used as a path.
+  fileName   String
+  /// Detected from the bytes, never the client's claim.
+  mimeType   String
+  size       Int
+  storageKey String @unique
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  tasks ResolutionTaskAttachment[]
+
+  @@index([roomId, createdAt])
+  @@index([messageId])
+  @@map("resolution_attachments")
+}
+
+/// System activity in a room — never user-authored text.
+model ResolutionRoomEvent {
+  id String @id @default(uuid()) @db.Uuid
+
+  roomId String         @db.Uuid
+  room   ResolutionRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
+
+  type ResolutionRoomEventType
+
+  actorId String? @db.Uuid
+  actor   User?   @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  /// Ids and names only (message id, organisation name, file name).
+  metadata Json?
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([roomId, createdAt])
+  @@map("resolution_room_events")
+}
+
+/// Per-participant read marker, for unread counts. Created on first visit,
+/// which is also when PARTICIPANT_JOINED is recorded.
+model ResolutionRoomRead {
+  roomId String         @db.Uuid
+  room   ResolutionRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
+
+  userId String @db.Uuid
+  user   User   @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  lastReadAt DateTime? @db.Timestamptz(3)
+  joinedAt   DateTime  @default(now()) @db.Timestamptz(3)
+
+  @@id([roomId, userId])
+  @@index([userId])
+  @@map("resolution_room_reads")
+}
+
+// ===========================================================================
+// Resolution projects (Prompt 18)
+// ===========================================================================
+
+enum ResolutionProjectStatus {
+  PLANNED
+  ACTIVE
+  PAUSED
+  COMPLETED
+  CANCELLED
+}
+
+enum ResolutionTaskStatus {
+  TODO
+  IN_PROGRESS
+  BLOCKED
+  COMPLETED
+  CANCELLED
+}
+
+enum ResolutionTaskPriority {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+/// The structured plan for resolving one allocated problem. Created in the
+/// acceptance transaction, alongside the room; one per room and allocation.
+/// Problem, organisations and allocation are references, not copies.
+model ResolutionProject {
+  id String @id @default(uuid()) @db.Uuid
+
+  roomId String         @unique @db.Uuid
+  room   ResolutionRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
+
+  problemId String  @db.Uuid
+  problem   Problem @relation(fields: [problemId], references: [id], onDelete: Restrict)
+
+  allocationId String            @unique @db.Uuid
+  allocation   ProblemAllocation @relation(fields: [allocationId], references: [id], onDelete: Restrict)
+
+  governmentOrganizationId String       @db.Uuid
+  governmentOrganization   Organization @relation("ProjectGovernment", fields: [governmentOrganizationId], references: [id], onDelete: Restrict)
+
+  assignedOrganizationId String       @db.Uuid
+  assignedOrganization   Organization @relation("ProjectOrganization", fields: [assignedOrganizationId], references: [id], onDelete: Restrict)
+
+  name        String
+  description String?
+
+  status ResolutionProjectStatus @default(PLANNED)
+
+  /// Calendar dates (no time of day).
+  startDate  DateTime? @db.Date
+  targetDate DateTime? @db.Date
+
+  startedAt   DateTime? @db.Timestamptz(3)
+  completedAt DateTime? @db.Timestamptz(3)
+  cancelledAt DateTime? @db.Timestamptz(3)
+
+  /// Optimistic concurrency: every edit must name the version it read.
+  version Int @default(1)
+
+  createdById String @db.Uuid
+  createdBy   User   @relation("ProjectCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  tasks      ResolutionTask[]
+  milestones ResolutionMilestone[]
+  insights   ProjectAIInsight[]
+  questions  CoordinatorQuestion[]
+  updates    ProjectUpdate[]
+  knowledge  KnowledgeSource[]
+
+  @@index([governmentOrganizationId, status])
+  @@index([assignedOrganizationId, status])
+  @@index([problemId])
+  @@map("resolution_projects")
+}
+
+model ResolutionMilestone {
+  id String @id @default(uuid()) @db.Uuid
+
+  projectId String            @db.Uuid
+  project   ResolutionProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  title       String
+  description String?
+
+  /// Status is derived — completed, overdue, in progress or upcoming — from
+  /// these and the milestone's tasks. Only completion is stored.
+  dueDate       DateTime? @db.Date
+  completedAt   DateTime? @db.Timestamptz(3)
+  completedById String?   @db.Uuid
+  completedBy   User?     @relation("MilestoneCompletedBy", fields: [completedById], references: [id], onDelete: Restrict)
+
+  version Int @default(1)
+
+  createdById String @db.Uuid
+  createdBy   User   @relation("MilestoneCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  tasks ResolutionTask[]
+
+  @@index([projectId, dueDate])
+  @@map("resolution_milestones")
+}
+
+model ResolutionTask {
+  id String @id @default(uuid()) @db.Uuid
+
+  projectId String            @db.Uuid
+  project   ResolutionProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  /// Optional grouping. Removing a milestone is not supported; SetNull is a guard.
+  milestoneId String?              @db.Uuid
+  milestone   ResolutionMilestone? @relation(fields: [milestoneId], references: [id], onDelete: SetNull)
+
+  title       String
+  description String?
+
+  status   ResolutionTaskStatus   @default(TODO)
+  priority ResolutionTaskPriority @default(MEDIUM)
+
+  /// An ACTIVE member of the assigned organisation, checked on write.
+  assignedToId String? @db.Uuid
+  assignedTo   User?   @relation("TaskAssignee", fields: [assignedToId], references: [id], onDelete: Restrict)
+
+  dueDate DateTime? @db.Date
+
+  startedAt     DateTime? @db.Timestamptz(3)
+  completedAt   DateTime? @db.Timestamptz(3)
+  completedById String?   @db.Uuid
+  completedBy   User?     @relation("TaskCompletedBy", fields: [completedById], references: [id], onDelete: Restrict)
+  cancelledAt   DateTime? @db.Timestamptz(3)
+
+  version Int @default(1)
+
+  createdById String @db.Uuid
+  createdBy   User   @relation("TaskCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  attachments ResolutionTaskAttachment[]
+
+  @@index([projectId, status])
+  @@index([projectId, dueDate])
+  @@index([projectId, milestoneId])
+  @@index([assignedToId, status])
+  @@map("resolution_tasks")
+}
+
+/// A room attachment referenced by a task. The file itself stays where it
+/// was uploaded — the room's attachment store.
+model ResolutionTaskAttachment {
+  taskId String         @db.Uuid
+  task   ResolutionTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  attachmentId String               @db.Uuid
+  attachment   ResolutionAttachment @relation(fields: [attachmentId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  @@id([taskId, attachmentId])
+  @@index([attachmentId])
+  @@map("resolution_task_attachments")
+}
+
+// ===========================================================================
+// AI Project Coordinator (Prompt 19)
+// ===========================================================================
+
+/// A project-health signal — not the civic priority engine (Prompt 21).
+enum ProjectHealth {
+  HEALTHY
+  NEEDS_ATTENTION
+  AT_RISK
+  BLOCKED
+}
+
+enum CoordinatorInsightStatus {
+  COMPLETED
+  FAILED
+}
+
+enum CoordinatorTrigger {
+  MANUAL
+  SCHEDULED
+}
+
+enum CoordinatorQuestionStatus {
+  OPEN
+  ANSWERED
+  DISMISSED
+  EXPIRED
+}
+
+enum ProjectUpdateSource {
+  MANUAL
+  /// Drafted by the coordinator from free text, then confirmed by its author.
+  AI_ASSISTED
+}
+
+/// One coordinator analysis. Kept, never overwritten: the newest COMPLETED row
+/// is shown; FAILED rows record that an attempt failed without touching it.
+/// Findings are JSON — they are read as a unit, never queried field by field.
+model ProjectAIInsight {
+  id String @id @default(uuid()) @db.Uuid
+
+  projectId String            @db.Uuid
+  project   ResolutionProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  status  CoordinatorInsightStatus
+  trigger CoordinatorTrigger
+
+  requestedById String? @db.Uuid
+  requestedBy   User?   @relation(fields: [requestedById], references: [id], onDelete: SetNull)
+
+  /// Deterministic health from the signals, and the final health after the
+  /// model's (bounded) interpretation.
+  baselineHealth ProjectHealth
+  health         ProjectHealth?
+  healthReason   String?
+
+  summary     String?
+  /// Validated, ref-cited findings.
+  risks       Json?
+  blockers    Json?
+  suggestions Json?
+  deadlines   Json?
+  /// The deterministic signals the analysis was given.
+  signals     Json?
+
+  failureCode    String?
+  failureMessage String?
+
+  provider      String
+  modelName     String
+  modelVersion  String
+  promptVersion String
+  processingMs  Int?
+  /// Findings the validator removed because they cited nothing real.
+  droppedItems  Int    @default(0)
+
+  /// The latest project change the analysis saw. A newer change makes it stale.
+  basedOnChangeAt DateTime @db.Timestamptz(3)
+  generatedAt     DateTime @default(now()) @db.Timestamptz(3)
+  expiresAt       DateTime @db.Timestamptz(3)
+
+  questions CoordinatorQuestion[]
+
+  @@index([projectId, status, generatedAt])
+  @@map("project_ai_insights")
+}
+
+/// A question the coordinator asked the team. One OPEN question per
+/// fingerprint (partial unique index); a fingerprint answered or dismissed
+/// recently is not asked again.
+model CoordinatorQuestion {
+  id String @id @default(uuid()) @db.Uuid
+
+  projectId String            @db.Uuid
+  project   ResolutionProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  insightId String?           @db.Uuid
+  insight   ProjectAIInsight? @relation(fields: [insightId], references: [id], onDelete: SetNull)
+
+  question    String
+  category    String
+  /// `<category>|<target ref>`, or the category and normalised text.
+  fingerprint String
+  targetRef   String?
+  sourceRefs  Json
+
+  status CoordinatorQuestionStatus @default(OPEN)
+
+  askedAt       DateTime  @default(now()) @db.Timestamptz(3)
+  expiresAt     DateTime  @db.Timestamptz(3)
+  answer        String?
+  answeredAt    DateTime? @db.Timestamptz(3)
+  answeredById  String?   @db.Uuid
+  answeredBy    User?     @relation("QuestionAnsweredBy", fields: [answeredById], references: [id], onDelete: Restrict)
+  dismissedAt   DateTime? @db.Timestamptz(3)
+  dismissedById String?   @db.Uuid
+  dismissedBy   User?     @relation("QuestionDismissedBy", fields: [dismissedById], references: [id], onDelete: Restrict)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  @@index([projectId, status, askedAt])
+  @@index([projectId, fingerprint])
+  @@map("coordinator_questions")
+}
+
+/// A structured progress update written — or confirmed — by a person.
+model ProjectUpdate {
+  id String @id @default(uuid()) @db.Uuid
+
+  projectId String            @db.Uuid
+  project   ResolutionProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  authorId String @db.Uuid
+  author   User   @relation(fields: [authorId], references: [id], onDelete: Restrict)
+
+  authorOrganizationId String       @db.Uuid
+  authorOrganization   Organization @relation(fields: [authorOrganizationId], references: [id], onDelete: Restrict)
+
+  summary   String
+  completed String[]
+  current   String[]
+  blockers  String[]
+  nextSteps String[]
+
+  source  ProjectUpdateSource @default(MANUAL)
+  /// For AI_ASSISTED drafts: which model drafted it, for later evaluation.
+  aiModel String?
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([projectId, createdAt])
+  @@map("project_updates")
+}
+
+// ===========================================================================
+// Knowledge & RAG (Prompt 20)
+// ===========================================================================
+
+enum KnowledgeSourceType {
+  CIVIC_GUIDELINE
+  GOVERNMENT_POLICY
+  PROJECT_DOCUMENT
+  PROJECT_NOTE
+  PROBLEM_CONTEXT
+  ORGANIZATION_DOCUMENT
+  WEB_REFERENCE
+  OTHER
+}
+
+/// Who may retrieve a source. Enforced in SQL before anything reaches a model.
+enum KnowledgeVisibility {
+  /// Every signed-in user.
+  PUBLIC
+  /// Active GOVERNMENT-role members of the owning office.
+  GOVERNMENT
+  /// Active members of the owning organisation.
+  ORGANIZATION
+  /// Participants of one resolution project, and only in that project's context.
+  PROJECT
+  /// The uploader alone.
+  PRIVATE
+}
+
+enum KnowledgeIngestionStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+/// A body of knowledge: a guideline, a policy, a project document. Owns its
+/// documents and chunks; deleting it deletes them.
+model KnowledgeSource {
+  id String @id @default(uuid()) @db.Uuid
+
+  title       String
+  description String?
+  sourceType  KnowledgeSourceType
+  visibility  KnowledgeVisibility
+
+  /// The owning office or organisation (who manages it; GOVERNMENT and
+  /// ORGANIZATION visibility are scoped to it).
+  organizationId String?       @db.Uuid
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  /// PROJECT visibility: the project it belongs to.
+  projectId String?            @db.Uuid
+  project   ResolutionProject? @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  uploadedById String? @db.Uuid
+  uploadedBy   User?   @relation(fields: [uploadedById], references: [id], onDelete: SetNull)
+
+  externalUrl String?
+  /// Uploaded file: a server-generated storage key, never a client path.
+  storageKey  String?
+  fileName    String?
+  mimeType    String?
+  sizeBytes   Int?
+  /// Pasted text, when there is no file.
+  inlineText  String?
+
+  /// Contextual relevance: problem categories it applies to (empty = any).
+  categories ProblemCategory[]
+  /// Contextual relevance: the city it is specific to, if any.
+  city       String?
+
+  status         KnowledgeIngestionStatus @default(PENDING)
+  /// Caller-safe failure reason. Never a stack trace or provider detail.
+  failureCode    String?
+  failureMessage String?
+  attempts       Int                      @default(0)
+
+  chunkCount       Int       @default(0)
+  embeddingModel   String?
+  embeddingVersion String?
+  chunkerVersion   String?
+  ingestedAt       DateTime? @db.Timestamptz(3)
+
+  metadata Json?
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  documents KnowledgeDocument[]
+  chunks    KnowledgeChunk[]
+
+  @@index([visibility, status])
+  @@index([organizationId, visibility])
+  @@index([projectId])
+  @@index([uploadedById])
+  @@index([status, updatedAt])
+  @@map("knowledge_sources")
+}
+
+/// Extracted text of one document in a source.
+model KnowledgeDocument {
+  id String @id @default(uuid()) @db.Uuid
+
+  knowledgeSourceId String          @db.Uuid
+  knowledgeSource   KnowledgeSource @relation(fields: [knowledgeSourceId], references: [id], onDelete: Cascade)
+
+  title       String
+  content     String
+  language    String @default("en")
+  contentHash String
+  pageCount   Int?
+  metadata    Json?
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  chunks KnowledgeChunk[]
+
+  @@index([knowledgeSourceId])
+  @@map("knowledge_documents")
+}
+
+/// A retrievable passage with its embedding. `sourceId` is denormalised so
+/// the access filter needs one join, not two.
+model KnowledgeChunk {
+  id String @id @default(uuid()) @db.Uuid
+
+  documentId String            @db.Uuid
+  document   KnowledgeDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  sourceId String          @db.Uuid
+  source   KnowledgeSource @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+
+  chunkIndex   Int
+  content      String
+  tokenCount   Int
+  sectionTitle String?
+  pageNumber   Int?
+  contentHash  String
+
+  /// pgvector column, written by raw SQL. The HNSW and full-text indexes live
+  /// in the migration and post-migrate.sql (Prisma cannot express them).
+  embedding        Unsupported("vector(384)")?
+  embeddingModel   String
+  embeddingVersion String
+  dimensions       Int                         @default(384)
+
+  metadata Json?
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  @@unique([documentId, chunkIndex])
+  @@index([sourceId])
+  @@index([contentHash, embeddingModel])
+  @@map("knowledge_chunks")
+}
+
+/// One RAG answer, with what is needed to reproduce and evaluate it.
+model KnowledgeAnswer {
+  id String @id @default(uuid()) @db.Uuid
+
+  userId String? @db.Uuid
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  contextType String
+  problemId   String? @db.Uuid
+  projectId   String? @db.Uuid
+
+  question             String
+  answer               String?
+  insufficientEvidence Boolean @default(false)
+  /// ANSWERED, NO_EVIDENCE or FAILED.
+  status               String
+
+  modelName         String?
+  modelVersion      String?
+  promptVersion     String?
+  embeddingModel    String
+  embeddingVersion  String
+  retrievalVersion  String
+  retrievedChunkIds String[] @db.Uuid
+  scores            Json?
+  retrievalMs       Int?
+  generationMs      Int?
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([userId, createdAt])
+  @@index([createdAt])
+  @@map("knowledge_answers")
 }

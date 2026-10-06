@@ -114,6 +114,8 @@ export interface GovernmentAllocationView {
   cancelledAt: string | null;
   /** This office made the allocation, so it may cancel while pending. */
   ownedByThisOffice: boolean;
+  /** The resolution room, once accepted (Prompt 17). Null for another office. */
+  roomId: string | null;
 }
 
 /** The allocation section of a government problem view. */
@@ -150,6 +152,8 @@ export interface OrganizationAllocationItem {
   government: { name: string };
   proposedAt: string;
   respondedAt: string | null;
+  /** The resolution room, once accepted (Prompt 17). */
+  roomId: string | null;
 }
 
 export interface OrganizationAllocationPage {

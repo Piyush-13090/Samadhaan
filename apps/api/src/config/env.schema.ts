@@ -252,6 +252,94 @@ export const envSchema = z.object({
     .default('true')
     .transform((value) => value === 'true'),
   MATCHING_SWEEP_LIMIT: z.coerce.number().int().min(0).max(5000).default(200),
+
+  // --- AI Project Coordinator (Prompt 19) --------------------------------
+  // See docs/AI_PROJECT_COORDINATOR.md. Health thresholds live here, not in
+  // code, so they can be tuned without a deploy.
+  COORDINATOR_ENABLED: z
+    .enum(['true', 'false'])
+    .default('true')
+    .transform((value) => value === 'true'),
+  /** How often the background check runs, in minutes. */
+  COORDINATOR_SCHEDULE_MINUTES: z.coerce.number().int().min(15).max(1440).default(120),
+  /** A project is not re-analysed in the background more often than this. */
+  COORDINATOR_MIN_INTERVAL_HOURS: z.coerce.number().min(1).max(168).default(12),
+  /** Projects analysed per background run. */
+  COORDINATOR_BATCH_SIZE: z.coerce.number().int().min(0).max(200).default(10),
+  /** After this long an insight is shown as possibly outdated. */
+  COORDINATOR_INSIGHT_TTL_HOURS: z.coerce.number().min(1).max(168).default(24),
+  /** Per project: a manual refresh is not accepted more often than this. */
+  COORDINATOR_REFRESH_COOLDOWN_SECONDS: z.coerce
+    .number()
+    .int()
+    .min(0)
+    .max(3600)
+    .default(120),
+  // Context sent to the model.
+  COORDINATOR_MAX_MESSAGES: z.coerce.number().int().min(0).max(100).default(20),
+  COORDINATOR_MAX_EVENTS: z.coerce.number().int().min(0).max(100).default(30),
+  COORDINATOR_MAX_COMPLETED_TASKS: z.coerce.number().int().min(0).max(50).default(10),
+  COORDINATOR_MAX_UPDATES: z.coerce.number().int().min(0).max(50).default(5),
+  COORDINATOR_MAX_ANSWERED_QUESTIONS: z.coerce.number().int().min(0).max(50).default(10),
+  // Health engine.
+  /** Days without any project activity before it counts as inactive. */
+  COORDINATOR_INACTIVITY_DAYS: z.coerce.number().int().min(1).max(60).default(4),
+  /** Open work due within this many days is an approaching deadline. */
+  COORDINATOR_DEADLINE_WINDOW_DAYS: z.coerce.number().int().min(1).max(30).default(3),
+  /** This many overdue tasks (or more) puts a project AT_RISK. */
+  COORDINATOR_AT_RISK_OVERDUE_TASKS: z.coerce.number().int().min(1).max(50).default(2),
+  /** A BLOCKED task at one of these priorities makes the project BLOCKED. */
+  COORDINATOR_BLOCKING_PRIORITIES: z
+    .string()
+    .default('HIGH,CRITICAL')
+    .transform((value) =>
+      value
+        .split(',')
+        .map((v) => v.trim())
+        .filter(Boolean),
+    ),
+  // Questions.
+  COORDINATOR_MAX_OPEN_QUESTIONS: z.coerce.number().int().min(0).max(10).default(3),
+  /** A question answered or dismissed is not asked again for this long. */
+  COORDINATOR_QUESTION_COOLDOWN_DAYS: z.coerce.number().int().min(0).max(60).default(3),
+  /** Unanswered questions expire after this long. */
+  COORDINATOR_QUESTION_EXPIRY_DAYS: z.coerce.number().int().min(1).max(60).default(7),
+
+  // --- Knowledge & RAG (Prompt 20) --------------------------------------
+  // See docs/RAG_ARCHITECTURE.md. The hybrid weights are a documented
+  // baseline, not a learned model.
+  RAG_ENABLED: z
+    .enum(['true', 'false'])
+    .default('true')
+    .transform((value) => value === 'true'),
+  /** Passages returned (and given to the model). */
+  RAG_TOP_K: z.coerce.number().int().min(1).max(12).default(6),
+  /** Candidates fetched by vector and keyword search before scoring. */
+  RAG_CANDIDATES: z.coerce.number().int().min(5).max(200).default(40),
+  /** Passages below this semantic similarity are dropped unless they contain half the query's terms. */
+  RAG_SIMILARITY_THRESHOLD: z.coerce.number().min(0).max(1).default(0.25),
+  /** If the best semantic similarity is below this, retrieval is "weak". */
+  RAG_WEAK_SEMANTIC: z.coerce.number().min(0).max(1).default(0.35),
+  /** Diversity re-ranking (MMR) over the top candidates. */
+  RAG_RERANK_ENABLED: z
+    .enum(['true', 'false'])
+    .default('true')
+    .transform((value) => value === 'true'),
+  RAG_RERANK_TOP_K: z.coerce.number().int().min(2).max(50).default(15),
+  RAG_WEIGHT_SEMANTIC: z.coerce.number().min(0).max(1).default(0.6),
+  RAG_WEIGHT_KEYWORD: z.coerce.number().min(0).max(1).default(0.15),
+  RAG_WEIGHT_SOURCE: z.coerce.number().min(0).max(1).default(0.1),
+  RAG_WEIGHT_CONTEXT: z.coerce.number().min(0).max(1).default(0.1),
+  RAG_WEIGHT_RECENCY: z.coerce.number().min(0).max(1).default(0.05),
+  /** Characters of each passage sent to the model. */
+  RAG_MAX_PASSAGE_CHARS: z.coerce.number().int().min(200).max(4000).default(1500),
+  RAG_CHUNK_MAX_TOKENS: z.coerce.number().int().min(50).max(2000).default(350),
+  RAG_CHUNK_OVERLAP_TOKENS: z.coerce.number().int().min(0).max(500).default(50),
+  RAG_MAX_CHUNKS_PER_SOURCE: z.coerce.number().int().min(1).max(10000).default(2000),
+  /** Query embeddings are cached (by model and text hash) this long. */
+  RAG_QUERY_CACHE_SECONDS: z.coerce.number().int().min(0).max(604800).default(86400),
+  /** Passages the AI Project Coordinator receives (0 disables). */
+  RAG_COORDINATOR_TOP_K: z.coerce.number().int().min(0).max(10).default(3),
 });
 
 export type Env = z.infer<typeof envSchema>;

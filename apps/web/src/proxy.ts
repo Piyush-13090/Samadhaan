@@ -46,6 +46,7 @@ const PROTECTED_PREFIXES = [
   '/organization',
   '/government',
   '/admin',
+  '/knowledge',
 ];
 
 /** Routes a signed-in user has no reason to see. */

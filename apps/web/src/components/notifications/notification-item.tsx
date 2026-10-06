@@ -2,10 +2,16 @@
 
 import {
   AlertTriangle,
+  AtSign,
+  CalendarClock,
+  ClipboardList,
+  Flag,
   Building2,
   CheckCircle2,
   Copy,
   Heart,
+  Lock,
+  MessagesSquare,
   MessageSquare,
   RefreshCw,
   Reply,
@@ -41,6 +47,28 @@ const TYPE_META: Record<
   ALLOCATION_ACCEPTED: { icon: CheckCircle2, className: 'bg-success-soft text-success' },
   ALLOCATION_DECLINED: { icon: XCircle, className: 'bg-warning-soft text-warning' },
   ALLOCATION_CANCELLED: { icon: Undo2, className: 'bg-subtle text-ink-muted' },
+  RESOLUTION_MESSAGE: { icon: MessagesSquare, className: 'bg-primary-soft text-primary' },
+  RESOLUTION_MENTION: { icon: AtSign, className: 'bg-primary-soft text-primary' },
+  RESOLUTION_ROOM_CLOSED: { icon: Lock, className: 'bg-subtle text-ink-muted' },
+  PROJECT_TASK_ASSIGNED: {
+    icon: ClipboardList,
+    className: 'bg-primary-soft text-primary',
+  },
+  PROJECT_TASK_DUE_SOON: {
+    icon: CalendarClock,
+    className: 'bg-warning-soft text-warning',
+  },
+  PROJECT_TASK_COMPLETED: {
+    icon: CheckCircle2,
+    className: 'bg-success-soft text-success',
+  },
+  PROJECT_MILESTONE_COMPLETED: { icon: Flag, className: 'bg-success-soft text-success' },
+  PROJECT_STATUS_CHANGED: { icon: RefreshCw, className: 'bg-info-soft text-info' },
+  PROJECT_COORDINATOR_ALERT: {
+    icon: AlertTriangle,
+    className: 'bg-warning-soft text-warning',
+  },
+  PROJECT_COORDINATOR_QUESTION: { icon: AiSparkIcon, className: 'bg-ai-soft text-ai' },
 };
 
 /**
