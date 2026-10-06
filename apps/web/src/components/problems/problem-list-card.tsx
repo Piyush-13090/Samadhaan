@@ -1,5 +1,6 @@
 import { BellRing, Heart, MapPin, MessageSquare } from 'lucide-react';
 import Link from 'next/link';
+import type { ReactNode } from 'react';
 import type { ProblemListItem } from '@samadhaan/shared';
 import { cn } from '@/lib/cn';
 import { formatCompactNumber, formatDistance, formatRelativeTime } from '@/lib/format';
@@ -23,17 +24,28 @@ import { SeverityBadge } from './severity-badge';
 export function ProblemListCard({
   problem,
   showDistance = true,
+  footer,
   className,
 }: {
   problem: ProblemListItem;
   /** Hidden on "your reports", where distance from yourself means nothing. */
   showDistance?: boolean;
+  /**
+   * Extra read-only context under the card body — the organisation workspace
+   * uses it for why a problem appears. Must not contain interactive elements:
+   * the whole card is one link.
+   */
+  footer?: ReactNode;
   className?: string;
 }) {
   const locality = problem.area ?? problem.city;
 
   return (
-    <Card as="article" interactive className={cn('group relative flex flex-col', className)}>
+    <Card
+      as="article"
+      interactive
+      className={cn('group relative flex flex-col', className)}
+    >
       <div className="flex flex-1 gap-3 p-4">
         {problem.thumbnailUrl && (
           /* eslint-disable-next-line @next/next/no-img-element --
@@ -102,7 +114,10 @@ export function ProblemListCard({
                 )}
               >
                 <Heart
-                  className={cn('size-3.5', problem.supportedByCurrentUser && 'fill-current')}
+                  className={cn(
+                    'size-3.5',
+                    problem.supportedByCurrentUser && 'fill-current',
+                  )}
                   aria-hidden="true"
                 />
                 <span className="tabular">{formatCompactNumber(problem.voteCount)}</span>{' '}
@@ -113,7 +128,9 @@ export function ProblemListCard({
               </span>
               <span className="inline-flex items-center gap-1">
                 <MessageSquare className="size-3.5" aria-hidden="true" />
-                <span className="tabular">{formatCompactNumber(problem.commentCount)}</span>{' '}
+                <span className="tabular">
+                  {formatCompactNumber(problem.commentCount)}
+                </span>{' '}
                 <span className="sr-only">
                   {problem.commentCount === 1 ? 'comment' : 'comments'}
                 </span>
@@ -129,6 +146,9 @@ export function ProblemListCard({
           </div>
         </div>
       </div>
+      {footer && (
+        <div className="border-t border-border-subtle px-4 py-2.5">{footer}</div>
+      )}
     </Card>
   );
 }

@@ -1,4 +1,4 @@
-import type { ProblemImageView, ProblemView } from '@samadhaan/shared';
+import type { ProblemAssignment, ProblemImageView, ProblemView } from '@samadhaan/shared';
 import type { Problem, ProblemImage, User } from '../generated/prisma/client.js';
 
 /**
@@ -53,7 +53,7 @@ function toReporterView(reporter: User) {
 export async function toProblemView(
   problem: ProblemWithRelations,
   resolveUrl: ImageUrlResolver,
-  options: { viewerId?: string } = {},
+  options: { viewerId?: string; assignment?: ProblemAssignment | null } = {},
 ): Promise<ProblemView> {
   const images = await Promise.all(
     problem.images
@@ -87,6 +87,7 @@ export async function toProblemView(
     commentCount: problem.commentCount,
     createdAt: problem.createdAt.toISOString(),
     submittedAt: problem.submittedAt?.toISOString() ?? null,
+    assignment: options.assignment ?? null,
     ...(options.viewerId ? { isOwnReport: problem.reporterId === options.viewerId } : {}),
   };
 }

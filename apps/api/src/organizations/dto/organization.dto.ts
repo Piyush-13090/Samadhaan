@@ -1,18 +1,26 @@
 import { Transform } from 'class-transformer';
 import {
+  IsDefined,
   IsEmail,
   IsIn,
+  IsLatitude,
+  IsLongitude,
   IsOptional,
   IsString,
   IsUrl,
   Length,
   MaxLength,
+  ValidateIf,
 } from 'class-validator';
 import {
   EXPERTISE_LEVELS,
+  INVITABLE_MEMBER_ROLES,
   ORGANIZATION_LIMITS,
+  ORGANIZATION_MEMBER_ROLES,
   PROBLEM_CATEGORIES,
   type ExpertiseLevel,
+  type InvitableMemberRole,
+  type OrganizationMemberRole,
   type ProblemCategory,
 } from '@samadhaan/shared';
 
@@ -112,6 +120,28 @@ export class UpdateOrganizationDto {
     typeof value === 'string' ? value.trim().toUpperCase() || null : value,
   )
   postalCode?: string | null;
+
+  /**
+   * The organisation's registered location, which defines its service area in
+   * the workspace. All-or-nothing — half a coordinate pair is a client bug —
+   * and `null` for both clears it. Never published: members see it, the public
+   * profile shows city and state only.
+   */
+  @ValidateIf(hasEitherCoordinate)
+  @IsDefined({ message: 'longitude is required when latitude is given' })
+  @ValidateIf((dto: UpdateOrganizationDto) => dto.latitude !== null)
+  @IsLatitude({ message: 'latitude must be between -90 and 90' })
+  latitude?: number | null;
+
+  @ValidateIf(hasEitherCoordinate)
+  @IsDefined({ message: 'latitude is required when longitude is given' })
+  @ValidateIf((dto: UpdateOrganizationDto) => dto.longitude !== null)
+  @IsLongitude({ message: 'longitude must be between -180 and 180' })
+  longitude?: number | null;
+}
+
+function hasEitherCoordinate(dto: UpdateOrganizationDto): boolean {
+  return dto.latitude !== undefined || dto.longitude !== undefined;
 }
 
 /**
@@ -142,9 +172,29 @@ export class CreateExpertiseDto {
 /** Membership changes an OWNER/ADMIN may make. */
 export class UpdateMemberDto {
   /**
-   * `OWNER` is permitted: transferring ownership is a legitimate action, and
-   * the last-owner invariant is what keeps it safe, not a restriction here.
+   * `OWNER` is permitted: sharing ownership is a legitimate action. Who may
+   * grant it is decided by the role hierarchy in `OrganizationAccessService`,
+   * and the last-owner invariant keeps it safe — not this list.
    */
-  @IsIn(['OWNER', 'ADMIN', 'MEMBER'])
-  membershipRole!: 'OWNER' | 'ADMIN' | 'MEMBER';
+  @IsIn(ORGANIZATION_MEMBER_ROLES)
+  membershipRole!: OrganizationMemberRole;
+}
+
+/**
+ * Invites an existing account by email.
+ *
+ * Only ADMIN or MEMBER: ownership is shared with someone already on the team,
+ * through a role change an owner makes deliberately — never by an invitation
+ * that a typo in an email address could send to a stranger.
+ */
+export class InviteMemberDto {
+  @IsEmail({}, { message: 'Enter a valid email address' })
+  @MaxLength(254)
+  @Transform(({ value }) =>
+    typeof value === 'string' ? value.trim().toLowerCase() : value,
+  )
+  email!: string;
+
+  @IsIn(INVITABLE_MEMBER_ROLES, { message: 'Invite as ADMIN or MEMBER' })
+  membershipRole!: InvitableMemberRole;
 }

@@ -31,6 +31,14 @@ PROVIDER_NAME = "sentence-transformers"
 _MODEL_CACHE: dict[str, Any] = {}
 _MODEL_LOCK = threading.Lock()
 
+# One encode at a time per process. A loaded model is not safe to call from
+# several worker threads at once: on Apple's MPS backend concurrent `encode`
+# calls abort the whole process (a Metal command-buffer assertion), and on CPU
+# they only contend for the same cores. Requests still overlap everywhere else;
+# only the model call itself is serialised. Small models encode in
+# milliseconds, so the queue this creates is short.
+_ENCODE_LOCK = threading.Lock()
+
 
 def _load_model(model_id: str) -> SentenceTransformer:
     """Loads and caches a model. Blocking — never call from the event loop."""
@@ -135,12 +143,13 @@ class SentenceTransformerProvider(EmbeddingProvider):
         """Blocking encode. Runs on a worker thread."""
         model = _load_model(self._model_id)
 
-        encoded = model.encode(
-            texts,
-            normalize_embeddings=True,
-            convert_to_numpy=True,
-            show_progress_bar=False,
-        )
+        with _ENCODE_LOCK:
+            encoded = model.encode(
+                texts,
+                normalize_embeddings=True,
+                convert_to_numpy=True,
+                show_progress_bar=False,
+            )
 
         width = int(encoded.shape[1])
 

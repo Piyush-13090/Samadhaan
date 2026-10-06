@@ -3,6 +3,7 @@ import { Test } from '@nestjs/testing';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { AppModule } from '../src/app.module.js';
 import { PrismaService } from '../src/database/prisma.service.js';
+import { deleteAuditLogs } from './audit-maintenance.js';
 
 /**
  * Schema-level behaviour, exercised against the real database.
@@ -560,7 +561,28 @@ describe('Database schema (e2e)', () => {
       expect(after).not.toBeNull();
       expect(after?.actorUserId).toBeNull();
 
-      await prisma.auditLog.delete({ where: { id: entry.id } });
+      await deleteAuditLogs(prisma, { id: entry.id });
+    });
+
+    it('refuses to edit or delete an audit entry', async () => {
+      const entry = await prisma.auditLog.create({
+        data: { action: 'TEST_IMMUTABLE', entityType: 'Test' },
+      });
+
+      await expect(
+        prisma.auditLog.update({
+          where: { id: entry.id },
+          data: { action: 'REWRITTEN' },
+        }),
+      ).rejects.toThrow(/append-only/);
+      await expect(prisma.auditLog.delete({ where: { id: entry.id } })).rejects.toThrow(
+        /append-only/,
+      );
+      await expect(
+        prisma.$executeRaw`UPDATE audit_logs SET metadata = '{}' WHERE id = ${entry.id}::uuid`,
+      ).rejects.toThrow(/append-only/);
+
+      await deleteAuditLogs(prisma, { id: entry.id });
     });
   });
 });

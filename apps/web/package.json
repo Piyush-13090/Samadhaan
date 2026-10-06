@@ -3,7 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "predev": "node scripts/vendor-maplibre-worker.mjs",
     "dev": "next dev --port ${WEB_PORT:-3100}",
+    "prebuild": "node scripts/vendor-maplibre-worker.mjs",
     "build": "next build",
     "start": "next start --port ${WEB_PORT:-3100}",
     "lint": "eslint",
@@ -32,6 +34,7 @@
     "clsx": "^2.1.1",
     "dotenv": "^17.0.0",
     "lucide-react": "^1.45.0",
+    "maplibre-gl": "^6.12.0",
     "next": "16.3.5",
     "react": "19.2.8",
     "react-dom": "19.2.8",

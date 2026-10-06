@@ -1,16 +1,14 @@
 import { Injectable, Logger } from '@nestjs/common';
-import {
-  EMBEDDING_DIMENSIONS,
-  type DuplicateCheckView,
-  type ProblemCategory,
-} from '@samadhaan/shared';
+import { type DuplicateCheckView, type ProblemCategory } from '@samadhaan/shared';
 import { AiService } from '../../ai/ai.service.js';
 import { AppException } from '../../common/app.exception.js';
 import { AppConfig, type DuplicateDetectionConfig } from '../../config/app.config.js';
 import { PrismaService } from '../../database/prisma.service.js';
+import { DomainEventBus } from '../../events/domain-event-bus.js';
 import type { ProblemStatus } from '../../generated/prisma/enums.js';
 import { toSimilarProblemView } from '../duplicate.serializer.js';
 import { DuplicateScoringService } from './duplicate-scoring.service.js';
+import { storeProblemEmbedding } from './problem-embedding.store.js';
 
 /**
  * Statuses a candidate must not have to be worth matching against.
@@ -66,6 +64,7 @@ export class DuplicateDetectionService {
     private readonly ai: AiService,
     private readonly scoring: DuplicateScoringService,
     private readonly config: AppConfig,
+    private readonly events: DomainEventBus,
   ) {}
 
   private get settings(): DuplicateDetectionConfig {
@@ -116,7 +115,9 @@ export class DuplicateDetectionService {
     });
 
     if (inFlight) {
-      throw AppException.conflict('A duplicate check is already running for this problem.');
+      throw AppException.conflict(
+        'A duplicate check is already running for this problem.',
+      );
     }
 
     await this.enqueue(problemId, requestId);
@@ -157,7 +158,7 @@ export class DuplicateDetectionService {
       return;
     }
 
-    await this.storeEmbedding(problemId, vector, embeddings);
+    await storeProblemEmbedding(this.prisma, problemId, vector, embeddings);
 
     const candidates = await this.findCandidates(problem, vector, embeddings.modelName);
     const scored = this.scoreCandidates(problem, candidates);
@@ -178,9 +179,12 @@ export class DuplicateDetectionService {
         provider: embeddings.provider,
         comparedCount: candidates.length,
         keptCount: kept,
-        likelyCount: scored.filter((entry) => entry.verdict === 'LIKELY_DUPLICATE').length,
+        likelyCount: scored.filter((entry) => entry.verdict === 'LIKELY_DUPLICATE')
+          .length,
       },
     });
+
+    await this.announceLikelyDuplicates(problem);
 
     this.logger.log(
       `Duplicate check completed for ${problem.publicId} ` +
@@ -191,49 +195,41 @@ export class DuplicateDetectionService {
   }
 
   /**
-   * Writes the problem's text embedding.
+   * Tells the reporter about likely duplicates, if there are any.
    *
-   * Raw SQL because Prisma cannot express `vector`. The cast is explicit and
-   * the vector is parameterised as a string — never interpolated — so the
-   * usual raw-SQL hazard does not apply.
-   *
-   * Upsert on `(problemId, embeddingType, modelName)`: re-embedding with the
-   * *same* model replaces the row, while a different model writes a new one.
-   * That is what keeps a model change from silently overwriting the corpus it
-   * can no longer be compared with.
+   * Read back from the stored pairs rather than from this run's scores, so a
+   * pair a person has already rejected is never announced again, and only
+   * `LIKELY_DUPLICATE` — not the weaker suggestions — reaches a notification.
    */
-  private async storeEmbedding(
-    problemId: string,
-    vector: number[],
-    meta: { modelName: string; modelVersion: string; dimensions: number },
-  ): Promise<void> {
-    if (vector.length !== EMBEDDING_DIMENSIONS) {
-      throw new Error(
-        `Refusing to store a ${vector.length}-dimensional vector; ` +
-          `the column is ${EMBEDDING_DIMENSIONS}.`,
-      );
-    }
+  private async announceLikelyDuplicates(problem: {
+    id: string;
+    publicId: string;
+    reporterId: string;
+  }): Promise<void> {
+    const likely = await this.prisma.problemDuplicateCandidate.findMany({
+      where: { problemId: problem.id, status: 'LIKELY_DUPLICATE' },
+      orderBy: [{ combinedScore: 'desc' }, { createdAt: 'asc' }],
+      take: 3,
+      select: {
+        candidateProblemId: true,
+        combinedScore: true,
+        candidateProblem: { select: { publicId: true } },
+      },
+    });
 
-    const literal = `[${vector.join(',')}]`;
+    if (likely.length === 0) return;
 
-    // Columns are camelCase and therefore case-sensitive in PostgreSQL: Prisma
-    // maps table names via `@@map` but leaves field names as written, so every
-    // identifier here must stay quoted.
-    await this.prisma.$executeRaw`
-      INSERT INTO problem_embeddings
-        ("id", "problemId", "embeddingType", "modelName", "modelVersion",
-         "dimensions", "embedding", "createdAt")
-      VALUES
-        (gen_random_uuid(), ${problemId}::uuid, 'TEXT'::"EmbeddingType",
-         ${meta.modelName}, ${meta.modelVersion}, ${meta.dimensions},
-         ${literal}::vector, now())
-      ON CONFLICT ("problemId", "embeddingType", "modelName")
-      DO UPDATE SET
-        "embedding" = EXCLUDED."embedding",
-        "modelVersion" = EXCLUDED."modelVersion",
-        "dimensions" = EXCLUDED."dimensions",
-        "createdAt" = now()
-    `;
+    this.events.publish({
+      type: 'LIKELY_DUPLICATES_FOUND',
+      problemId: problem.id,
+      problemPublicId: problem.publicId,
+      reporterId: problem.reporterId,
+      matches: likely.map((pair) => ({
+        candidateProblemId: pair.candidateProblemId,
+        candidatePublicId: pair.candidateProblem.publicId,
+        similarity: Number(pair.combinedScore ?? 0),
+      })),
+    });
   }
 
   /**
@@ -504,8 +500,12 @@ export class DuplicateDetectionService {
     reviewer: { id: string },
   ): Promise<void> {
     const candidate = await this.loadPair(candidateId, problemId);
+    const before = await this.prisma.problem.findUniqueOrThrow({
+      where: { id: problemId },
+      select: { status: true, publicId: true, reporterId: true },
+    });
 
-    await this.prisma.$transaction(async (tx) => {
+    const changeId = await this.prisma.$transaction(async (tx) => {
       await tx.problemDuplicateCandidate.update({
         where: { id: candidate.id },
         data: {
@@ -520,7 +520,7 @@ export class DuplicateDetectionService {
         data: { duplicateOfId: candidate.candidateProblemId, status: 'DUPLICATE' },
       });
 
-      await tx.auditLog.create({
+      const audit = await tx.auditLog.create({
         data: {
           actorUserId: reviewer.id,
           action: 'PROBLEM_DUPLICATE_CONFIRMED',
@@ -534,8 +534,26 @@ export class DuplicateDetectionService {
             combinedScore: candidate.combinedScore?.toString() ?? null,
           },
         },
+        select: { id: true },
       });
+
+      // The audit entry is the record of this change, so its id identifies
+      // the change for anything downstream that must not act on it twice.
+      return audit.id;
     });
+
+    if (before.status !== 'DUPLICATE') {
+      this.events.publish({
+        type: 'PROBLEM_STATUS_CHANGED',
+        problemId,
+        problemPublicId: before.publicId,
+        reporterId: before.reporterId,
+        fromStatus: before.status,
+        toStatus: 'DUPLICATE',
+        actorUserId: reviewer.id,
+        changeId,
+      });
+    }
 
     this.logger.log(
       `Problem ${problemId} confirmed as duplicate of ${candidate.candidateProblemId} ` +
@@ -619,14 +637,20 @@ export class DuplicateDetectionService {
     });
 
     if (count === 0) {
-      this.logger.debug(`Duplicate check ${jobId} vanished mid-run; its problem was removed.`);
+      this.logger.debug(
+        `Duplicate check ${jobId} vanished mid-run; its problem was removed.`,
+      );
     }
   }
 }
 
 /** Statuses that record a human decision, which re-scoring must not overwrite. */
 export function isHumanReviewed(status: string): boolean {
-  return status === 'CONFIRMED_DUPLICATE' || status === 'REJECTED' || status === 'NOT_DUPLICATE';
+  return (
+    status === 'CONFIRMED_DUPLICATE' ||
+    status === 'REJECTED' ||
+    status === 'NOT_DUPLICATE'
+  );
 }
 
 /**

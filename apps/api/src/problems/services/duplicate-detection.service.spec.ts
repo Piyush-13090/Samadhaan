@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AiService, EmbeddingOutcome } from '../../ai/ai.service.js';
 import type { AppConfig, DuplicateDetectionConfig } from '../../config/app.config.js';
 import type { PrismaService } from '../../database/prisma.service.js';
+import type { DomainEventBus } from '../../events/domain-event-bus.js';
 import {
   DuplicateDetectionService,
   buildCanonicalText,
@@ -80,7 +81,13 @@ function createFakePrisma(candidateRows: Array<Record<string, unknown>> = []) {
         return row;
       }),
       updateMany: vi.fn(
-        async ({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => {
+        async ({
+          where,
+          data,
+        }: {
+          where: { id: string };
+          data: Record<string, unknown>;
+        }) => {
           const row = jobs.find((entry) => entry.id === where.id);
           // Mirrors Prisma: `updateMany` reports a count, it does not throw.
           if (!row) return { count: 0 };
@@ -122,6 +129,7 @@ function build(prisma: ReturnType<typeof createFakePrisma>, outcome: EmbeddingOu
     ai,
     new DuplicateScoringService(),
     config,
+    { publish: vi.fn() } as unknown as DomainEventBus,
   );
 
   return { service, embedText };

@@ -32,6 +32,7 @@ const REFRESH_COOKIE = 'sam_refresh';
 const PROTECTED_PREFIXES = [
   '/dashboard',
   '/nearby',
+  '/map',
   '/my-problems',
   '/notifications',
   '/settings',

@@ -52,10 +52,15 @@ export function toPublicOrganization(
   options: {
     memberCount: number;
     permissions?: OrganizationPermissions;
+    /** Set for a proven member reading their own workspace. */
+    includeContact?: boolean;
   },
 ): PublicOrganization {
   const isVerified = organization.verificationStatus === 'VERIFIED';
-  const canSeeContact = isVerified || options.permissions?.canEdit === true;
+  const canSeeContact =
+    isVerified ||
+    options.includeContact === true ||
+    options.permissions?.canEdit === true;
 
   return {
     id: organization.id,

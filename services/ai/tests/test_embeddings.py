@@ -307,3 +307,44 @@ class TestRealModel:
         assert duplicate_pair > 0.6
         assert unrelated_pair < 0.4
         assert duplicate_pair > unrelated_pair + 0.3
+
+
+async def test_concurrent_requests_never_call_the_model_at_the_same_time() -> None:
+    """Regression: concurrent `encode` calls crash the process on Apple's MPS
+    backend. Requests may overlap; the model call must not."""
+    import asyncio
+    import threading
+    import time
+
+    import numpy as np
+
+    from app.providers import sentence_transformer_provider as module
+
+    class RecordingModel:
+        def __init__(self) -> None:
+            self.active = 0
+            self.peak = 0
+            self.guard = threading.Lock()
+
+        def get_sentence_embedding_dimension(self) -> int:
+            return DIMENSIONS
+
+        def encode(self, texts, **_: object):
+            with self.guard:
+                self.active += 1
+                self.peak = max(self.peak, self.active)
+            time.sleep(0.02)
+            with self.guard:
+                self.active -= 1
+            return np.ones((len(texts), DIMENSIONS), dtype=np.float32) / DIMENSIONS**0.5
+
+    model = RecordingModel()
+    module._MODEL_CACHE["recording-model"] = model
+    try:
+        provider = module.SentenceTransformerProvider(
+            model_id="recording-model", expected_dimensions=DIMENSIONS
+        )
+        await asyncio.gather(*(provider.embed_texts([f"text {i}"]) for i in range(6)))
+        assert model.peak == 1
+    finally:
+        module._MODEL_CACHE.pop("recording-model", None)

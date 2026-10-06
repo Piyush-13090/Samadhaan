@@ -1,6 +1,7 @@
 import { HttpStatus, Injectable, Logger } from '@nestjs/common';
 import { ERROR_CODES, type ProblemView, type UploadedImage } from '@samadhaan/shared';
 import type { RequestUser } from '../auth/auth.types.js';
+import { AllocationsService } from '../allocations/allocations.service.js';
 import { AppException } from '../common/app.exception.js';
 import { AppConfig } from '../config/app.config.js';
 import { PrismaService } from '../database/prisma.service.js';
@@ -39,6 +40,7 @@ export class ProblemsService {
     private readonly analysis: ProblemAnalysisService,
     private readonly duplicates: DuplicateDetectionService,
     private readonly config: AppConfig,
+    private readonly allocations: AllocationsService,
   ) {}
 
   /** Resolves a storage key to a fetchable URL. Passed into the serializer. */
@@ -289,7 +291,12 @@ export class ProblemsService {
 
     if (!problem || !isVisibleTo(problem, viewer)) throw AppException.notFound('Problem');
 
-    return toProblemView(problem, this.resolveUrl, { viewerId: viewer?.id });
+    return toProblemView(problem, this.resolveUrl, {
+      viewerId: viewer?.id,
+      // Who is on it, once a government office's allocation was accepted.
+      // Public facts only — see AllocationsService.publicAssignment.
+      assignment: await this.allocations.publicAssignment(problem.id),
+    });
   }
 
   /**

@@ -4,21 +4,24 @@ import {
   ClipboardCheck,
   Compass,
   FileText,
-  FolderKanban,
+  Inbox,
   Gauge,
   LayoutDashboard,
+  Map as MapIcon,
   MapPin,
   Plus,
   Settings,
   ShieldCheck,
+  Search,
   Target,
-  TrendingUp,
   Trophy,
   UserRound,
   Users,
   type LucideIcon,
 } from 'lucide-react';
 import type { UserRole } from '@samadhaan/shared';
+import { governmentPath } from './government';
+import { workspacePath } from './workspace';
 
 /**
  * Navigation definition for the application shell.
@@ -70,6 +73,7 @@ const CITIZEN_NAV: NavSection[] = [
     items: [
       { href: '/dashboard', label: 'Home', icon: LayoutDashboard },
       { href: '/explore', label: 'Explore', icon: Compass },
+      { href: '/map', label: 'Map', icon: MapIcon },
       { href: '/report', label: 'Report', icon: Plus },
       { href: '/my-problems', label: 'My reports', icon: FileText },
       { href: '/leaderboard', label: 'Leaderboard', icon: Trophy },
@@ -78,33 +82,116 @@ const CITIZEN_NAV: NavSection[] = [
   },
 ];
 
-/** NGO, university and industry share one workspace. */
+/**
+ * An organisation role outside any one workspace — before they have chosen
+ * one, or when they belong to none yet. The workspace itself has its own
+ * navigation, below.
+ */
 const ORGANIZATION_NAV: NavSection[] = [
   {
     id: 'primary',
     items: [
-      { href: '/organization', label: 'Dashboard', icon: LayoutDashboard },
-      { href: '/organization/opportunities', label: 'Opportunities', icon: Target },
-      { href: '/organization/projects', label: 'Projects', icon: FolderKanban },
+      { href: '/organization', label: 'Organisations', icon: Building2 },
+      { href: '/explore', label: 'Explore', icon: Compass },
+      { href: '/map', label: 'Map', icon: MapIcon },
+      NOTIFICATIONS_ITEM,
+    ],
+  },
+];
+
+/**
+ * Navigation inside one organisation's workspace.
+ *
+ * Built from the slug, so every link stays inside the workspace being viewed.
+ * The slug is an address, not a credential — each page asks the API, which
+ * checks membership.
+ */
+export function workspaceNavigation(slug: string): NavSection[] {
+  return [
+    {
+      id: 'workspace',
+      items: [
+        {
+          href: workspacePath(slug, 'dashboard'),
+          label: 'Dashboard',
+          icon: LayoutDashboard,
+        },
+        { href: workspacePath(slug, 'problems'), label: 'Problems', icon: Search },
+        {
+          href: workspacePath(slug, 'opportunities'),
+          label: 'Opportunities',
+          icon: Target,
+        },
+        {
+          href: workspacePath(slug, 'allocations'),
+          label: 'Allocations',
+          icon: Inbox,
+        },
+        { href: workspacePath(slug, 'team'), label: 'Team', icon: Users },
+        { href: workspacePath(slug, 'profile'), label: 'Organisation', icon: Building2 },
+        { href: workspacePath(slug, 'settings'), label: 'Settings', icon: Settings },
+        NOTIFICATIONS_ITEM,
+      ],
+    },
+    {
+      id: 'civic',
+      label: 'Civic data',
+      items: [
+        { href: '/explore', label: 'Explore', icon: Compass },
+        { href: '/map', label: 'Map', icon: MapIcon },
+      ],
+    },
+  ];
+}
+
+/**
+ * A government account outside any one office's portal — before choosing one,
+ * or with no office yet. Inside a portal, `governmentNavigation` applies.
+ */
+const GOVERNMENT_NAV: NavSection[] = [
+  {
+    id: 'primary',
+    items: [
+      { href: '/government', label: 'Command centre', icon: Gauge },
       { href: '/explore', label: 'Explore', icon: Compass },
       NOTIFICATIONS_ITEM,
     ],
   },
 ];
 
-const GOVERNMENT_NAV: NavSection[] = [
-  {
-    id: 'primary',
-    items: [
-      { href: '/government', label: 'Command centre', icon: Gauge },
-      { href: '/government/problems', label: 'Problems', icon: MapPin },
-      { href: '/government/allocations', label: 'Allocations', icon: ClipboardCheck },
-      { href: '/government/verification', label: 'Verification', icon: ShieldCheck },
-      { href: '/government/analytics', label: 'Analytics', icon: TrendingUp },
-      NOTIFICATIONS_ITEM,
-    ],
-  },
-];
+/** Navigation inside one government office's portal. */
+export function governmentNavigation(slug: string): NavSection[] {
+  return [
+    {
+      id: 'government',
+      items: [
+        { href: governmentPath(slug, 'dashboard'), label: 'Dashboard', icon: Gauge },
+        {
+          href: governmentPath(slug, 'problems'),
+          label: 'Review queue',
+          icon: ClipboardCheck,
+        },
+        { href: governmentPath(slug, 'map'), label: 'Map', icon: MapIcon },
+        NOTIFICATIONS_ITEM,
+      ],
+    },
+    {
+      id: 'civic',
+      label: 'Civic data',
+      items: [{ href: '/explore', label: 'Explore', icon: Compass }],
+    },
+  ];
+}
+
+export function governmentMobileNavigation(slug: string): MobileNavItem[] {
+  return [
+    { href: governmentPath(slug, 'dashboard'), label: 'Home', icon: Gauge },
+    { href: governmentPath(slug, 'problems'), label: 'Review', icon: ClipboardCheck },
+    { href: governmentPath(slug, 'map'), label: 'Map', icon: MapIcon },
+    { href: '/notifications', label: 'Activity', icon: Bell, badgeKey: 'notifications' },
+    { href: '/profile', label: 'Profile', icon: UserRound },
+  ];
+}
 
 const ADMIN_NAV: NavSection[] = [
   {
@@ -184,6 +271,21 @@ function workspaceMobileNav(home: string): MobileNavItem[] {
 }
 
 export const MOBILE_NAV: MobileNavItem[] = CITIZEN_MOBILE_NAV;
+
+/**
+ * The phone bar inside a workspace: the places a member goes daily.
+ * Team, organisation profile and settings stay one tap away in the menu
+ * drawer and on the dashboard.
+ */
+export function workspaceMobileNavigation(slug: string): MobileNavItem[] {
+  return [
+    { href: workspacePath(slug, 'dashboard'), label: 'Home', icon: LayoutDashboard },
+    { href: workspacePath(slug, 'problems'), label: 'Problems', icon: Search },
+    { href: workspacePath(slug, 'opportunities'), label: 'Opportunities', icon: Target },
+    { href: workspacePath(slug, 'allocations'), label: 'Allocations', icon: Inbox },
+    { href: '/notifications', label: 'Activity', icon: Bell, badgeKey: 'notifications' },
+  ];
+}
 
 export function mobileNavigationFor(role: UserRole = 'CITIZEN'): MobileNavItem[] {
   if (role === 'CITIZEN') return CITIZEN_MOBILE_NAV;

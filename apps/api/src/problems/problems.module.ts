@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { MulterModule } from '@nestjs/platform-express';
 import { AiModule } from '../ai/ai.module.js';
+import { AllocationsModule } from '../allocations/allocations.module.js';
 import { AppConfig } from '../config/app.config.js';
 import { ProblemsController } from './problems.controller.js';
 import { ProblemsService } from './problems.service.js';
@@ -9,6 +10,7 @@ import { PendingUploadService } from './services/pending-upload.service.js';
 import { DuplicateDetectionService } from './services/duplicate-detection.service.js';
 import { DuplicateScoringService } from './services/duplicate-scoring.service.js';
 import { ProblemDiscoveryService } from './services/problem-discovery.service.js';
+import { ProblemMapService } from './services/problem-map.service.js';
 import { ProblemAnalysisService } from './services/problem-analysis.service.js';
 
 /**
@@ -26,6 +28,7 @@ import { ProblemAnalysisService } from './services/problem-analysis.service.js';
 @Module({
   imports: [
     AiModule,
+    AllocationsModule,
     MulterModule.registerAsync({
       inject: [AppConfig],
       useFactory: (config: AppConfig) => ({
@@ -49,12 +52,16 @@ import { ProblemAnalysisService } from './services/problem-analysis.service.js';
     DuplicateScoringService,
     DuplicateDetectionService,
     ProblemDiscoveryService,
+    ProblemMapService,
   ],
   exports: [
     ProblemsService,
     ProblemAnalysisService,
     DuplicateDetectionService,
     ProblemDiscoveryService,
+    // The aggregation is the hotspot foundation; the government module will
+    // consume it from here.
+    ProblemMapService,
   ],
 })
 export class ProblemsModule {}

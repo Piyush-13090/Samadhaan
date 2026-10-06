@@ -30,10 +30,7 @@ function toNumber(value: unknown): number | null {
  * would go stale the moment an operator retuned them, and the pair would then
  * be described one way and scored another.
  */
-function verdictFor(
-  score: number,
-  config: DuplicateDetectionConfig,
-): DuplicateVerdict {
+function verdictFor(score: number, config: DuplicateDetectionConfig): DuplicateVerdict {
   if (score >= config.highThreshold) return 'LIKELY_DUPLICATE';
   if (score >= config.possibleThreshold) return 'POSSIBLE_DUPLICATE';
   return 'RELATED';

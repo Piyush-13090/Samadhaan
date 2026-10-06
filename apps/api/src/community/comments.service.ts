@@ -18,7 +18,7 @@ import {
   type CommentRow,
   type CommentViewContext,
 } from './comment.serializer.js';
-import { CommunityEventPublisher } from './community-events.js';
+import { DomainEventBus } from '../events/domain-event-bus.js';
 import type {
   CreateCommentDto,
   ListCommentsQueryDto,
@@ -47,7 +47,7 @@ import { assertAcceptsEngagement, moveCounter } from './engagement.service.js';
 export class CommentsService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly events: CommunityEventPublisher,
+    private readonly events: DomainEventBus,
   ) {}
 
   // =================================================================== read

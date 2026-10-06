@@ -92,17 +92,22 @@ model User {
   emailVerifiedAt DateTime? @db.Timestamptz(3)
   lastLoginAt     DateTime? @db.Timestamptz(3)
 
-  sessions            Session[]
-  organizationMembers OrganizationMember[]
-  expertiseAdded      OrganizationExpertise[]     @relation("ExpertiseAddedBy")
-  reportedProblems    Problem[]                   @relation("ProblemReporter")
-  votes               ProblemVote[]
-  follows             ProblemFollow[]
-  comments            ProblemComment[]
-  suggestions         ProblemSuggestion[]
-  reviewedSuggestions ProblemSuggestion[]         @relation("SuggestionReviewer")
-  duplicateReviews    ProblemDuplicateCandidate[] @relation("DuplicateReviewer")
-  auditEvents         AuditLog[]
+  sessions             Session[]
+  organizationMembers  OrganizationMember[]
+  expertiseAdded       OrganizationExpertise[]     @relation("ExpertiseAddedBy")
+  reportedProblems     Problem[]                   @relation("ProblemReporter")
+  votes                ProblemVote[]
+  follows              ProblemFollow[]
+  comments             ProblemComment[]
+  suggestions          ProblemSuggestion[]
+  reviewedSuggestions  ProblemSuggestion[]         @relation("SuggestionReviewer")
+  duplicateReviews     ProblemDuplicateCandidate[] @relation("DuplicateReviewer")
+  auditEvents          AuditLog[]
+  internalNotes        ProblemInternalNote[]       @relation("InternalNoteAuthor")
+  allocationsMade      ProblemAllocation[]         @relation("AllocationAllocatedBy")
+  allocationResponses  ProblemAllocation[]         @relation("AllocationRespondedBy")
+  allocationsCancelled ProblemAllocation[]         @relation("AllocationCancelledBy")
+  notifications        Notification[]
 
   createdAt DateTime  @default(now()) @db.Timestamptz(3)
   updatedAt DateTime  @updatedAt @db.Timestamptz(3)
@@ -175,6 +180,16 @@ enum OrganizationType {
 /// Unverified organisations can exist but must not be allocated problems —
 /// allocation is the point at which public work is handed over, and that
 /// requires a checked identity.
+/// What kind of public body a GOVERNMENT organisation is (Prompt 15).
+enum JurisdictionType {
+  MUNICIPAL_CORPORATION
+  MUNICIPALITY
+  DISTRICT_ADMINISTRATION
+  URBAN_LOCAL_BODY
+  GOVERNMENT_DEPARTMENT
+  PUBLIC_AUTHORITY
+}
+
 enum VerificationStatus {
   PENDING
   VERIFIED
@@ -234,15 +249,33 @@ model Organization {
   /// written by the client — see `problems_location_sync` in the migration.
   location Unsupported("geography(Point, 4326)")?
 
+  // --- Jurisdiction (GOVERNMENT organisations only, Prompt 15) -------------
+  // Which problems a government office may review. Resolved in this order:
+  // the boundary polygon if present; otherwise the listed cities; otherwise
+  // the listed postal codes; otherwise nothing at all — fail closed.
+  jurisdictionType        JurisdictionType?
+  /// Human name of the area, e.g. "Gurugram Municipal Corporation area".
+  jurisdictionName        String?
+  /// PostGIS boundary. Written by raw SQL (Prisma cannot express it).
+  jurisdictionBoundary    Unsupported("geography(MultiPolygon, 4326)")?
+  /// Fallback when there is no boundary. Compared case-insensitively.
+  jurisdictionCities      String[]                                      @default([])
+  jurisdictionPostalCodes String[]                                      @default([])
+
   verificationStatus VerificationStatus @default(PENDING)
   /// When verification last changed, for the admin queue.
   verifiedAt         DateTime?          @db.Timestamptz(3)
 
   isActive Boolean @default(true)
 
-  members     OrganizationMember[]
-  suggestions ProblemSuggestion[]
-  expertise   OrganizationExpertise[]
+  members             OrganizationMember[]
+  internalNotes       ProblemInternalNote[]
+  suggestions         ProblemSuggestion[]
+  allocationsReceived ProblemAllocation[]        @relation("AllocatedOrganization")
+  allocationsMade     ProblemAllocation[]        @relation("AllocatingOffice")
+  expertise           OrganizationExpertise[]
+  embeddings          OrganizationEmbedding[]
+  matches             OrganizationProblemMatch[]
 
   createdAt DateTime  @default(now()) @db.Timestamptz(3)
   updatedAt DateTime  @updatedAt @db.Timestamptz(3)
@@ -256,6 +289,7 @@ model Organization {
   @@index([state, city])
   @@index([deletedAt])
   @@index([location], map: "organizations_location_gist", type: Gist)
+  @@index([jurisdictionBoundary], map: "organizations_jurisdiction_gist", type: Gist)
   @@map("organizations")
 }
 
@@ -490,13 +524,15 @@ model Problem {
   lastCommentAt DateTime? @db.Timestamptz(3)
 
   // --- Relations ----------------------------------------------------------
-  images      ProblemImage[]
-  aiAnalyses  ProblemAiAnalysis[]
-  embeddings  ProblemEmbedding[]
-  votes       ProblemVote[]
-  follows     ProblemFollow[]
-  comments    ProblemComment[]
-  suggestions ProblemSuggestion[]
+  images        ProblemImage[]
+  aiAnalyses    ProblemAiAnalysis[]
+  embeddings    ProblemEmbedding[]
+  orgMatches    OrganizationProblemMatch[]
+  internalNotes ProblemInternalNote[]
+  votes         ProblemVote[]
+  follows       ProblemFollow[]
+  comments      ProblemComment[]
+  suggestions   ProblemSuggestion[]
 
   /// Pairs where this problem is the newer report being checked.
   duplicateCandidates ProblemDuplicateCandidate[] @relation("DuplicateSource")
@@ -512,9 +548,10 @@ model Problem {
   submittedAt DateTime? @db.Timestamptz(3)
   resolvedAt  DateTime? @db.Timestamptz(3)
 
-  createdAt DateTime  @default(now()) @db.Timestamptz(3)
-  updatedAt DateTime  @updatedAt @db.Timestamptz(3)
-  deletedAt DateTime? @db.Timestamptz(3)
+  createdAt          DateTime            @default(now()) @db.Timestamptz(3)
+  updatedAt          DateTime            @updatedAt @db.Timestamptz(3)
+  deletedAt          DateTime?           @db.Timestamptz(3)
+  problemAllocations ProblemAllocation[]
 
   /// The default feed: newest active problems first.
   @@index([status, createdAt])
@@ -605,6 +642,9 @@ enum AnalysisType {
   DUPLICATE_ANALYSIS
   SEVERITY_ANALYSIS
   VERIFICATION_ANALYSIS
+  /// One organisation-matching run for the problem (Prompt 14). The job's
+  /// lifecycle and provenance live here, like every other AI job.
+  ORGANIZATION_MATCHING
 }
 
 /// Lifecycle of an analysis job.
@@ -725,6 +765,97 @@ model ProblemEmbedding {
 }
 
 /// Where a candidate pair stands.
+/// An organisation's profile in the embedding space (Prompt 14).
+///
+/// Mirrors `ProblemEmbedding`: one current vector per organisation per model,
+/// written by raw SQL because Prisma cannot express `vector`. `sourceHash` is
+/// a SHA-256 of the exact text that was encoded, so an unchanged profile is
+/// never re-embedded and a changed one always is.
+model OrganizationEmbedding {
+  id String @id @default(uuid()) @db.Uuid
+
+  organizationId String       @db.Uuid
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  modelName    String
+  modelVersion String
+  dimensions   Int    @default(384)
+  /// SHA-256 of the encoded profile text. Changes iff the profile changed.
+  sourceHash   String
+
+  embedding Unsupported("vector(384)")?
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  @@unique([organizationId, modelName])
+  @@map("organization_embeddings")
+}
+
+/// Lifecycle of one organisation–problem match. Deliberately no acceptance,
+/// assignment or allocation states: a match says "potentially relevant",
+/// nothing more. Those workflows belong to later milestones.
+enum OrganizationMatchStatus {
+  /// Current output of the matching engine.
+  CALCULATED
+  /// An input changed; still shown until the background re-match replaces it.
+  STALE
+  /// The organisation marked it not relevant. Survives re-matching.
+  DISMISSED
+}
+
+/// How relevant one organisation is to one problem, as computed by a specific
+/// matching engine version (Prompt 14).
+///
+/// Every signal is stored separately so a score can always be explained and
+/// audited, and so a future trained model can be compared against this
+/// baseline on the same rows. Written only by the matching service — no
+/// endpoint lets a client set any of these values.
+model OrganizationProblemMatch {
+  id String @id @default(uuid()) @db.Uuid
+
+  problemId      String       @db.Uuid
+  problem        Problem      @relation(fields: [problemId], references: [id], onDelete: Cascade)
+  organizationId String       @db.Uuid
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  // --- Signals, each 0–1. Null when the signal was unavailable. ----------
+  semanticScore   Float?
+  expertiseScore  Float?
+  categoryScore   Float?
+  geographicScore Float?
+  capabilityScore Float?
+  activityScore   Float?
+
+  /// Weighted composite, 0–1. A relevance score, not a model confidence.
+  finalScore Float
+  /// Position among this problem's matches, 1 = most relevant.
+  rank       Int
+
+  /// Engine identity, e.g. `heuristic-baseline@1.0.0+w3f9a1c`. Includes a
+  /// hash of the weights, so changing them is a new version.
+  matchingVersion String
+  /// The embedding model the semantic signal came from.
+  modelName       String
+  modelVersion    String
+
+  status OrganizationMatchStatus @default(CALCULATED)
+
+  /// Structured evidence: reason codes, matched expertise, distance. The UI
+  /// renders explanations from this — nothing here is free text from a model.
+  explanation Json @db.JsonB
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  @@unique([problemId, organizationId, matchingVersion])
+  /// "Organisations for this problem, best first."
+  @@index([problemId, status, finalScore(sort: Desc)])
+  /// "Recommended problems for this organisation, best first."
+  @@index([organizationId, status, finalScore(sort: Desc)])
+  @@map("organization_problem_matches")
+}
+
 enum DuplicateStatus {
   PENDING
   LIKELY_DUPLICATE
@@ -939,6 +1070,207 @@ model ProblemSuggestion {
 ///
 /// Nothing writes to this table yet; the audit service arrives with the
 /// workflows that need it.
+// ===========================================================================
+// Notifications
+// ===========================================================================
+
+/// What a notification is about. Controlled, because the client maps each to an
+/// icon and a destination, and an unknown free-text type would render as
+/// neither. Only events the product can actually produce today are listed;
+/// later milestones (allocation, resolution, impact) add theirs with a
+/// migration, alongside the code that emits them.
+enum NotificationType {
+  AI_ANALYSIS_COMPLETED
+  AI_ANALYSIS_FAILED
+  POSSIBLE_DUPLICATE_FOUND
+  PROBLEM_SUPPORTED
+  PROBLEM_COMMENTED
+  COMMENT_REPLIED
+  /// To a follower who is not the reporter.
+  FOLLOWED_PROBLEM_UPDATED
+  /// To the reporter.
+  PROBLEM_STATUS_CHANGED
+  // --- Allocation (Prompt 16) ---------------------------------------------
+  /// To the allocated organisation's owners and admins.
+  ALLOCATION_REQUESTED
+  /// To the allocating office's officials.
+  ALLOCATION_ACCEPTED
+  ALLOCATION_DECLINED
+  /// To the organisation whose pending allocation was withdrawn.
+  ALLOCATION_CANCELLED
+}
+
+/// The kind of record a notification points at.
+enum NotificationEntityType {
+  PROBLEM
+  COMMENT
+  DUPLICATE
+  SYSTEM
+  ALLOCATION
+}
+
+/// One in-app notification for one person.
+///
+/// Rendered once, when the event happens: `title` and `message` are stored
+/// rather than recomputed, so a notification reads the same tomorrow as it did
+/// today even if the problem is renamed. They hold only what the recipient
+/// needs — a public reference and a short phrase — never contact details.
+model Notification {
+  id String @id @default(uuid()) @db.Uuid
+
+  /// Cascade: a person's notifications are theirs alone and have no value once
+  /// the account is gone.
+  recipientId String @db.Uuid
+  recipient   User   @relation(fields: [recipientId], references: [id], onDelete: Cascade)
+
+  type    NotificationType
+  title   String
+  message String
+
+  entityType NotificationEntityType
+  /// The problem, comment or pair the notification is about. No foreign key:
+  /// it points at different tables by `entityType`, and a notification about a
+  /// since-deleted comment should survive as history rather than vanish.
+  entityId   String?                @db.Uuid
+
+  /// Small, allow-listed navigation data — a public id, a status, a
+  /// percentage. Validated on write and treated as untrusted on read.
+  metadata Json? @db.JsonB
+
+  /// Idempotency: one notification per recipient per event, enforced by the
+  /// unique constraint below. A retried job, a double tap or a replayed event
+  /// all produce the same key and insert nothing. See docs/ARCHITECTURE.md.
+  dedupeKey String
+
+  /// Null means unread.
+  readAt    DateTime? @db.Timestamptz(3)
+  createdAt DateTime  @default(now()) @db.Timestamptz(3)
+
+  @@unique([recipientId, dedupeKey])
+  /// The activity center and popover: one person's newest first, keyset-paged.
+  @@index([recipientId, createdAt(sort: Desc), id(sort: Desc)])
+  /// Unread count and the Unread tab: `recipientId = ? AND readAt IS NULL`.
+  @@index([recipientId, readAt])
+  /// Retention: purging old notifications by age across everyone.
+  @@index([createdAt])
+  @@map("notifications")
+}
+
+/// Who may read a note. Only INTERNAL exists: a note written by a government
+/// office is visible to that office's members and nobody else. An enum rather
+/// than a boolean so a later "shared with the allocated organisation" level is
+/// an addition, not a reinterpretation.
+enum NoteVisibility {
+  INTERNAL
+}
+
+/// A government reviewer's private note on a problem (Prompt 15).
+///
+/// Its own table — never a column on `problems` — so no public read of a
+/// problem can include one by accident. Only the government API reads it, and
+/// only for members of the office that wrote it. Notes are append-only.
+model ProblemInternalNote {
+  id String @id @default(uuid()) @db.Uuid
+
+  problemId String  @db.Uuid
+  problem   Problem @relation(fields: [problemId], references: [id], onDelete: Cascade)
+
+  /// The government office the note belongs to.
+  organizationId String       @db.Uuid
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  /// Restrict: a note's author is part of the record.
+  authorId String @db.Uuid
+  author   User   @relation("InternalNoteAuthor", fields: [authorId], references: [id], onDelete: Restrict)
+
+  body       String
+  visibility NoteVisibility @default(INTERNAL)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([problemId, organizationId, createdAt])
+  @@map("problem_internal_notes")
+}
+
+/// Where an allocation is in its life (Prompt 16). Separate from
+/// `ProblemStatus`: a problem is VERIFIED while its allocation is PENDING, and
+/// becomes IN_PROGRESS only when an allocation is ACCEPTED.
+///
+/// PENDING → ACCEPTED | DECLINED | CANCELLED. Nothing else. EXPIRED is reserved
+/// for a time limit on responses; nothing sets it yet.
+enum AllocationStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+  CANCELLED
+  EXPIRED
+}
+
+/// A government office's decision to give a verified problem to an
+/// organisation, and that organisation's response (Prompt 16).
+///
+/// Distinct from `OrganizationProblemMatch`: a match is the matching engine
+/// saying an organisation *appears* relevant; an allocation is an authorised
+/// official *selecting* it. Rows are never deleted — declined and cancelled
+/// allocations are the history a reallocation is read against.
+///
+/// At most one PENDING or ACCEPTED allocation per problem, enforced by the
+/// partial unique index `problem_allocations_one_active` (raw SQL, below the
+/// table in the migration and in post-migrate.sql — Prisma cannot express a
+/// partial index).
+model ProblemAllocation {
+  id String @id @default(uuid()) @db.Uuid
+
+  problemId String  @db.Uuid
+  problem   Problem @relation(fields: [problemId], references: [id], onDelete: Restrict)
+
+  /// The organisation being asked to take the problem on.
+  organizationId String       @db.Uuid
+  organization   Organization @relation("AllocatedOrganization", fields: [organizationId], references: [id], onDelete: Restrict)
+
+  /// The government office that allocated it.
+  governmentOrganizationId String       @db.Uuid
+  governmentOrganization   Organization @relation("AllocatingOffice", fields: [governmentOrganizationId], references: [id], onDelete: Restrict)
+
+  allocatedById String @db.Uuid
+  allocatedBy   User   @relation("AllocationAllocatedBy", fields: [allocatedById], references: [id], onDelete: Restrict)
+
+  status AllocationStatus @default(PENDING)
+
+  /// What the office asks of the organisation. Shared with the organisation.
+  instructions   String?
+  /// Why this organisation was chosen. Government-only.
+  internalReason String?
+
+  /// The organisation's optional note on accepting. Shared with the office.
+  responseNote  String?
+  /// Required on decline. Shared with the allocating office only.
+  declineReason String?
+  respondedById String? @db.Uuid
+  respondedBy   User?   @relation("AllocationRespondedBy", fields: [respondedById], references: [id], onDelete: Restrict)
+
+  cancellationReason String?
+  cancelledById      String? @db.Uuid
+  cancelledBy        User?   @relation("AllocationCancelledBy", fields: [cancelledById], references: [id], onDelete: Restrict)
+
+  proposedAt  DateTime  @default(now()) @db.Timestamptz(3)
+  respondedAt DateTime? @db.Timestamptz(3)
+  acceptedAt  DateTime? @db.Timestamptz(3)
+  declinedAt  DateTime? @db.Timestamptz(3)
+  cancelledAt DateTime? @db.Timestamptz(3)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  /// A problem's allocation history, newest first.
+  @@index([problemId, createdAt])
+  /// An organisation's inbox.
+  @@index([organizationId, status, createdAt])
+  /// An office's allocations, for its dashboard.
+  @@index([governmentOrganizationId, status])
+  @@map("problem_allocations")
+}
+
 model AuditLog {
   id String @id @default(uuid()) @db.Uuid
 

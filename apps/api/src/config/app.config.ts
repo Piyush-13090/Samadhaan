@@ -138,6 +138,35 @@ export class AppConfig {
    * pure function of (signals, config) and therefore testable at any weighting,
    * including the learned weights that replace these later.
    */
+  get geocoding(): GeocodingConfig {
+    const key = this.get('GEOCODING_API_KEY');
+    return {
+      provider: this.get('GEOCODING_PROVIDER'),
+      baseUrl: this.get('GEOCODING_BASE_URL').replace(/\/+$/, ''),
+      apiKey: key && key.length > 0 ? key : null,
+      userAgent: this.get('GEOCODING_USER_AGENT'),
+      countryCodes: this.get('GEOCODING_COUNTRY_CODES')
+        .split(',')
+        .map((code) => code.trim().toLowerCase())
+        .filter((code) => /^[a-z]{2}$/.test(code)),
+      timeoutMs: this.get('GEOCODING_TIMEOUT_MS'),
+    };
+  }
+
+  get matching(): MatchingConfig {
+    return {
+      enabled: this.get('MATCHING_ENABLED'),
+      candidateLimit: this.get('MATCHING_CANDIDATE_LIMIT'),
+      resultLimit: this.get('MATCHING_RESULT_LIMIT'),
+      minScore: this.get('MATCHING_MIN_SCORE'),
+      concurrency: this.get('MATCHING_CONCURRENCY'),
+      // Never in tests: e2e suites create and delete fixtures, and a sweep
+      // racing them would make results depend on timing.
+      sweepOnStartup: this.get('MATCHING_SWEEP_ON_STARTUP') && this.nodeEnv !== 'test',
+      sweepLimit: this.get('MATCHING_SWEEP_LIMIT'),
+    };
+  }
+
   get duplicateDetection(): DuplicateDetectionConfig {
     return {
       geoRadiusMeters: this.get('DUPLICATE_GEO_RADIUS_METERS'),
@@ -193,4 +222,23 @@ export interface DuplicateDetectionConfig {
   relatedThreshold: number;
   temporalHalfLifeDays: number;
   temporalFloor: number;
+}
+
+export interface GeocodingConfig {
+  provider: 'nominatim' | 'none';
+  baseUrl: string;
+  apiKey: string | null;
+  userAgent: string;
+  countryCodes: string[];
+  timeoutMs: number;
+}
+
+export interface MatchingConfig {
+  enabled: boolean;
+  candidateLimit: number;
+  resultLimit: number;
+  minScore: number;
+  concurrency: number;
+  sweepOnStartup: boolean;
+  sweepLimit: number;
 }

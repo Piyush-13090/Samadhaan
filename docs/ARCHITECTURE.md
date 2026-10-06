@@ -507,7 +507,7 @@ Two actions, two tables, two counters, two buttons — on purpose.
 | A citizen is saying | "This issue matters." | "I want updates about this issue." |
 | Nature | A public civic **claim** | A private **subscription** |
 | Stored in | `problem_votes` → `problems.voteCount` | `problem_follows` → `problems.followCount` |
-| Feeds, later | Priority, urgency, civic impact | Notifications (Prompt 11) |
+| Feeds | Priority, urgency, civic impact (later) | Status-change notifications |
 
 Merging them would make every notification subscriber look like an endorser —
 inflating the very signal priority will rely on — and make every endorsement opt
@@ -549,10 +549,8 @@ with a named bucket so a spammer moving between problems draws on one allowance.
 
 ### Extension points
 
-- **Notifications (Prompt 11).** `CommunityEventPublisher.publish()` receives a
-  typed `CommunityEvent` after every committed write. Today it logs at debug;
-  Prompt 11 replaces its body (a queue, an outbox) and no caller changes. It
-  never throws — a notification failure must not fail the civic action.
+- **Notifications.** Every committed write publishes a `DomainEvent` on the
+  global bus; the notification module consumes it. See *Notifications* below.
 - **Moderation.** Every comment write passes through `checkCommentContent()` in
   `comment-content.ts`. It enforces structure only today; a classifier, link
   heuristics or a hold-for-review state attach there. Admin removal is already
@@ -561,6 +559,406 @@ with a named bucket so a spammer moving between problems draws on one allowance.
 - **Realtime.** Not needed for this milestone — counts and threads update from
   each API response. Resolution rooms will add websockets; nothing here assumes
   their absence.
+
+## Notifications
+
+### Event → notification flow
+
+```
+ action commits ─▶ DomainEventBus.publish(event)        (apps/api/src/events)
+                          │  returns immediately; handlers run after the
+                          │  current call stack, isolated from each other
+                          ▼
+              NotificationEventHandler.handle(event)    (apps/api/src/notifications)
+                          │  resolves facts the event lacks: the commenter's
+                          │  public name, a problem's followers
+                          ▼
+              planNotifications(event, facts)           pure: who, and what words
+                          ▼
+              NotificationsService.createMany(drafts)   INSERT … ON CONFLICT DO NOTHING
+                          ▼
+              notifications table ─▶ GET /notifications ─▶ bell, popover, activity center
+```
+
+**Nothing creates a notification directly.** Domain code publishes facts —
+`AI_ANALYSIS_COMPLETED`, `LIKELY_DUPLICATES_FOUND`, `PROBLEM_SUPPORTED`,
+`COMMENT_CREATED`, `COMMENT_REPLIED`, `PROBLEM_STATUS_CHANGED` — and never
+mentions notifications. Every recipient rule lives in one pure function,
+`planNotifications`, which is where to look to answer "who hears about what".
+
+| Publisher | Event |
+| --- | --- |
+| `ProblemAnalysisService` | `AI_ANALYSIS_COMPLETED` / `AI_ANALYSIS_FAILED`, once per job |
+| `DuplicateDetectionService.run` | `LIKELY_DUPLICATES_FOUND`, read back from stored pairs so rejected pairs never resurface |
+| `DuplicateDetectionService.confirm` | `PROBLEM_STATUS_CHANGED` (→ `DUPLICATE`), only if the status actually changed |
+| `EngagementService`, `CommentsService` | support, follow, comment, reply, removal |
+
+Confirming a duplicate is the only status change the product makes today.
+Government review and resolution publish the same `PROBLEM_STATUS_CHANGED`
+event when they land, and followers are notified with no change here.
+
+### Why an in-process bus
+
+One API process and one consumer do not need a broker. The bus keeps the
+contract a broker would: publishers never wait and never fail because of a
+consumer, handlers are isolated, and handlers are idempotent. It is
+at-most-once — an event in flight during a crash is lost. When that matters,
+`publish` writes to an outbox table inside the caller's transaction and a
+worker dispatches from it; no publisher or handler changes.
+
+### Reliability
+
+A notification is a side effect. The civic action commits first; the event is
+published after; the handler runs off the request path; and a failure there is
+logged and dropped. Supporting a problem succeeds even if the notifications
+table is unavailable — asserted by the e2e suite.
+
+### Deduplication
+
+Each draft carries a `dedupeKey` naming the *event*, and the table has a unique
+constraint on `(recipientId, dedupeKey)`. Inserts skip conflicts, so a replayed
+event, a retried job or two racing deliveries write each notification once.
+
+| Notification | Key | Effect |
+| --- | --- | --- |
+| AI analysis | `analysis:<analysisId>` | One per job; internal retries emit no events. A user-requested re-analysis is a new job and a new notification. |
+| Duplicate | `duplicate:<problemId>:<candidateId>` | Re-checks finding the same best match stay silent; a new best match is news. |
+| Support | `support:<problemId>:<supporterId>` | Once per supporter, ever — toggling support cannot spam the reporter. |
+| Comment / reply | `comment:<commentId>` | One per comment per recipient. |
+| Status change | `status:<changeId>` | One per change; the audit entry's id identifies it. |
+
+### Delivery channels and preferences
+
+In-app only, always on. `notification-channels.ts` maps each type to its
+channels (`IN_APP` today) and is the single place preferences will be read. The
+planned shape:
+
+- **Preferences.** A `notification_preferences` table keyed on
+  `(userId, type, channel)`, read by `channelsFor`; absent rows fall back to the
+  defaults. No settings UI until there is more than one channel to choose.
+- **Email and push.** Senders that receive the stored notification from a queue
+  after it is written, never inline. `dedupeKey` is their idempotency key.
+- **Realtime.** A WebSocket gateway as one more consumer of "notification
+  created", pushing the unread count the web app now polls for.
+  `NotificationsProvider.setUnreadCount` is already the single entry point the
+  push would call.
+
+### Privacy
+
+Messages name only what the recipient could already see: a public reference
+(`SAM-1023`), a category, a status, and a commenter's public display name.
+Never emails, phone numbers or supporter identities. Metadata is an allow-list
+(public ids, a comment id, a 0–1 similarity, statuses), validated on write and
+again on read, and links are derived from it rather than stored.
+
+## Organisation workspace
+
+Where NGO, university and industry members work. It is a **foundation**:
+discovery, team and profile. AI matching, allocation, resolution rooms and
+projects are later milestones and nothing here imitates them.
+
+### Access is membership, not role
+
+A platform role (`NGO`, `UNIVERSITY`, `INDUSTRY`) says what kind of account
+someone has; it does not say *which* organisation they act for. The workspace
+is therefore gated on `OrganizationMember`:
+
+```
+GET /organizations/:slug/…
+  JwtAuthGuard (global)              who is this?
+  OrganizationWorkspaceGuard         resolveWorkspace(slug, user):
+    organisation exists, not deleted
+    type ∈ NGO / UNIVERSITY / INDUSTRY   (government has its own workspace)
+    caller has an ACTIVE membership      ── otherwise 404, indistinguishable
+    organisation is operational          ── otherwise 403 "suspended"
+    @WorkspaceRoles(...) if declared
+  handler reads @CurrentWorkspace()  — the proven organisation + membership
+```
+
+The organisation comes from the path and the user from the session. Handlers
+never look the organisation up again, so there is no second lookup to get
+wrong. A citizen invited to an NGO gets its workspace; a platform admin who is
+not a member does not (they have `/admin`).
+
+Mutations stay on the existing id-based endpoints (`PATCH /organizations/:id`,
+expertise, members) rather than being duplicated under the slug. Each calls
+`OrganizationAccessService.assertCanManage`, which now also refuses members of
+a suspended organisation, and member changes go through
+`assertCanChangeMember`:
+
+- nobody changes their own membership;
+- an ADMIN cannot touch an OWNER or create one;
+- the last OWNER is never demoted or removed, checked under a `FOR UPDATE` lock
+  in the same transaction as the write.
+
+Each change writes an `audit_logs` row in that transaction.
+
+### Context and switching
+
+```
+(app)/layout.tsx  ── GET /organizations/mine ──▶ AppShell(organizations)
+                                                    │
+                       resolveShellContext(role, pathname, organizations, lastSlug)
+                                                    │
+                  sidebar · drawer · phone bar · WorkspaceSwitcher
+```
+
+`resolveShellContext` is a pure function: inside `/organization/:slug` the
+navigation is that workspace's; an organisation account elsewhere keeps the
+last workspace it used (remembered in `localStorage`, accessible ones only); a
+citizen keeps their own navigation and gets a switcher with **Personal** beside
+their workspaces. With one organisation and nothing to switch to, the switcher
+is a plain label. Choosing a workspace only decides which links are drawn —
+every page asks the API, so a forged slug or stale preference reaches nothing.
+
+The `[slug]` layout fetches `/workspace` once (shared with the page through
+React `cache`) and renders the API's answer: `404` → the not-found page, `403`
+→ a suspension notice, otherwise the workspace header naming the organisation,
+its type, verification and the viewer's role. Layouts do not re-render on
+navigation, so anything that changes membership calls `router.refresh()`.
+
+### Discovery without matching
+
+(Prompt 13's deterministic rules. They still power the Problems page and the
+dashboard fallback; AI matching — below, "Organisation matching" — now powers
+Opportunities.)
+
+
+`OrganizationProblemsService` answers "which problems might this organisation
+help with?" with rules a member can check: the problem's category is a
+declared area of work, it is inside the service area (25 km of the registered
+point, else the registered city), plus severity and recency for ordering. Each
+item carries its `reasons` and the stored AI classification with confidence.
+There is no score, no model and no LLM; the UI says "civic opportunities —
+not assigned projects" and offers no "apply".
+
+Filtering, ordering, pagination and counting are all SQL. The browser holds
+one page; filters live in the URL (bookmarkable, back-button safe), selects
+apply immediately and text inputs after a 400 ms pause.
+
+### Pages
+
+| Route | Who | Notes |
+| --- | --- | --- |
+| `/organization` | Any signed-in user | Redirects into a single workspace; otherwise workspaces + invitations to accept |
+| `/organization/:slug/dashboard` | Members | Metrics, opportunities, area breakdown, team, recent problems |
+| `/organization/:slug/problems` | Members | Everything, relevance first, all filters |
+| `/organization/:slug/opportunities` | Members | `scope=relevant`, with "how these are chosen" |
+| `/organization/:slug/team` | Members read; OWNER/ADMIN manage | Invite, change role, remove — with confirmation |
+| `/organization/:slug/profile` | Members | Profile incl. contact details, expertise, verification |
+| `/organization/:slug/settings` | Members read; OWNER/ADMIN edit | Info, contact, location on a map, expertise; fixed fields listed |
+
+Problem detail stays the existing `/problems/:publicId` page, which shows the
+same public civic record to everyone: the reporter's display name and avatar
+only, never their email, phone or profile data.
+
+## Government portal
+
+Detail: [`GOVERNMENT_PORTAL.md`](./GOVERNMENT_PORTAL.md).
+
+```
+@Roles('GOVERNMENT')  →  GovernmentGuard (slug → ACTIVE membership of an operational
+                          GOVERNMENT organisation)  →  GovernmentScope
+                          { organization, membership, jurisdiction.condition }
+                                         │
+     GovernmentService ── metrics (one FILTER scan), trend (two GROUP BYs), queue, activity
+     GovernmentProblemsService ── list/search, detail, transitions, notes, audit
+     GovernmentMapService ── ProblemMapService + MapScope (jurisdiction + review filters)
+```
+
+- **Reuse, not a second system.** Offices are `Organization` rows of type
+  GOVERNMENT with `OrganizationMember`s; status changes publish the existing
+  `PROBLEM_STATUS_CHANGED` event, so the notification planner and Prompt 14's
+  matching react without knowing the portal exists; the map is Prompt 12's
+  service and `MapExplorer` with an injected source; the detail page reuses
+  the location map and the organisation-matches section.
+- **Jurisdiction is a SQL predicate, not a filter.** Resolved once per request
+  from the organisation (boundary → cities → postal codes → `false`) and
+  embedded in every query; outside it, a problem does not exist.
+- **The audit log is evidence**, enforced by a database trigger rather than by
+  convention.
+- **Web.** `/government` routes officials into `/government/[slug]/…`
+  (dashboard, review queue, problem review, map). The shell builds the
+  office's navigation from the path or the official's offices
+  (`resolveShellContext`); the old placeholder links to verification and
+  analytics are gone, because those do not exist yet. Allocation (Prompt 16)
+  lives on the problem review page.
+
+## Government allocation
+
+Detail: [`ALLOCATION.md`](./ALLOCATION.md).
+
+```
+GovernmentController ──(GovernmentScope)──┐
+OrganizationWorkspaceController ─(WorkspaceContext + @WorkspaceRoles)──┤
+ProblemsService.findByPublicId ───────────┤
+                                          ▼
+                     AllocationsService (AllocationsModule)
+     create · cancel · governmentPanel · searchCandidates      ← office side
+     listForOrganization · detail · accept · decline           ← organisation side
+     publicAssignment · metrics
+                                          │ after commit
+                                          ▼
+     DomainEventBus: ALLOCATION_* (+ PROBLEM_STATUS_CHANGED on accept)
+         → NotificationEventHandler.factsFor (OWNER/ADMIN or office officials)
+         → planNotifications (minus the actor)
+```
+
+- **One service, many proven callers.** Each caller brings its own proven
+  authority:
+  - the government guard's scope (office plus jurisdiction predicate);
+  - the workspace guard's membership;
+  - nothing at all, for the public assignment.
+
+  The service enforces the state machine and eligibility, and builds the
+  privacy-specific shape for each audience.
+- **Concurrency lives in SQL**: a row lock on the problem for creation, the
+  partial unique index, and conditional `UPDATE … WHERE status = 'PENDING'`
+  with affected-row checks for every response.
+- **Matching is input, not authority.** The panel reads Prompt 14's persisted
+  matches as candidates. Selection, confirmation and the API's eligibility
+  check are always separate from them.
+- **Web.**
+  - `components/allocation/*`: the government panel, the organisation inbox
+    and detail, `AllocationTimeline`, and the public `ProblemAssignmentCard`.
+  - `services/allocation.service.ts`.
+  - The workspace navigation gains *Allocations*.
+
+## Organisation matching
+
+An **embedding-assisted heuristic baseline**, not a trained model — see
+[`ML_ORGANIZATION_MATCHING.md`](./ML_ORGANIZATION_MATCHING.md) for the method.
+
+```
+AI_ANALYSIS_COMPLETED/FAILED ─┐
+ORGANIZATION_PROFILE_CHANGED ─┼─▶ MatchingEventHandler ─▶ OrganizationMatchingService
+startup sweep / admin ────────┘        (debounce)            in-process queue, 2 workers
+                                                                    │
+     problem_embeddings (reused) ──▶ retrieval: pgvector top-K ∪ category, eligibility, PostGIS
+                                                                    │
+                                   AiService.matchOrganizations ──▶ FastAPI /match/organizations
+                                                                    │   features · MatchingEngine · ranking
+                                     organization_problem_matches ◀─┘   (validated, then persisted)
+```
+
+- **Module boundaries.** `MatchingModule` owns embeddings, the job, triggers
+  and the public read; it depends on `AiModule` only. Workspace
+  recommendations live in `OrganizationProblemsService.listRecommended`, behind
+  the workspace guard, and only read the match table — they reuse the
+  discovery query, so filters, visibility and the card shape are identical.
+  `OrganizationsService` publishes `ORGANIZATION_PROFILE_CHANGED`; it does not
+  know matching exists.
+- **Python owns scoring, NestJS owns truth.** The AI service computes features
+  and ranks; it has no database access. The API retrieves, validates the
+  response against the candidates it offered, and persists.
+- **Replaceable engine.** `MatchingEngine` in the AI service; the heuristic
+  implementation reports `trained: false`, and the matching version hashes its
+  weights and thresholds.
+- **Never on a request path.** Problem creation, page views and organisation
+  edits enqueue at most; the e2e setup switches matching off for every suite
+  but its own, so no suite races a background job.
+- **UI.** Problem page: "Organisations that may be able to help"
+  (`ProblemOrganizationMatches`, `OrganizationMatchCard`), with a standing
+  "suggestions, not assignments" note. Workspace: Opportunities is now the
+  recommendations list (`WorkspaceProblems` in `recommendations` mode,
+  `OrganizationOpportunityCard`), with "Not relevant" for owners and admins and
+  no accept or apply; the dashboard leads with recommendations and falls back
+  to the rule-based list, labelled as such. Relevance is always "N% relevance",
+  never confidence; reasons are templates over stored reason codes.
+
+## Maps and geospatial
+
+### Provider abstraction
+
+```
+ pages / features ──▶ CivicMap ──▶ provider adapter ──▶ map library
+ (MapExplorer,         (states,      (MapAdapterProps)    MapLibre GL today
+  LocationPicker,       provider
+  ProblemLocationMap,   choice)
+  NearbyMapPreview)
+```
+
+Everything outside `components/map/maplibre/` speaks only `MapAdapterProps` and
+`MapController` (`lib/map/types.ts`) — problems as GeoJSON, selection, a pin,
+viewport callbacks. The adapter is the one file that imports MapLibre. Another
+library is one more adapter selected in `civic-map.tsx`; nothing that uses a map
+changes. Layer definitions (`problem-layers.ts`) and marker shapes
+(`lib/map/severity-markers.ts`) are plain data, testable without a GPU.
+
+**MapLibre GL JS**, because it is open source with no vendor lock-in or usage
+billing, takes any style URL, and clusters natively. The style comes from
+`NEXT_PUBLIC_MAP_STYLE_URL`; the default is OpenFreeMap's OSM-based style, which
+needs no key. `NEXT_PUBLIC_MAP_PROVIDER=none` turns the map off and leaves the
+lists. The adapter loads through `next/dynamic` with `ssr: false`, so the
+library is neither server-rendered nor shipped to pages without a map.
+
+**The worker.** MapLibre resolves its web worker relative to its own module,
+which after bundling points nowhere. `scripts/vendor-maplibre-worker.mjs` copies
+the worker (and the shared chunk it imports) into `public/vendor/maplibre/`
+before every `dev` and `build`, and the adapter calls `setWorkerUrl` with it — so
+the worker always matches the installed version. The copy is git-ignored.
+
+### Viewport queries
+
+```
+ map settles (moveend) ─▶ wait 350 ms ─▶ fetch this bbox ─▶ replace markers
+                               │                │
+                       newer movement     newer request aborts the
+                       resets the wait    older; a sequence number
+                                          stops a late reply winning
+```
+
+`useMapData` picks the endpoint by viewport size: up to 1.5° a side, individual
+problems; up to 40°, aggregated grid cells; wider, nothing but "zoom in". The
+API enforces the same bounds, so no client — ours or not — can ask for every
+problem at once.
+
+### Clustering and markers
+
+Problems go into one clustered GeoJSON source; MapLibre clusters them in a web
+worker (supercluster) and draws clusters and markers as GPU layers. A thousand
+problems are a thousand vertices, not a thousand DOM nodes. Clicking a cluster
+zooms to where it splits; clustering stops past zoom 15.
+
+Severity is shown by **shape first, colour second** — circle, square,
+triangle, diamond-with-dot — drawn from one set of SVG paths used by both the
+legend and the canvas, so they cannot drift.
+
+### Accessibility
+
+A canvas cannot be tabbed through or read aloud, so the map is never the only
+way in. Every map page lists the same problems as text — what, how severe,
+where, how far — with links to each, and "Show on map" selects a problem there
+for those who can see it. When the map cannot load (no WebGL, tiles down, maps
+off) the box explains itself and the list carries on.
+
+### Location privacy
+
+- A map shows **problems' civic locations only** — never a reporter's, never a
+  profile's. Map features carry the problem's coordinates and a coarse area,
+  nothing about who filed it.
+- The viewer's location is used only after they tap "Use my location", is
+  remembered in their own browser for a day, and is sent to the API only as an
+  `origin` for measuring distance — never stored or logged with their identity.
+- The profile city is used only to choose where the viewer's own map opens.
+- Geocoding runs server-side, so neither the viewer's searches nor any provider
+  key reach a third party from the browser.
+
+### Caching
+
+The map endpoints carry no viewer state, so they are sent `public, max-age=30`
+(aggregates 60) — enough to absorb a viewer panning back and forth, and safe for
+a shared cache. They are **not** cached in Redis: viewports are continuous, so a
+server cache would almost always miss. Redis is used where it pays: geocoding,
+where the same localities are looked up over and over and a miss costs a second
+of a rate-limited provider.
+
+### Hotspot foundation
+
+`ProblemMapService.aggregate` counts problems on a grid with severity and
+category breakdowns, over any bounded viewport and filters. It is the reusable
+piece the government command center and city analytics will call — deliberately
+counts, not a statistical hotspot model.
 
 ## Request path
 

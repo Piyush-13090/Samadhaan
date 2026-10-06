@@ -4,6 +4,7 @@ import type { ProblemAnalysisView } from '@samadhaan/shared';
 import { AiService, type AnalysisImagePayload } from '../../ai/ai.service.js';
 import { AppException } from '../../common/app.exception.js';
 import { PrismaService } from '../../database/prisma.service.js';
+import { DomainEventBus } from '../../events/domain-event-bus.js';
 import type { ProblemAiAnalysis } from '../../generated/prisma/client.js';
 import { StorageService } from '../../storage/storage.types.js';
 
@@ -50,6 +51,7 @@ export class ProblemAnalysisService {
     private readonly prisma: PrismaService,
     private readonly ai: AiService,
     private readonly storage: StorageService,
+    private readonly events: DomainEventBus,
   ) {}
 
   /**
@@ -208,6 +210,17 @@ export class ProblemAnalysisService {
             `${analysis.processingMs}ms, attempt ${attempt})`,
         );
 
+        // Once per job, after the outcome is stored — never per attempt, so a
+        // run that needed three tries still produces one notification.
+        this.events.publish({
+          type: 'AI_ANALYSIS_COMPLETED',
+          problemId: problem.id,
+          problemPublicId: problem.publicId,
+          reporterId: problem.reporterId,
+          analysisId,
+          category: analysis.category,
+        });
+
         // The problem's own category and severity are deliberately left alone.
         // AI recommends; a reviewer decides. See docs/ARCHITECTURE.md.
         return;
@@ -222,6 +235,13 @@ export class ProblemAnalysisService {
         );
 
         await this.markFailed(analysisId, failure.message);
+        this.events.publish({
+          type: 'AI_ANALYSIS_FAILED',
+          problemId: problem.id,
+          problemPublicId: problem.publicId,
+          reporterId: problem.reporterId,
+          analysisId,
+        });
         return;
       }
 
@@ -349,7 +369,8 @@ export function toAnalysisView(analysis: ProblemAiAnalysis): ProblemAnalysisView
     subcategory: analysis.subcategory,
     severity: analysis.severity,
     urgency: analysis.urgency,
-    severityScore: analysis.severityScore === null ? null : Number(analysis.severityScore),
+    severityScore:
+      analysis.severityScore === null ? null : Number(analysis.severityScore),
     summary: analysis.summary,
     confidence: analysis.confidence === null ? null : Number(analysis.confidence),
     observations: Array.isArray(raw.observations)

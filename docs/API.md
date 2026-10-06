@@ -448,7 +448,15 @@ shows only `ACTIVE` ones.
 Requires **OWNER or ADMIN membership, or platform ADMIN**.
 
 Editable: `name`, `description`, `logoUrl`, `websiteUrl`, `email`, `phone`,
-`address`, `city`, `state`, `country`, `postalCode`.
+`address`, `city`, `state`, `country`, `postalCode`, and `latitude` +
+`longitude` — the registered location that defines the workspace service area.
+Coordinates are set or cleared (`null`) **as a pair**; half a pair is `400`.
+They are never published — the public profile shows city and state only.
+
+Refused for members of a **suspended or deactivated** organisation (`403`); a
+platform admin can still act on it. Every successful update writes an
+`ORGANIZATION_PROFILE_UPDATED` audit entry recording the changed field
+*names*, never their values.
 
 **Not editable:** `slug` (stable public URLs — see `docs/DATABASE.md` §14c),
 `verificationStatus`, `verifiedAt`, `type`, `isActive`. An organisation marking
@@ -485,22 +493,201 @@ organisation, so an id belonging to another returns `404`.
 
 ### `PATCH /api/v1/organizations/:id/members/:memberId`
 
-Requires OWNER/ADMIN or platform ADMIN. Body: `{ "membershipRole": "ADMIN" }`.
+Body: `{ "membershipRole": "ADMIN" }`. Requires OWNER/ADMIN or platform ADMIN,
+then the role hierarchy:
 
-Refuses with `409 CONFLICT` when it would demote the **last OWNER** — an
-organisation with no owner has nobody who can appoint one and becomes
-permanently unmanageable.
+| Rule | Response |
+| --- | --- |
+| Nobody changes **their own** membership (no self-promotion, no accidental self-demotion) | `403` |
+| An ADMIN cannot change or remove an OWNER, and cannot make anyone OWNER | `403` |
+| A MEMBER cannot change anyone | `403` |
+| The last active OWNER is never demoted — not even by a platform ADMIN | `409` |
+| The membership id belongs to another organisation | `404` |
+
+The owner check locks the owner rows (`FOR UPDATE`) inside the write's
+transaction, so two owners demoting each other at the same moment cannot leave
+the organisation with none. Writes `ORGANIZATION_MEMBER_ROLE_CHANGED`.
 
 ### `DELETE /api/v1/organizations/:id/members/:memberId`
 
-Requires OWNER/ADMIN or platform ADMIN. `204`. Marks the membership `LEFT`
-rather than deleting it, so the organisation's membership history survives.
-Refuses to remove the last OWNER.
+The same rules as a role change. `204`. Marks the membership `LEFT` rather than
+deleting it, so the organisation's membership history survives. Also
+withdraws a pending invitation. Writes `ORGANIZATION_MEMBER_REMOVED` or
+`ORGANIZATION_INVITATION_WITHDRAWN`.
 
-> **Invitations are not implemented.** There is no email infrastructure yet. The
-> extension point is `OrganizationMember.status = INVITED`, which already exists
-> and is already rendered in the team list.
+### `POST /api/v1/organizations/:id/invitations`
 
+OWNER/ADMIN or platform ADMIN. Rate limited per user: 20 an hour.
+
+```json
+{ "email": "colleague@example.org", "membershipRole": "MEMBER" }
+```
+
+`membershipRole` is `ADMIN` or `MEMBER` — ownership is shared later by an
+owner, never through an invitation a typo could send to a stranger. `201` →
+the `OrganizationMemberSummary` with `status: "INVITED"`.
+
+| Error | HTTP | When |
+| --- | --- | --- |
+| `NOT_FOUND` | 404 | No active account uses the email — ask them to register |
+| `CONFLICT` | 409 | Already a member, already invited, or a suspended membership |
+
+Inviting by email tells a manager whether the address has an account. That is
+accepted for a manager-only, rate-limited action. There is no email delivery:
+the invitee sees the invitation in `GET /organizations/mine`. A former member
+is re-invited on their existing row.
+
+---
+
+## Organisation workspace
+
+The workspace NGO, university and industry members work in. **Access comes from
+membership, not from the platform role**, and is derived entirely from the
+session — no endpoint accepts an organisation id or user id from the client to
+decide access. Every `:slug` route runs `OrganizationWorkspaceGuard`:
+
+```
+signed in → organisation exists → type is NGO / UNIVERSITY / INDUSTRY
+          → caller has an ACTIVE membership → organisation is operational
+```
+
+| Outcome | HTTP |
+| --- | --- |
+| Unknown slug, government office, not a member, membership not ACTIVE | `404` — indistinguishable on purpose |
+| Member of a suspended (`verificationStatus = SUSPENDED`) or deactivated (`isActive = false`) organisation | `403`, with an explanation |
+| Platform ADMIN who is not a member | `404` — the workspace is for members |
+
+Slugs `mine` and `invitations` are reserved so these routes cannot be shadowed.
+
+### `GET /api/v1/organizations/mine`
+
+The caller's workspaces and pending invitations — the switcher's data.
+
+```json
+{
+  "workspaces": [
+    {
+      "organizationId": "…", "slug": "clean-city-foundation", "name": "Clean City Foundation",
+      "type": "NGO", "logoUrl": null, "verificationStatus": "VERIFIED",
+      "membershipRole": "MEMBER", "isAccessible": true
+    }
+  ],
+  "invitations": [
+    {
+      "membershipId": "…", "membershipRole": "ADMIN", "invitedAt": "2026-10-06T…",
+      "organization": { "slug": "…", "name": "…", "type": "UNIVERSITY", "logoUrl": null, "verificationStatus": "PENDING" }
+    }
+  ]
+}
+```
+
+Government offices are omitted. Suspended organisations stay listed with
+`isAccessible: false`, so a member sees why rather than finding it gone.
+
+### `POST /api/v1/organizations/invitations/:membershipId/accept` · `/decline`
+
+`204`. The invitation is looked up by id **and** the caller's user id, so one
+person cannot answer another's — that is the same `404` as a wrong id. Accepting
+into a suspended organisation is `403`. Declining marks the row `LEFT`.
+
+### `GET /api/v1/organizations/:slug/workspace`
+
+The organisation (the `PublicOrganization` shape, contact details always
+included for members), the caller's membership, `permissions` and the private
+`coordinates`. Also serves the settings page.
+
+```json
+{
+  "membership": { "id": "…", "membershipRole": "ADMIN", "joinedAt": "…" },
+  "permissions": {
+    "canEditProfile": true, "canManageExpertise": true, "canManageMembers": true,
+    "assignableRoles": ["ADMIN", "MEMBER"]
+  },
+  "coordinates": { "latitude": 28.4595, "longitude": 77.0266 }
+}
+```
+
+`permissions` mirrors the server's rules so the UI can hide controls; every
+mutation re-checks.
+
+### `GET /api/v1/organizations/:slug/dashboard`
+
+One response for the whole dashboard. Every number is a database count.
+
+| Field | Meaning |
+| --- | --- |
+| `metrics.opportunities` | Open problems in an area of work **and** in the service area |
+| `metrics.newOpportunities` | Of those, reported in the last 7 days |
+| `metrics.problemsSupportedByTeam` | Distinct problems supported by current active members |
+| `metrics.suggestionsMade` / `suggestionsAccepted` | Suggestions made on the organisation's behalf |
+| `metrics.teamMembers` | Active members |
+| `metrics.pendingInvitations` | `null` unless the caller can manage the team |
+| `opportunitiesByCategory` | Opportunity counts per declared area |
+| `relevantProblems` | Top 4 opportunities, relevance order |
+| `recentProblems` | Newest 4 open problems in the service area, any category |
+| `teamSummary` | Active members by role, five most recent |
+| `setup` | `hasExpertise`, `hasLocation` — what discovery is missing |
+
+"Problems resolved" is deliberately absent: it needs allocation, a later
+milestone.
+
+### `GET /api/v1/organizations/:slug/problems`
+
+Deterministic problem discovery, filtered, ordered and paginated in one
+PostGIS query. **Not AI matching** — no model, no score, no LLM.
+
+| Query | Values | Default |
+| --- | --- | --- |
+| `scope` | `all` · `relevant` (opportunities) | `all` |
+| `sort` | `relevance` · `recent` · `severity` · `supported` · `distance` | `relevance` |
+| `category` | a `ProblemCategory` | — |
+| `subcategory` | 2–80 characters, matched literally (`%` and `_` escaped) | — |
+| `severity` | `LOW` · `MEDIUM` · `HIGH` · `CRITICAL` | — |
+| `status` | `SUBMITTED` · `UNDER_REVIEW` · `VERIFIED` · `IN_PROGRESS` · `RESOLVED` | the active statuses |
+| `city` | exact, case-insensitive | — |
+| `radiusMeters` | 500–50 000, from the organisation's registered location | — |
+| `reportedWithinDays` | `1` · `7` · `30` · `90` | — |
+| `page` | 1–200 | 1 |
+| `limit` | 1–50 | 12 |
+
+Anything else — including `organizationId` — is `400`. `radiusMeters` and
+`sort=distance` are `400` when the organisation has no registered coordinates.
+
+**Service area:** within 25 km (`ORGANIZATION_SERVICE_RADIUS_METERS`) of the
+registered location; without coordinates, the registered city; without either,
+everywhere (and the dashboard says so).
+
+**Relevance order**, lexicographic so it can be stated in a sentence: problems
+matching both an area of work and the service area first, then the declared
+expertise level (specialist › experienced › interested), then severity, then
+newest, then `publicId`.
+
+```json
+{
+  "items": [
+    {
+      "publicId": "SAM-1005", "title": "…", "category": "DRAINAGE", "severity": "HIGH",
+      "area": "Sector 12 Market", "distanceMeters": 37, "voteCount": 0, "…": "…",
+      "relevance": {
+        "reasons": ["EXPERTISE_MATCH", "SUBCATEGORY_MATCH", "IN_SERVICE_AREA"],
+        "expertiseLevel": "SPECIALIST"
+      },
+      "ai": { "category": "DRAINAGE", "subcategory": "Blocked drain", "severity": "HIGH", "confidence": 0.94 }
+    }
+  ],
+  "page": 1, "limit": 12, "totalCount": 3, "totalPages": 1,
+  "origin": { "kind": "organization", "radiusMeters": null }
+}
+```
+
+Items are the public feed shape (`ProblemListItem`): no reporter, no internal
+id, no coordinates. `reasons` are checkable facts (`EXPERTISE_MATCH`,
+`SUBCATEGORY_MATCH`, `IN_SERVICE_AREA`, `SAME_CITY`). `ai` is the latest
+completed initial analysis' stored findings only — never `rawResult`, the
+summary prompt, or any reasoning.
+
+Team listing reuses `GET /organizations/:id/members` (managers also see pending
+invitations); profile edits reuse `PATCH /organizations/:id`.
 
 ---
 
@@ -827,9 +1014,8 @@ pending uploads.
 | --- | --- |
 | Full-text and semantic search | Prompt 25 |
 | AI priority engine | Prompt 21 |
-| Notifications | Prompt 11 |
 
-Support, follow and comments landed in Prompt 10 — see
+Support, follow and comments landed in Prompt 10, notifications in Prompt 11 — see
 [Community](#community--support-follow-and-discussion).
 
 ---
@@ -843,7 +1029,7 @@ Three separate things a citizen can do around a problem. **Support** and
 | --- | --- | --- |
 | Means | "This issue matters." | "Keep me posted about this issue." |
 | Visibility | Public count, a civic signal | Count public; who follows is private |
-| Later used by | Priority and civic impact | Notifications (Prompt 11) |
+| Drives | Priority and civic impact, later | Status-change notifications |
 
 ### Rules every community endpoint shares
 
@@ -1040,12 +1226,478 @@ comment writes an `AuditLog` entry (`COMMENT_REMOVED_BY_MODERATOR`).
 The last row is the IDOR defence: a comment is looked up scoped to the problem
 in the path, so a valid comment id cannot be used through another problem's URL.
 
-### Events for Prompt 11
+### Events
 
-Each successful write publishes a typed event — `PROBLEM_SUPPORTED`,
+Each successful write publishes a typed domain event — `PROBLEM_SUPPORTED`,
 `PROBLEM_FOLLOWED`, `COMMENT_CREATED`, `COMMENT_REPLIED`, `COMMENT_REMOVED` —
-**after** its transaction commits, carrying the ids a notification needs
-(reporter, parent author). Nothing is delivered yet; see `ARCHITECTURE.md`.
+**after** its transaction commits. Notifications are created from these; see
+[Notifications](#notifications).
+
+---
+
+## Notifications
+
+In-app notifications about the caller's own activity: their report was
+analysed, supported, discussed or flagged as a possible duplicate; someone
+replied to their comment; a problem they follow changed status.
+
+**Every endpoint requires a session and is scoped to the caller.** The
+recipient is always the authenticated user; no route accepts a recipient id in
+its path, query or body, and the global whitelist turns `?recipientId=…` into a
+`400`. Another person's notification id behaves exactly like a missing one — a
+`404` for read, mark and delete alike, never a `403` that would confirm it
+exists.
+
+### Types
+
+| Type | Sent to | When |
+| --- | --- | --- |
+| `AI_ANALYSIS_COMPLETED` | Reporter | An analysis job completes (once per job, after internal retries) |
+| `AI_ANALYSIS_FAILED` | Reporter | An analysis job ends in failure |
+| `POSSIBLE_DUPLICATE_FOUND` | Reporter | A duplicate check stores at least one `LIKELY_DUPLICATE` pair |
+| `PROBLEM_SUPPORTED` | Reporter | Someone else supports their problem — once per supporter, ever |
+| `PROBLEM_COMMENTED` | Reporter | Someone else comments or replies on their problem |
+| `COMMENT_REPLIED` | Parent comment's author | Someone else replies to their comment |
+| `PROBLEM_STATUS_CHANGED` | Reporter | Their problem's status changes, by someone else |
+| `FOLLOWED_PROBLEM_UPDATED` | Followers (not the reporter, not the actor) | A followed problem's status changes |
+
+Nobody is notified about their own action. A reporter who wrote the comment
+being replied to receives the reply notification only, not a second
+"comment on your problem". Supporters are never named — who supports what is not
+shown anywhere else either.
+
+### `GET /api/v1/notifications`
+
+Newest first, cursor-paginated.
+
+| Parameter | Default | Notes |
+| --- | --- | --- |
+| `filter` | `all` | `all` or `unread` |
+| `limit` | `20` | Bounded `1`–`50` |
+| `cursor` | — | Opaque; from `nextCursor` |
+
+```json
+{
+  "items": [
+    {
+      "id": "b5e1…",
+      "type": "COMMENT_REPLIED",
+      "title": "New reply to your comment",
+      "message": "arjun replied to your comment on SAM-1023.",
+      "entityType": "COMMENT",
+      "href": "/problems/SAM-1023#discussion",
+      "problemPublicId": "SAM-1023",
+      "isRead": false,
+      "readAt": null,
+      "createdAt": "2026-10-06T09:12:00.000Z"
+    }
+  ],
+  "nextCursor": "…",
+  "unreadCount": 5
+}
+```
+
+**`href` is built by the server**, from validated metadata, on every read. It is
+never stored, and it is always an in-app path: `/problems/:publicId`, with
+`#discussion` for comments and replies and `#similar` for duplicates. A row
+whose problem reference is missing or malformed links to `/notifications`
+rather than nowhere.
+
+Never returned: `recipientId`, the deduplication key, or raw metadata.
+
+### `GET /api/v1/notifications/unread-count`
+
+```json
+{ "count": 5 }
+```
+
+One count on the `(recipientId, readAt)` index. The web app polls it once a
+minute while the tab is visible and again when the tab regains focus.
+
+### `PATCH /api/v1/notifications/:id/read`
+
+Marks one read and returns it. Idempotent — a notification already read keeps
+its original `readAt`. `404` if it is not the caller's.
+
+### `PATCH /api/v1/notifications/read-all`
+
+```json
+{ "updated": 3, "unreadCount": 0 }
+```
+
+### `DELETE /api/v1/notifications/:id`
+
+Deletes one of the caller's notifications. Returns `{ "unreadCount": n }`;
+`404` if it is not theirs.
+
+| Case | Result |
+| --- | --- |
+| No session | `401` on every endpoint |
+| Malformed id | `400` |
+| Another person's id | `404` |
+| `?recipientId=` or any unknown parameter | `400` |
+| `limit` outside `1`–`50`, unknown `filter`, bad cursor | `400` |
+
+---
+
+## Map and geocoding
+
+### `GET /api/v1/problems/map`
+
+Problems inside a map viewport, as GeoJSON. **Public**, and identical for every
+caller — no viewer state — so it is sent with `Cache-Control: public, max-age=30`.
+
+| Parameter | Required | Notes |
+| --- | --- | --- |
+| `west`, `south`, `east`, `north` | Yes | Degrees. `south < north`, `west < east`; each side at most **1.5°** |
+| `category` | No | A `ProblemCategory` |
+| `severity` | No | `LOW`, `MEDIUM`, `HIGH`, `CRITICAL` — the problem's recorded severity, not the AI's estimate |
+| `status` | No | `SUBMITTED`, `UNDER_REVIEW`, `VERIFIED`, `IN_PROGRESS`, `RESOLVED`. Default: active work only |
+| `limit` | No | `1`–`1000`, default `500` |
+| `originLatitude`, `originLongitude` | No | Both or neither. Adds `distanceMeters`; never filters, never stored |
+
+```json
+{
+  "type": "FeatureCollection",
+  "bbox": [77.0, 28.4, 77.1, 28.5],
+  "truncated": false,
+  "features": [
+    {
+      "type": "Feature",
+      "id": "SAM-1023",
+      "geometry": { "type": "Point", "coordinates": [77.0266, 28.4595] },
+      "properties": {
+        "publicId": "SAM-1023",
+        "title": "Large pothole near Sector 12 market",
+        "category": "POTHOLES",
+        "subcategory": "Road surface failure",
+        "severity": "HIGH",
+        "status": "SUBMITTED",
+        "area": "Sector 12 Market Road",
+        "city": "Gurugram",
+        "voteCount": 214,
+        "createdAt": "2026-09-10T00:00:00.000Z",
+        "distanceMeters": 350
+      }
+    }
+  ]
+}
+```
+
+- Coordinates are GeoJSON order, **`[longitude, latitude]`**, rounded to five
+  decimals (about a metre).
+- Ordered most severe first. When more problems match than `limit`, the most
+  severe are kept and `truncated` is `true` — zoom in for the rest.
+- Never included: drafts, confirmed duplicates, the reporter, the internal id,
+  the full street address (`area` is its first segment).
+- `400` for a missing or out-of-range edge, an inverted or antimeridian box, a
+  box larger than 1.5°, an unknown filter value, an internal status (`DRAFT`,
+  `DUPLICATE`…), or any unknown parameter.
+
+### `GET /api/v1/problems/map/aggregate`
+
+The same viewport and filters (no `limit`, no origin), up to **40°** a side,
+answered as a grid of cells — the basis for future hotspot work. **Public**,
+`Cache-Control: public, max-age=60`.
+
+```json
+{
+  "type": "FeatureCollection",
+  "bbox": [68, 8, 97, 37],
+  "cellSizeDegrees": 2,
+  "totalCount": 10,
+  "features": [
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [77.02727, 28.4611] },
+      "properties": {
+        "count": 10,
+        "severity": { "LOW": 0, "MEDIUM": 5, "HIGH": 4, "CRITICAL": 1 },
+        "topCategories": [{ "category": "DRAINAGE", "count": 3 }]
+      }
+    }
+  ]
+}
+```
+
+A cell sits at the centroid of its problems, not its corner. The grid size is
+chosen from the viewport (about 16 cells across). It is counting on a grid, not
+a statistical hotspot model.
+
+### Radius queries
+
+"Within 1 / 5 / 10 km" is `GET /api/v1/problems/nearby` with `latitude`,
+`longitude` and `radiusMeters` (see *Citizen dashboard and discovery*) —
+`ST_DWithin` and `ST_Distance` on geography.
+
+### `GET /api/v1/geo/search?q=…&limit=5`
+
+Place search — a city, locality or address. **Session required**; rate limited
+to 30 per minute per user.
+
+```json
+[
+  {
+    "label": "Sector 12, Gurugram, Haryana, 122001, India",
+    "latitude": 28.4595,
+    "longitude": 77.0266,
+    "address": "Market Road, Sector 12",
+    "city": "Gurugram",
+    "state": "Haryana",
+    "postalCode": "122001",
+    "country": "India",
+    "boundingBox": [77.01, 28.45, 77.04, 28.47]
+  }
+]
+```
+
+`q` is 2–200 characters; `limit` 1–8. Results are limited to
+`GEOCODING_COUNTRY_CODES` (default `in`).
+
+### `GET /api/v1/geo/reverse?latitude=…&longitude=…`
+
+The address at a point, for the report location picker; `null` where there is
+none. Same session requirement and limit.
+
+**Geocoding behaviour.** The browser never calls the geocoder: the API does, so
+provider keys stay on the server, results are cached in Redis for a day (search
+text hashed; reverse lookups on a ~11 m grid), and the provider's own rate limit
+sits behind ours. When the provider is down or `GEOCODING_PROVIDER=none`, both
+return **`503`** with a message telling the user to move the map or type the
+address — every flow that uses geocoding has a manual path.
+
+---
+
+## Government portal (Prompt 15)
+
+Review and civic intelligence for a government office, inside its
+jurisdiction. Full design: [`GOVERNMENT_PORTAL.md`](./GOVERNMENT_PORTAL.md).
+
+**Every route** requires the platform role `GOVERNMENT` (`403` otherwise —
+including for `ADMIN`). Every `:slug` route also requires an ACTIVE membership
+of that `GOVERNMENT` organisation (`404` otherwise) and an operational office
+(`403` when suspended), and every query applies the office's jurisdiction
+predicate: a problem outside it is `404`. Filters narrow inside the
+jurisdiction; nothing the client sends widens it.
+
+| Method | Path | Notes |
+| --- | --- | --- |
+| GET | `/government/mine` | The caller's offices |
+| GET | `/government/:slug/context` | Office, jurisdiction (type, name, basis, bbox), membership, permissions |
+| GET | `/government/:slug/dashboard?range=7\|30\|90` | `metrics`, `trend`, `reviewQueue` (6), `recentActivity` (8) |
+| GET | `/government/:slug/activity` | Latest 30 audit entries in the jurisdiction |
+| GET | `/government/:slug/problems` | Review queue / all reports, filtered and paginated |
+| GET | `/government/:slug/problems/:publicId` | Full review detail |
+| PATCH | `/government/:slug/problems/:publicId/status` | Review transition |
+| POST | `/government/:slug/problems/:publicId/notes` | Internal note |
+| GET | `/government/:slug/problems/:publicId/audit` | The problem's audit timeline |
+| GET | `/government/:slug/map` · `/map/aggregate` | Viewport GeoJSON, jurisdiction-scoped |
+
+### `GET /government/:slug/problems`
+
+| Query | Values | Default |
+| --- | --- | --- |
+| `view` | `queue` (SUBMITTED + UNDER_REVIEW) · `all` | `queue` |
+| `status` | any `ProblemStatus` but `DRAFT` | — |
+| `severity`, `category` | taxonomy | — |
+| `subcategory`, `area` | 2–80 / 2–120 characters, literal match | — |
+| `city` | exact, case-insensitive | — |
+| `reportedFrom`, `reportedTo` | ISO dates, inclusive | — |
+| `duplicate` | `possible` · `confirmed` · `none` | — |
+| `aiStatus` | `completed` · `pending` · `failed` · `none` | — |
+| `q` | 2–120: reference (exact), title, description, address, category | — |
+| `sort` | `queue` · `newest` · `oldest` · `severity` · `supported` | `queue` |
+| `page`, `limit` | 1–500, 1–50 | 1, 20 |
+
+Items are the feed shape plus `followCount`, `ai { status, category,
+subcategory, confidence }` and `duplicates { possible, confirmedOf }`. No
+reporter, no internal id.
+
+### `PATCH /government/:slug/problems/:publicId/status`
+
+```json
+{ "status": "VERIFIED", "note": "Problem verified by municipal review team." }
+```
+
+Allowed: `SUBMITTED → UNDER_REVIEW`, `UNDER_REVIEW → VERIFIED`,
+`UNDER_REVIEW → REJECTED` (note required). `VERIFIED → IN_PROGRESS` happens
+only by an organisation accepting an allocation (Prompt 16). `200 { status,
+allowedTransitions }`.
+
+| Error | HTTP | When |
+| --- | --- | --- |
+| `VALIDATION_FAILED` | 400 | Unknown status, note too long, rejecting without a reason |
+| `NOT_FOUND` | 404 | Outside the jurisdiction, draft, or no such problem |
+| `CONFLICT` | 409 | Transition not allowed from the current status, or someone else changed it first |
+
+Writes `PROBLEM_STATUS_CHANGED` to the audit log (from, to, note, office) and
+publishes the existing event — the reporter and followers are notified; the
+note is not included.
+
+### `POST /government/:slug/problems/:publicId/notes`
+
+`{ "body": "Site inspection required before allocation." }` (2–2000
+characters) → `201` note. Visible only through this office's portal; never on
+any public endpoint. Audited by id.
+
+### Map
+
+The public viewport parameters, plus `status` (any but DRAFT), `severity`,
+`category`, `duplicate` (`possible`/`none`), `aiStatus`, `reportedWithinDays`
+(7/30/90) and `limit`. Same response shapes as `/problems/map`.
+
+---
+
+## Government allocation (Prompt 16)
+
+An official assigns a verified problem to an eligible organisation, which
+accepts or declines. Full design: [`ALLOCATION.md`](./ALLOCATION.md).
+
+Government routes have the same guards as the portal (role `GOVERNMENT`,
+office membership, operational office, jurisdiction). Organisation routes are
+workspace routes (ACTIVE membership by slug; `404` otherwise). The office, the
+official and the responding member always come from the session.
+
+| Method | Path | Who | Notes |
+| --- | --- | --- | --- |
+| GET | `/government/:slug/problems/:publicId/allocations` | Official | `GovernmentAllocationPanel`: `canAllocate`, `blockedReason`, `active`, `history` (newest first), `candidates` (top 10 matches with eligibility), `verifiedAt`. Also embedded as `allocation` in the problem detail |
+| GET | `/government/:slug/problems/:publicId/allocation-candidates?q=` | Official | Up to 20 NGO/university/industry organisations by name (2–80 chars), with match evidence if any, `eligible`, `ineligibleReason`, `previouslyDeclined` |
+| POST | `/government/:slug/problems/:publicId/allocations` | Official | `{ organizationId, instructions?, internalReason? }` (notes ≤ 1000) → `201 GovernmentAllocationView`. Rate limit 60/min |
+| POST | `/government/:slug/allocations/:id/cancel` | Allocating office | `{ reason? }` → `200`; pending only |
+| GET | `/organizations/:slug/allocations?view=pending\|active\|past\|all&page&limit` | Member | `OrganizationAllocationPage`; `pending` is the default |
+| GET | `/organizations/:slug/allocations/:id` | Member | `OrganizationAllocationDetail` — no `internalReason`; `canRespond` |
+| POST | `/organizations/:slug/allocations/:id/accept` | OWNER/ADMIN | `{ note? }` → `200`; problem becomes `IN_PROGRESS` in the same transaction |
+| POST | `/organizations/:slug/allocations/:id/decline` | OWNER/ADMIN | `{ reason }` (3–1000, required) → `200`; problem stays `VERIFIED` |
+
+| Error | HTTP | When |
+| --- | --- | --- |
+| `VALIDATION_FAILED` | 400 | Malformed body, unknown fields (e.g. `governmentOrganizationId`), decline without a reason, ineligible or unknown organisation |
+| `FORBIDDEN` | 403 | Not a government official; organisation `MEMBER` responding |
+| `NOT_FOUND` | 404 | Problem outside the jurisdiction; another office's allocation; another organisation's allocation |
+| `CONFLICT` | 409 | Problem not `VERIFIED`; an active allocation exists; "Another official allocated this problem moments ago."; "This allocation was already responded to by another authorized user."; "This allocation was withdrawn by the government office."; cancelling a decided allocation |
+
+**Also changed:**
+- `GET /problems/:publicId` adds `assignment: { organization { slug, name,
+  type, logoUrl }, assignedAt } | null`, present only for an accepted
+  allocation.
+- The government dashboard adds `pendingAllocations`, `acceptedAllocations`
+  and `declinedAllocations`.
+- The organisation dashboard adds `pendingAllocations` and
+  `activeAssignments`.
+- Government activity entries gain the kinds `ALLOCATION_CREATED`,
+  `ALLOCATION_ACCEPTED`, `ALLOCATION_DECLINED` and `ALLOCATION_CANCELLED`, an
+  `organizationName`, and the actor kind `ORGANIZATION`.
+- Notifications gain the types `ALLOCATION_REQUESTED`, `ALLOCATION_ACCEPTED`,
+  `ALLOCATION_DECLINED` and `ALLOCATION_CANCELLED` (entity type
+  `ALLOCATION`).
+
+---
+
+## Organisation matching (Prompt 14)
+
+AI-assisted matching of problems to organisations that **may be able to help**.
+A match is a suggestion, never an assignment. Relevance is a weighted score
+from an embedding-assisted heuristic baseline — not a probability. Method:
+[`ML_ORGANIZATION_MATCHING.md`](./ML_ORGANIZATION_MATCHING.md).
+
+No endpoint accepts a score: matches are written only by the background job.
+
+### `GET /api/v1/problems/:publicId/matches?limit=5`
+
+Public. `limit` 1–10. `404` for an unknown or draft problem.
+
+```json
+{
+  "state": "ready",
+  "matchingVersion": "heuristic-baseline@1.0.0+77c1d02",
+  "computedAt": "2026-10-06T10:52:37.982Z",
+  "items": [
+    {
+      "relevance": 0.723,
+      "rank": 1,
+      "signals": {
+        "semantic": 0.392, "expertise": 1, "category": 1,
+        "geographic": 1, "capability": 0.041, "activity": 0.667
+      },
+      "reasons": [
+        { "code": "EXPERTISE_STRONG", "value": 1 },
+        { "code": "WITHIN_SERVICE_AREA", "value": 0 }
+      ],
+      "matchedExpertise": [
+        { "category": "DRAINAGE", "subcategory": "Stormwater drainage", "level": "SPECIALIST" }
+      ],
+      "computedAt": "…",
+      "organization": {
+        "slug": "clean-city-foundation", "name": "Clean City Foundation", "type": "NGO",
+        "logoUrl": null, "verificationStatus": "VERIFIED",
+        "location": { "city": "Gurugram", "state": "Haryana" }
+      }
+    }
+  ]
+}
+```
+
+`state`: `ready`; `pending` (no matches yet and a run is queued or has not
+happened); `unavailable` (not open work — a duplicate, resolved, rejected — or
+matching switched off). Only public organisation facts are returned. Suspended,
+rejected or deactivated organisations, government offices and dismissed matches
+are never listed. Reason codes: `EXPERTISE_STRONG`, `EXPERTISE_RELATED`,
+`SEMANTIC_HIGH`, `SEMANTIC_MODERATE`, `WITHIN_SERVICE_AREA` (value: metres),
+`SAME_CITY`, `IN_REGION` (metres), `TYPE_FIT`, `RELATED_ACTIVITY` (value: count).
+
+### `POST /api/v1/problems/:publicId/matches/recompute`
+
+Platform `ADMIN` only (`403` otherwise, `401` signed out). Rate limited 30 a
+minute. `202 { "queued": true }` — the job runs in the background.
+
+### `GET /api/v1/organizations/:slug/recommendations`
+
+Workspace guard (active member of an operational organisation; `404`
+otherwise). The problem-discovery item shape plus `match`:
+
+| Query | Values | Default |
+| --- | --- | --- |
+| `sort` | `relevance` · `recent` · `severity` · `distance` | `relevance` |
+| `view` | `active` · `dismissed` | `active` |
+| `category`, `severity`, `city`, `radiusMeters`, `reportedWithinDays`, `page`, `limit` | as for `/problems` | — |
+| `minRelevance` | 0–1 | — |
+
+```json
+{
+  "items": [
+    {
+      "publicId": "SAM-1005", "title": "…", "severity": "HIGH", "distanceMeters": 37, "…": "…",
+      "match": {
+        "relevance": 0.76, "rank": 1, "status": "CALCULATED",
+        "signals": { "…": "…" }, "reasons": [ … ], "matchedExpertise": [ … ], "computedAt": "…"
+      }
+    }
+  ],
+  "page": 1, "limit": 12, "totalCount": 5, "totalPages": 1,
+  "origin": { "kind": "organization", "radiusMeters": null }
+}
+```
+
+### `POST /api/v1/organizations/:slug/recommendations/:publicId/dismiss` · `/restore`
+
+OWNER or ADMIN of that organisation (`403` for a MEMBER, `404` for a
+non-member or no such recommendation). `204`. Dismissing marks the match "not
+relevant" for this organisation only; it survives re-matching and hides it from
+the public list. Restoring shows it again (status `STALE` until the next run).
+Both are audited (`ORGANIZATION_RECOMMENDATION_DISMISSED` / `_RESTORED`). There
+is no accept, apply or assign.
+
+The organisation dashboard (`GET /organizations/:slug/dashboard`) gains
+`recommendations: { total, items }` — the top four.
+
+### AI service: `POST /match/organizations` (internal)
+
+Internal token only; called by the API, never the browser. Input: the
+problem's taxonomy and public text, and per candidate its type, expertise,
+pgvector similarity, distance, same-city flag and activity count. Output:
+ranked matches with signals, reason codes and matched-expertise indexes; the
+engine name, version, matching version, weights and `trained: false`; and any
+`degraded` signals. `422` for invalid input.
 
 ---
 
@@ -1367,8 +2019,8 @@ Not implemented — listed so the URL surface is predictable.
 | Search | `GET /problems/search` (full-text, then semantic) | Prompt 25 |
 | Suggestions | `GET /problems/:id/suggestions`, `POST /problems/:id/suggestions` | Later milestone |
 | Moderation | `POST /comments/:id/report`, a review queue | Later milestone |
-| Notifications | `GET /notifications`, `POST /notifications/read` | Prompt 11 |
-| Organisations | `GET /organizations` (directory), `POST /organizations`, `POST /organizations/:id/verify`, invitations | Organisations |
-| Allocation | `POST /problems/:id/allocate` | Government |
+| Notification delivery | Email, push and realtime channels; per-type preferences | Later milestone |
+| Organisations | `GET /organizations` (directory), `POST /organizations` (onboarding), `POST /organizations/:id/verify`, leaving an organisation, invitation emails | Later milestones |
+| Jurisdiction management | Setting an office's boundary, cities or postal codes | Later milestone |
 | Resolution | `GET /resolution-rooms/:id`, `POST /resolution-rooms/:id/updates` | Resolution |
 | Impact | `GET /leaderboard`, `GET /users/:id/impact` — the ledger behind `impactPoints` | Impact |

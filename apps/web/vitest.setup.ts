@@ -83,3 +83,10 @@ afterEach(() => {
   vi.clearAllMocks();
   storage.clear();
 });
+
+/**
+ * The map provider needs WebGL, which jsdom lacks. The adapter — the one module
+ * that imports MapLibre — is swapped for a faithful fake implementing the same
+ * contract, so every map test still exercises the real components above it.
+ */
+vi.mock('@/components/map/maplibre/maplibre-map', () => import('@/test/fake-map'));

@@ -16,6 +16,12 @@
 const MAX_SLUG_LENGTH = 80;
 
 /**
+ * Slugs that are route segments under `/organizations`. An organisation called
+ * "Mine" would otherwise be unreachable behind `GET /organizations/mine`.
+ */
+export const RESERVED_SLUGS: ReadonlySet<string> = new Set(['mine', 'invitations']);
+
+/**
  * Normalises a name into a URL-safe slug.
  *
  * Unicode is decomposed and combining marks stripped, so "Pūrṇa Foundation"
@@ -52,14 +58,16 @@ export async function generateUniqueSlug(
 ): Promise<string> {
   const maxAttempts = options.maxAttempts ?? 50;
   const stem = slugify(name) || 'organization';
+  const taken = async (candidate: string) =>
+    RESERVED_SLUGS.has(candidate) || (await isTaken(candidate));
 
-  if (!(await isTaken(stem))) return stem;
+  if (!(await taken(stem))) return stem;
 
   // Numeric suffixes first: `clean-city-2` reads better than a random tail and
   // is what a person would expect to see.
   for (let suffix = 2; suffix <= maxAttempts; suffix += 1) {
     const candidate = `${stem.slice(0, MAX_SLUG_LENGTH - 4)}-${suffix}`;
-    if (!(await isTaken(candidate))) return candidate;
+    if (!(await taken(candidate))) return candidate;
   }
 
   // Fallback for a pathological number of collisions on one name. Random rather

@@ -7,7 +7,7 @@ import { Alert } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Field } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
-import { MapPlaceholder } from '@/components/problems/map-placeholder';
+import { LocationPicker } from '@/components/map/location-picker';
 import { cn } from '@/lib/cn';
 import { useGeolocation } from '@/hooks/use-geolocation';
 
@@ -20,10 +20,9 @@ import { useGeolocation } from '@/hooks/use-geolocation';
  * permission may be denied, the device may have no fix, and a citizen may be
  * reporting something they saw earlier from somewhere else.
  *
- * The map is `MapPlaceholder` from the design system: an honest stand-in rather
- * than a pretend map. A real tile layer needs a provider and a server-held key,
- * which this milestone does not configure; swapping it in changes this one
- * element and nothing around it.
+ * The map is `LocationPicker`: search, then drag the pin onto the spot, and
+ * optionally adopt the address it finds. The typed fields below stay — they
+ * are the accessible route, and the fallback when the map cannot load.
  */
 export function LocationSelector({
   value,
@@ -98,26 +97,42 @@ export function LocationSelector({
         </Alert>
       )}
 
+      <LocationPicker
+        value={
+          hasCoordinates
+            ? { latitude: value.latitude as number, longitude: value.longitude as number }
+            : null
+        }
+        onChange={(position) =>
+          // A placed pin is the citizen's own choice; any GPS accuracy figure
+          // described a different fix and no longer applies.
+          onChange({ ...value, ...position, accuracyMeters: undefined })
+        }
+        onUseAddress={(place) =>
+          onChange({
+            ...value,
+            address: place.address ?? value.address,
+            city: place.city ?? value.city,
+            state: place.state ?? value.state,
+            postalCode: place.postalCode ?? value.postalCode,
+          })
+        }
+      />
+
       {hasCoordinates && (
-        <div className="overflow-hidden rounded-card border border-border">
-          <MapPlaceholder
-            className="h-44"
-            label={value.address ?? value.city ?? 'Selected location'}
-          />
-          <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border bg-surface px-4 py-2.5">
-            <span className="inline-flex items-center gap-1.5 type-caption text-ink-muted">
-              <MapPin className="size-3.5" aria-hidden="true" />
-              <span className="font-mono tabular">
-                {value.latitude?.toFixed(5)}, {value.longitude?.toFixed(5)}
-              </span>
+        <p className="flex flex-wrap items-center justify-between gap-2 type-caption text-ink-muted">
+          <span className="inline-flex items-center gap-1.5">
+            <MapPin className="size-3.5" aria-hidden="true" />
+            <span className="font-mono tabular">
+              {value.latitude?.toFixed(5)}, {value.longitude?.toFixed(5)}
             </span>
-            {typeof value.accuracyMeters === 'number' && (
-              <span className="type-caption text-ink-subtle">
-                Accurate to about {value.accuracyMeters} m
-              </span>
-            )}
-          </div>
-        </div>
+          </span>
+          {typeof value.accuracyMeters === 'number' && (
+            <span className="text-ink-subtle">
+              Accurate to about {value.accuracyMeters} m
+            </span>
+          )}
+        </p>
       )}
 
       <div className={cn('grid gap-4 sm:grid-cols-2')}>

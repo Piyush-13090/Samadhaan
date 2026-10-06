@@ -77,6 +77,18 @@ class Settings(BaseSettings):
     def default_embedding_model(self) -> str:
         return "sentence-transformers/all-MiniLM-L6-v2"
 
+    # --- Organisation matching (Prompt 14) -----------------------------------
+    # Initial heuristic baseline weights. Not tuned on outcome data — there is
+    # none yet. They encode the design intent: what the problem is about and
+    # what the organisation does dominate; geography and history are weak.
+    # Changing any of them changes the matching version.
+    matching_weight_semantic: float = Field(default=0.35, alias="MATCHING_WEIGHT_SEMANTIC")
+    matching_weight_expertise: float = Field(default=0.30, alias="MATCHING_WEIGHT_EXPERTISE")
+    matching_weight_category: float = Field(default=0.15, alias="MATCHING_WEIGHT_CATEGORY")
+    matching_weight_geographic: float = Field(default=0.10, alias="MATCHING_WEIGHT_GEOGRAPHIC")
+    matching_weight_capability: float = Field(default=0.05, alias="MATCHING_WEIGHT_CAPABILITY")
+    matching_weight_activity: float = Field(default=0.05, alias="MATCHING_WEIGHT_ACTIVITY")
+
     @property
     def is_production(self) -> bool:
         return self.environment == "production"

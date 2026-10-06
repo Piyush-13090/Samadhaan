@@ -149,9 +149,7 @@ export async function fetchAnalysisOnServer(
       `/problems/${encodeURIComponent(publicId)}/analysis`,
       {
         cache: 'no-store',
-        headers: cookieHeader
-          ? { cookie: cookieHeader }
-          : ({} as Record<string, string>),
+        headers: cookieHeader ? { cookie: cookieHeader } : ({} as Record<string, string>),
       },
     );
   } catch (error) {
@@ -206,9 +204,7 @@ export async function fetchSimilarOnServer(
       `/problems/${encodeURIComponent(publicId)}/similar`,
       {
         cache: 'no-store',
-        headers: cookieHeader
-          ? { cookie: cookieHeader }
-          : ({} as Record<string, string>),
+        headers: cookieHeader ? { cookie: cookieHeader } : ({} as Record<string, string>),
       },
     );
   } catch (error) {

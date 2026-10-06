@@ -53,8 +53,8 @@ describe('geographicSimilarity', () => {
   });
 
   it('decreases monotonically with distance', () => {
-    const scores = [0, 50, 100, 300, 750, 1500, 3000].map(
-      (meters) => service.geographicSimilarity(meters, 750)!,
+    const scores = [0, 50, 100, 300, 750, 1500, 3000].map((meters) =>
+      service.geographicSimilarity(meters, 750)!,
     );
 
     for (let i = 1; i < scores.length; i += 1) {
@@ -206,7 +206,12 @@ describe('score', () => {
       CONFIG,
     );
     const partial = service.score(
-      input({ textSimilarity: 1, imageSimilarity: null, distanceMeters: 0, ageGapDays: 0 }),
+      input({
+        textSimilarity: 1,
+        imageSimilarity: null,
+        distanceMeters: 0,
+        ageGapDays: 0,
+      }),
       CONFIG,
     );
 

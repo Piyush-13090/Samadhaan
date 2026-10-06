@@ -3,8 +3,10 @@ import type { Metadata } from 'next';
 import { cookies } from 'next/headers';
 import { notFound } from 'next/navigation';
 import { Suspense } from 'react';
+import { ProblemAssignmentCard } from '@/components/allocation/problem-assignment-card';
 import { PageContainer } from '@/components/layout/page-container';
-import { MapPlaceholder } from '@/components/problems/map-placeholder';
+import { ProblemLocationMap } from '@/components/map/problem-location-map';
+import { ProblemOrganizationMatches } from '@/components/matching/problem-organization-matches';
 import { CategoryBadge } from '@/components/problems/category-badge';
 import { ProblemStatusBadge } from '@/components/problems/problem-status-badge';
 import { SeverityBadge } from '@/components/problems/severity-badge';
@@ -175,17 +177,26 @@ async function ProblemContent({ publicId }: { publicId: string }) {
             </CardBody>
           </Card>
 
-          <SimilarProblemsPanel
-            publicId={problem.publicId}
-            initial={duplicateCheck}
-            canReview={problem.isOwnReport === true}
-          />
+          {/* Anchor for "possible duplicate" notifications. */}
+          <div id="similar" className="scroll-mt-24">
+            <SimilarProblemsPanel
+              publicId={problem.publicId}
+              initial={duplicateCheck}
+              canReview={problem.isOwnReport === true}
+            />
+          </div>
 
           <ProblemIntelligencePanel
             publicId={problem.publicId}
             initial={analysis}
             canRetry={problem.isOwnReport === true}
           />
+
+          {/* Once an organisation has been assigned, suggestions would only
+              confuse who is responsible. */}
+          {!problem.assignment && (
+            <ProblemOrganizationMatches publicId={problem.publicId} />
+          )}
 
           {!analysis && (
             <Alert tone="info" title="Awaiting review">
@@ -202,12 +213,13 @@ async function ProblemContent({ publicId }: { publicId: string }) {
         </div>
 
         <aside className="space-y-5">
+          {problem.assignment && (
+            <ProblemAssignmentCard assignment={problem.assignment} />
+          )}
+
           <Card>
             <CardHeader title="Location" />
-            <MapPlaceholder
-              className="h-36"
-              label={problem.location.city ?? 'Reported location'}
-            />
+            <ProblemLocationMap problem={problem} />
             <CardBody className="space-y-2">
               {problem.location.address && (
                 <p className="inline-flex items-start gap-2 type-body-sm text-ink">

@@ -2,6 +2,7 @@
 
 import { PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import Link from 'next/link';
+import type { ReactNode } from 'react';
 import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/cn';
 import {
@@ -26,11 +27,17 @@ export function AppSidebar({
   collapsed,
   onToggleCollapsed,
   unreadCount = 0,
+  homeHref = '/dashboard',
+  context,
 }: {
   sections: NavSection[];
   collapsed: boolean;
   onToggleCollapsed: () => void;
   unreadCount?: number;
+  /** Where the logo leads: the current workspace's home. */
+  homeHref?: string;
+  /** The organisation switcher, under the logo. */
+  context?: ReactNode;
 }) {
   const pathname = usePathname();
 
@@ -49,10 +56,21 @@ export function AppSidebar({
           collapsed ? 'justify-center px-2' : 'px-4',
         )}
       >
-        <Link href="/dashboard" aria-label="Samadhaan home">
+        <Link href={homeHref} aria-label="Samadhaan home">
           <Logo variant={collapsed ? 'mark' : 'full'} size="sm" />
         </Link>
       </div>
+
+      {context && (
+        <div
+          className={cn(
+            'shrink-0 border-b border-border py-2',
+            collapsed ? 'px-1.5' : 'px-2.5',
+          )}
+        >
+          {context}
+        </div>
+      )}
 
       <nav aria-label="Main" className="flex-1 overflow-y-auto px-2.5 py-4">
         {sections.map((section) => (
@@ -131,6 +149,9 @@ function SidebarLink({
     <Link
       href={item.href}
       aria-current={active ? 'page' : undefined}
+      // Collapsed, the link holds only a decorative icon; the tooltip does not
+      // name it, so the label must.
+      aria-label={collapsed ? item.label : undefined}
       className={cn(
         'relative flex items-center gap-3 rounded-control px-2.5 py-2',
         'type-body-sm transition-colors duration-fast ease-standard',

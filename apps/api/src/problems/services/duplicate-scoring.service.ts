@@ -114,7 +114,10 @@ export class DuplicateScoringService {
    * GPS drift and a mis-dropped pin both live there — and a linear function
    * spends most of its range on distances that are already clearly unrelated.
    */
-  geographicSimilarity(distanceMeters: number | null, radiusMeters: number): number | null {
+  geographicSimilarity(
+    distanceMeters: number | null,
+    radiusMeters: number,
+  ): number | null {
     if (distanceMeters === null || !Number.isFinite(distanceMeters)) return null;
     if (radiusMeters <= 0) return null;
 
@@ -170,9 +173,7 @@ export class DuplicateScoringService {
       text: clamp01(input.textSimilarity),
       image: input.imageSimilarity === null ? null : clamp01(input.imageSimilarity),
       geographic: this.geographicSimilarity(input.distanceMeters, config.geoRadiusMeters),
-      category: clamp01(
-        this.categorySimilarity(input.category, input.candidateCategory),
-      ),
+      category: clamp01(this.categorySimilarity(input.category, input.candidateCategory)),
       temporal: this.temporalSimilarity(input.ageGapDays, config),
     };
 

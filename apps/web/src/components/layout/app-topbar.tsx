@@ -1,17 +1,17 @@
 'use client';
 
-import { Bell, LogOut, Menu, Search, Settings, User } from 'lucide-react';
+import { LogOut, Menu, Search, Settings, User } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import type { AuthenticatedUser } from '@samadhaan/shared';
 import { useAuth } from '@/components/auth/auth-provider';
 import { cn } from '@/lib/cn';
 import { isActivePath, type NavSection } from '@/lib/navigation';
 import { ROLE_LABEL } from '@/lib/role-display';
-import type { NotificationSummary } from '@/types/domain';
 import { Logo } from '@/components/brand/logo';
-import { NotificationItem } from '@/components/common/notification-item';
+import { NotificationBell } from '@/components/notifications/notification-bell';
+import { useNotifications } from '@/components/notifications/notifications-provider';
 import { Avatar } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { CountBadge } from '@/components/ui/badge';
@@ -24,8 +24,6 @@ import {
   DropdownSeparator,
   DropdownTrigger,
 } from '@/components/ui/dropdown';
-import { EmptyState } from '@/components/ui/states';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 
 /**
  * Application top bar: search, notifications, profile.
@@ -36,16 +34,20 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 export function AppTopbar({
   sections,
   user,
-  notifications,
+  homeHref = '/dashboard',
+  context,
 }: {
   sections: NavSection[];
   user: AuthenticatedUser;
-  notifications: NotificationSummary[];
+  /** Where the logo leads: the current workspace's home. */
+  homeHref?: string;
+  /** The organisation switcher, shown at the top of the drawer. */
+  context?: ReactNode;
 }) {
   const { logout, pending } = useAuth();
   const [navOpen, setNavOpen] = useState(false);
   const pathname = usePathname();
-  const unread = notifications.filter((entry) => !entry.read);
+  const { unreadCount } = useNotifications();
 
   return (
     <header
@@ -70,9 +72,20 @@ export function AppTopbar({
 
         <DrawerContent side="left" title="Navigation" hideTitle>
           <Logo size="sm" className="mb-5" />
+          {context && (
+            <div className="-mx-2 mb-4 border-b border-border pb-3">{context}</div>
+          )}
           <nav aria-label="Main">
             {sections.map((section) => (
-              <ul key={section.id} className="space-y-0.5">
+              <ul key={section.id} className="mb-4 space-y-0.5 last:mb-0">
+                {section.label && (
+                  <li
+                    aria-hidden="true"
+                    className="px-2.5 pb-1 type-overline text-ink-subtle"
+                  >
+                    {section.label}
+                  </li>
+                )}
                 {section.items.map((item) => {
                   const Icon = item.icon;
                   const active = isActivePath(pathname, item.href);
@@ -93,7 +106,7 @@ export function AppTopbar({
                           <Icon className="size-4.5 shrink-0" aria-hidden="true" />
                           <span className="flex-1">{item.label}</span>
                           {item.badgeKey === 'notifications' && (
-                            <CountBadge count={unread.length} />
+                            <CountBadge count={unreadCount} />
                           )}
                         </Link>
                       </DrawerClose>
@@ -106,7 +119,7 @@ export function AppTopbar({
         </DrawerContent>
       </Drawer>
 
-      <Link href="/dashboard" className="lg:hidden" aria-label="Samadhaan home">
+      <Link href={homeHref} className="lg:hidden" aria-label="Samadhaan home">
         <Logo variant="mark" size="sm" />
       </Link>
 
@@ -143,55 +156,7 @@ export function AppTopbar({
           <Search />
         </Button>
 
-        <Popover>
-          <PopoverTrigger asChild>
-            <Button
-              variant="ghost"
-              size="sm"
-              iconOnly
-              className="relative"
-              aria-label={`Notifications${unread.length ? `, ${unread.length} unread` : ''}`}
-            >
-              <Bell />
-              {unread.length > 0 && (
-                <span
-                  aria-hidden="true"
-                  className="absolute top-1.5 right-1.5 size-2 rounded-full bg-danger ring-2 ring-surface"
-                />
-              )}
-            </Button>
-          </PopoverTrigger>
-
-          <PopoverContent align="end" className="w-[min(22rem,calc(100vw-2rem))] p-0">
-            <div className="flex items-center justify-between border-b border-border px-4 py-3">
-              <h2 className="type-h4 text-ink">Notifications</h2>
-              {unread.length > 0 && <CountBadge count={unread.length} />}
-            </div>
-
-            <div className="max-h-96 overflow-y-auto p-1.5">
-              {notifications.length === 0 ? (
-                <EmptyState
-                  size="sm"
-                  icon={Bell}
-                  title="You're all caught up"
-                  description="New activity on problems you follow will appear here."
-                />
-              ) : (
-                notifications
-                  .slice(0, 5)
-                  .map((notification) => (
-                    <NotificationItem key={notification.id} notification={notification} />
-                  ))
-              )}
-            </div>
-
-            <div className="border-t border-border p-2">
-              <Button variant="ghost" size="sm" fullWidth asChild>
-                <Link href="/notifications">View all notifications</Link>
-              </Button>
-            </div>
-          </PopoverContent>
-        </Popover>
+        <NotificationBell />
 
         <Dropdown>
           <DropdownTrigger asChild>

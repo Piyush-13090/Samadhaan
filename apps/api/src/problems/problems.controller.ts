@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  Header,
   HttpCode,
   HttpStatus,
   Param,
@@ -17,6 +18,8 @@ import {
   API_VERSION,
   ERROR_CODES,
   type DuplicateCheckView,
+  type MapAggregateCollection,
+  type MapProblemCollection,
   type PaginatedData,
   type ProblemAnalysisView,
   type ProblemFeed,
@@ -31,10 +34,12 @@ import { Roles } from '../auth/decorators/roles.decorator.js';
 import { AppException } from '../common/app.exception.js';
 import { CreateProblemDto } from './dto/create-problem.dto.js';
 import { DiscoverProblemsQueryDto } from './dto/discover-problems.dto.js';
+import { MapAggregateQueryDto, MapProblemsQueryDto } from './dto/map-query.dto.js';
 import { MyProblemsQueryDto } from './dto/my-problems.dto.js';
 import { ProblemsService } from './problems.service.js';
 import { DuplicateDetectionService } from './services/duplicate-detection.service.js';
 import { ProblemDiscoveryService } from './services/problem-discovery.service.js';
+import { ProblemMapService } from './services/problem-map.service.js';
 import { ProblemAnalysisService } from './services/problem-analysis.service.js';
 
 /** Uploaded file as multer presents it. Typed locally to avoid a global import. */
@@ -52,6 +57,7 @@ export class ProblemsController {
     private readonly analysis: ProblemAnalysisService,
     private readonly duplicates: DuplicateDetectionService,
     private readonly discovery: ProblemDiscoveryService,
+    private readonly map: ProblemMapService,
   ) {}
 
   /**
@@ -147,6 +153,30 @@ export class ProblemsController {
     const viewer = (request as Request & AuthenticatedRequest).user ?? null;
 
     return this.discovery.discover(query, viewer?.id ?? null);
+  }
+
+  /**
+   * Problems inside a map viewport, as GeoJSON.
+   *
+   * **Public**, like every read of a civic report, and identical for every
+   * caller — no viewer state — which is what makes the short shared cache
+   * below safe. The viewport is required and bounded; see `ProblemMapService`.
+   *
+   * Declared before `:publicId` so `map` is not read as a problem id.
+   */
+  @Public()
+  @Get('map')
+  @Header('Cache-Control', 'public, max-age=30')
+  mapProblems(@Query() query: MapProblemsQueryDto): Promise<MapProblemCollection> {
+    return this.map.problems(query);
+  }
+
+  /** Problems aggregated into a grid over a larger viewport. Public. */
+  @Public()
+  @Get('map/aggregate')
+  @Header('Cache-Control', 'public, max-age=60')
+  mapAggregate(@Query() query: MapAggregateQueryDto): Promise<MapAggregateCollection> {
+    return this.map.aggregate(query);
   }
 
   /**

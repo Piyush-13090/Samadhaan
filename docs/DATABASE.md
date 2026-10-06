@@ -214,6 +214,27 @@ Radius search and map clustering are core queries, so this matters.
 Populating `location` from application code is never necessary. Write the
 coordinates; the database does the rest.
 
+### Map queries (Prompt 12)
+
+No schema change was needed: the column, SRID 4326, the trigger and the GiST
+index already existed. The map uses them as follows.
+
+| Query | Shape | Index |
+| --- | --- | --- |
+| Viewport (`/problems/map`) | `location && ST_MakeEnvelope(w, s, e, n, 4326)::geography`, then `longitude/latitude BETWEEN` the exact edges | GiST, bitmap index scan — verified with `EXPLAIN` |
+| Radius (`/problems/nearby`) | `ST_DWithin(location, point, radius)` | GiST |
+| Distance | `ST_Distance(location, point)` on geography — metres on the spheroid | — (runs on the bounded result only) |
+| Grid aggregation (`/problems/map/aggregate`) | `floor(longitude / cell), floor(latitude / cell)` keys, grouped, inside the same envelope filter | GiST for the filter |
+
+The decimal range check after `&&` is deliberate: a geography envelope's sides
+are geodesics, which bow slightly away from the straight edges a map draws, so
+`&&` alone would include a sliver outside the visible rectangle.
+
+Every map query is bounded by a viewport the API also bounds — 1.5° a side for
+individual problems, 40° for aggregates — so the worst case is a known
+rectangle, never "every problem". Viewports crossing the antimeridian are
+refused rather than split; Samadhaan maps India.
+
 ---
 
 ## 6. Vector / embedding strategy
@@ -416,6 +437,7 @@ workflows that need it — allocation, verification, role changes.
 20260913080353_profiles_and_expertise    Profile fields, OrganizationExpertise
 20260913120000_embedding_dimension_384   Embedding width matches the text encoder
 20261006090000_community_engagement      lastCommentAt, reply index, comment CHECKs (§14f)
+20261006120000_notifications             Notification table, enums, indexes, CHECKs (§14g)
 ```
 
 > The profiles migration is a worked example of the HNSW caveat below: Prisma
@@ -479,6 +501,10 @@ memberships, 8 problems, 6 images, 4 AI analyses, 9 votes, follows (each
 reporter on their own report, plus supporters), 3 comments including a threaded
 reply, 2 suggestions and 2 audit entries.
 
+It also writes 8 **development notifications**, every one keyed `seed:<n>` so
+they are recognisable and re-seeding never duplicates them. In a running system
+notifications only ever come from domain events.
+
 **Counters are recounted, never invented.** `voteCount`, `followCount`,
 `commentCount` and `lastCommentAt` are computed from the real rows at the end of
 the seed. Earlier seeds hand-wrote figures such as 342 supporters with no rows
@@ -540,7 +566,7 @@ with "Not yet available" — **not** `0`.
 "We cannot measure this" and "we measured nothing" are different claims. Showing
 the second when the first is true is a small lie that compounds into a
 leaderboard nobody trusts. Currently `null`: `ProfileActivity.impactPoints`
-(no ledger yet) and `OrganizationActivity.problemsResolved` (no allocation yet).
+(no ledger yet) and `OrganizationActivity.problemsResolved` (no resolution yet).
 
 ### Organisation contact privacy
 
@@ -569,11 +595,19 @@ this, which is why `OrganizationMember` is a join table.
 | Action | Who |
 | --- | --- |
 | View an organisation profile | Anyone, signed out included |
+| Open the organisation workspace | ACTIVE members of an operational NGO / university / industry organisation — not platform admins, not government offices |
 | Edit organisation details | OWNER, ADMIN, or platform ADMIN |
-| Manage members | OWNER, ADMIN, or platform ADMIN |
 | Manage expertise | OWNER, ADMIN, or platform ADMIN |
-| Change verification status | **Nobody** — no endpoint exists yet |
+| Invite members (as ADMIN or MEMBER) | OWNER, ADMIN, or platform ADMIN |
+| Change or remove a MEMBER / ADMIN | OWNER, ADMIN, or platform ADMIN — never their own membership |
+| Change or remove an OWNER, or grant OWNER | OWNER or platform ADMIN — never their own membership |
+| Accept or decline an invitation | The invitee only |
+| Change verification status, type, slug, `isActive` | **Nobody** through the workspace |
 | Edit own profile | The user themselves |
+
+An organisation whose `verificationStatus` is `SUSPENDED` or whose `isActive`
+is false is **frozen for its members**: the workspace returns `403` and no
+management action is allowed. A platform admin can still act on it.
 
 All of it lives in `OrganizationAccessService`, which is exported so allocation
 and resolution rooms reuse it rather than re-deriving a subtly different
@@ -593,6 +627,46 @@ including for a platform ADMIN, because the invariant protects the
 Removal marks the membership `LEFT` rather than deleting it: membership history
 is part of the organisation's record, and a deleted row cannot answer "who was
 on the team when this problem was allocated?".
+
+### Invitations
+
+An invitation is an `OrganizationMember` row with `status = INVITED` — no new
+table. The `(organizationId, userId)` unique constraint makes a duplicate
+invitation impossible even under a race, and a former member is re-invited on
+their old row, keeping its history. Accepting sets `ACTIVE` and `joinedAt`;
+declining or withdrawing sets `LEFT`. Both are conditional updates on
+`status = INVITED`, so a withdrawal and an acceptance cannot both win.
+
+### Organisation audit entries
+
+Workspace changes write to `audit_logs` in the same transaction as the change
+(`entityType = 'Organization'`): `ORGANIZATION_PROFILE_UPDATED` (field names
+only), `ORGANIZATION_EXPERTISE_SET` / `_REMOVED`, `ORGANIZATION_MEMBER_INVITED`,
+`ORGANIZATION_INVITATION_ACCEPTED` / `_DECLINED` / `_WITHDRAWN`,
+`ORGANIZATION_MEMBER_ROLE_CHANGED` (from/to), `ORGANIZATION_MEMBER_REMOVED`.
+Metadata holds ids and roles — never emails, phone numbers or tokens.
+
+### Workspace problem discovery
+
+`GET /organizations/:slug/problems` is one parameterised statement:
+
+- the organisation's expertise (a handful of rows) is passed in as an inline
+  table via `unnest()` of four bound arrays and joined on category — no
+  per-row subquery;
+- the service area is `ST_DWithin` against the organisation's registered point
+  (25 km), so the existing `problems_location_gist` index narrows first; without
+  coordinates it is a case-insensitive city match;
+- the latest completed `INITIAL_ANALYSIS` comes from a `LATERAL` join on
+  `(problemId, analysisType, createdAt)`;
+- "reported within N days" binds a cutoff computed in Node rather than
+  comparing to `now()` — see §16, "timestamps and the session time zone";
+- pagination is `LIMIT`/`OFFSET` over a total order ending in `publicId`, with
+  a separate `count(*)` over the same predicate; `page` is capped at 200.
+
+No schema change was needed: `organizations` already carried latitude,
+longitude, the trigger-maintained `location` and its GiST index, and
+`organization_members` already had `[organizationId, status]` and `[userId]`
+indexes.
 
 ### IDOR
 
@@ -737,10 +811,144 @@ reads as drift to `migrate dev`, which then proposes resetting the database.
 
 ---
 
+## 14g. Notifications
+
+One table, `notifications`, and two enums, `NotificationType` and
+`NotificationEntityType`.
+
+| Column | Notes |
+| --- | --- |
+| `recipientId` | FK to `users`, `ON DELETE CASCADE` — notifications belong to one person |
+| `type` | Controlled enum; only events the product produces today |
+| `title`, `message` | Rendered once, at creation, and stored. CHECK: 1–120 and 1–300 characters |
+| `entityType`, `entityId` | What it is about. No FK: it points at different tables, and history should outlive a deleted comment |
+| `metadata` | JSONB allow-list (public ids, comment id, similarity, statuses). CHECK: at most 2 KB |
+| `dedupeKey` | Names the event. `UNIQUE (recipientId, dedupeKey)` makes creation idempotent |
+| `readAt` | `NULL` = unread. No separate read-receipt table |
+
+**Indexes** — chosen for the two queries that matter, nothing speculative:
+
+| Index | Serves |
+| --- | --- |
+| `(recipientId, createdAt DESC, id DESC)` | The activity center and popover: newest first, keyset-paged |
+| `(recipientId, readAt)` | Unread count and the Unread tab |
+| `UNIQUE (recipientId, dedupeKey)` | Idempotent inserts |
+| `(createdAt)` | Retention: purging old rows by age |
+
+Standalone `recipientId` and `readAt` indexes were deliberately **not** added:
+`recipientId` is the leading column of three indexes above, and `readAt` alone
+is never queried without a recipient.
+
+**Retention** is not implemented yet. The `createdAt` index is there so a
+scheduled `DELETE … WHERE "readAt" IS NOT NULL AND "createdAt" < now() - interval '90 days'`
+stays cheap when it is.
+
+---
+
+## 14h. Organisation matching (Prompt 14)
+
+Migration `20261007090000_organization_matching`:
+
+- **`organization_embeddings`** — one profile vector per organisation per
+  model, mirroring `problem_embeddings`: `vector(384)`, `modelName`,
+  `modelVersion`, `dimensions`, and `sourceHash` (SHA-256 of the encoded
+  profile text, so unchanged profiles are never re-embedded). Unique
+  `(organizationId, modelName)`; HNSW `vector_cosine_ops` index
+  `organization_embeddings_vector_hnsw` (also in `post-migrate.sql`).
+- **`organization_problem_matches`** — six signal columns (nullable: a signal
+  can be unavailable), `finalScore`, `rank`, `matchingVersion`, embedding
+  `modelName`/`modelVersion`, `status` (`CALCULATED`, `STALE`, `DISMISSED` — no
+  acceptance or allocation states), and `explanation` JSONB holding reason
+  codes, matched expertise and distance only. Unique
+  `(problemId, organizationId, matchingVersion)`; indexes
+  `(problemId, status, finalScore DESC)` and `(organizationId, status,
+  finalScore DESC)` serve the two reads. Cascades with either parent.
+- **`AnalysisType.ORGANIZATION_MATCHING`** — a matching run's lifecycle and
+  provenance (candidates, matched, degraded signals, weights) is a
+  `problem_ai_analyses` row, like every other AI job. Reads of analyses filter
+  on `INITIAL_ANALYSIS`, so these rows do not surface as problem analyses.
+
+Problem embeddings are shared: duplicate detection and matching both read and
+write `problem_embeddings` through `problems/services/problem-embedding.store.ts`.
+
+Writes are transactional per problem: all non-dismissed rows for the problem
+are replaced, dismissals are carried onto the new version's row. Nothing
+outside the matching service writes these tables, and no API accepts a score.
+See [`ML_ORGANIZATION_MATCHING.md`](./ML_ORGANIZATION_MATCHING.md).
+
+## 14i. Government portal (Prompt 15)
+
+Migration `20261008090000_government_portal`:
+
+- **Jurisdiction on `organizations`** — `jurisdictionType` (enum
+  `JurisdictionType`), `jurisdictionName`, `jurisdictionBoundary`
+  (`geography(MultiPolygon, 4326)`, GiST index `organizations_jurisdiction_gist`),
+  `jurisdictionCities text[]`, `jurisdictionPostalCodes text[]`. Used only for
+  `type = GOVERNMENT`. Boundary first, then cities, then postal codes; none →
+  no access (fail closed). The predicate is applied to every government query.
+- **`problem_internal_notes`** — problem, office, author (Restrict), body,
+  `visibility` (enum `NoteVisibility`, only `INTERNAL`), `createdAt`; indexed
+  `(problemId, organizationId, createdAt)`. Read only by the government API,
+  for the office that wrote the note. Cascades with the problem and office.
+- **`audit_logs` is append-only.** Trigger `audit_logs_append_only` refuses
+  `UPDATE` and `DELETE`, except the actor foreign key's `ON DELETE SET NULL`
+  and transactions that set `samadhaan.audit_maintenance = on` (used by test
+  clean-up via `test/audit-maintenance.ts`). Government reads use the existing
+  `(entityType, entityId, createdAt)` index.
+
+Queue, metrics and trend queries rely on existing indexes —
+`problems (status, createdAt)`, `(category, status)`, `(severity, urgency)`,
+the GiST index on `location`, the trigram index on `title`, and
+`problem_ai_analyses (problemId, analysisType, createdAt)` for the latest
+analysis lateral join. No new problem indexes were needed.
+
+The seed adds a jurisdiction to *Ward 12 Municipal Office* (a rectangle
+around Gurugram) and a member-less *Jaipur Municipal Corporation*
+(a rectangle around Jaipur) — development rectangles, not survey boundaries.
+
+## 14j. Government allocation (Prompt 16)
+
+Migration `20261009090000_problem_allocation`. Detail:
+[`ALLOCATION.md`](./ALLOCATION.md).
+
+- **`problem_allocations`**:
+  - problem (Restrict), organisation, allocating office, allocating official,
+    responder and canceller (all Restrict);
+  - `status` (enum `AllocationStatus`: `PENDING`, `ACCEPTED`, `DECLINED`,
+    `CANCELLED`, `EXPIRED` reserved);
+  - `instructions` (shared) and `internalReason` (government-only);
+  - `responseNote`, `declineReason`, `cancellationReason`;
+  - `proposedAt`, `respondedAt`, `acceptedAt`, `declinedAt`, `cancelledAt`.
+
+  Indexes: `(problemId, createdAt)` for a problem's history,
+  `(organizationId, status, createdAt)` for the inbox, and
+  `(governmentOrganizationId, status)` for office metrics.
+- **One active allocation per problem**: partial unique index
+  `problem_allocations_one_active ON (problemId) WHERE status IN ('PENDING',
+  'ACCEPTED')`, repeated in `prisma/sql/post-migrate.sql` because Prisma
+  cannot express it. A concurrent second insert fails with `P2002`, which the
+  API maps to `409`.
+- **CHECK `problem_allocations_state_consistent`**: each status carries its
+  timestamps (and `DECLINED` its reason); `PENDING` carries none of the
+  response or cancellation times.
+- Notification enums gain `ALLOCATION_REQUESTED`, `ALLOCATION_ACCEPTED`,
+  `ALLOCATION_DECLINED` and `ALLOCATION_CANCELLED`, and the entity type
+  `ALLOCATION`.
+- Problem status is unchanged by allocation except on acceptance, which moves
+  `VERIFIED → IN_PROGRESS` in the same transaction as the allocation update.
+
+Audit entries `ALLOCATION_CREATED`, `ALLOCATION_ACCEPTED`,
+`ALLOCATION_DECLINED` and `ALLOCATION_CANCELLED` go to the append-only
+`audit_logs` with `entityType = 'Problem'`.
+
+As with every migration, Prisma's diff proposed dropping both HNSW indexes;
+those statements were removed.
+
 ## 15. Planned, not yet modelled
 
 Resolution rooms, progress updates, completion evidence, impact-point ledger,
-notifications, organisation↔problem allocation, comment reports for moderation. Each attaches to `Problem`
+comment reports for moderation, notification
+preferences and delivery channels beyond in-app. Each attaches to `Problem`
 through its own table.
 
 Also deliberately absent: **organisation invitations** (no email infrastructure
@@ -765,6 +973,18 @@ npm run db:post-migrate     # re-apply non-Prisma objects
 npm run db:seed             # development data
 npm run db:studio           # browse
 ```
+
+> **Known issue — timestamps and the session time zone.** With the pg driver
+> adapter, timestamps Prisma supplies (`@default(now())`, explicit dates) are sent
+> without a zone, and PostgreSQL reads them in the *session* time zone. On a
+> database whose zone is not UTC (the development database is `Asia/Kolkata`),
+> they are stored shifted by that offset. Prisma reads them back with the same
+> shift, so the application sees correct times — but SQL comparing those
+> columns with `now()` is off by the offset. Found in Prompt 12; not yet fixed.
+> The fix is to run the session in UTC (e.g. `options=-c TimeZone=UTC` on the
+> connection) together with a one-off migration correcting existing rows. Until
+> then, compare Prisma-written timestamps with values that also went through
+> Prisma, not with `now()`.
 
 Migrations live in `apps/api/prisma/migrations/` and are committed. The client is
 generated into `apps/api/src/generated/prisma/` and is **not** committed — run

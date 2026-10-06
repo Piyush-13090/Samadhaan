@@ -3,9 +3,8 @@
 import { Plus } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import type { UserRole } from '@samadhaan/shared';
 import { cn } from '@/lib/cn';
-import { isActivePath, mobileNavigationFor } from '@/lib/navigation';
+import { isActivePath, MOBILE_NAV, type MobileNavItem } from '@/lib/navigation';
 
 /**
  * Mobile bottom navigation.
@@ -18,9 +17,8 @@ import { isActivePath, mobileNavigationFor } from '@/lib/navigation';
  * The bar sits above the home indicator via `env(safe-area-inset-bottom)`, and
  * the app shell reserves matching bottom padding so it never covers content.
  */
-export function MobileNav({ role = 'CITIZEN' }: { role?: UserRole }) {
+export function MobileNav({ items = MOBILE_NAV }: { items?: MobileNavItem[] }) {
   const pathname = usePathname();
-  const items = mobileNavigationFor(role);
 
   return (
     <nav

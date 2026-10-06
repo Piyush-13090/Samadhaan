@@ -24,3 +24,13 @@
 -- ---------------------------------------------------------------------------
 CREATE INDEX IF NOT EXISTS "problem_embeddings_vector_hnsw"
   ON "problem_embeddings" USING hnsw ("embedding" vector_cosine_ops);
+
+-- Organisation profiles (Prompt 14). Same index, same reasons.
+CREATE INDEX IF NOT EXISTS "organization_embeddings_vector_hnsw"
+  ON "organization_embeddings" USING hnsw ("embedding" vector_cosine_ops);
+
+-- One active allocation per problem (Prompt 16). Partial: Prisma cannot
+-- express it, and would otherwise drop it on the next `migrate dev`.
+CREATE UNIQUE INDEX IF NOT EXISTS "problem_allocations_one_active"
+  ON "problem_allocations" ("problemId")
+  WHERE "status" IN ('PENDING', 'ACCEPTED');

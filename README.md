@@ -364,47 +364,71 @@ together.
 
 ### Implemented
 
-- **Citizen problem reporting** — a three-step flow (problem → location →
-  review) with multi-image upload, browser geolocation with manual fallback,
-  and atomic submission returning a `SAM-` reference
-- **Object storage abstraction** — provider-agnostic `StorageService` with a
-  local development driver; no binary data in PostgreSQL
-- **Authentication** — registration, sign-in, sign-out, refresh; Argon2id
-  password hashing; JWT access tokens plus revocable database-backed refresh
-  sessions, both in `httpOnly` cookies
-- **RBAC** — six roles, enforced by globally registered NestJS guards with
-  `@Roles()` / `@Public()` / `@CurrentUser()` decorators
-- **Role-aware routing** — citizen, organisation, government and admin
-  workspaces with role-specific navigation
-- Profile page and `PATCH /users/me`, with role and status not editable
-- Redis-backed rate limiting on the authentication endpoints
-- Development seed with one account per role, guarded against production
-- Monorepo with npm workspaces; shared types package
-- Next.js frontend: layout, error boundaries, loading states, responsive
-  behaviour, light design system, validated env, API client
-- NestJS API: config validation, structured response envelope, global exception
-  handling, request validation, correlation ids, pino logging, URI versioning
-- Health: `GET /api/v1/health` probing PostgreSQL, Redis and the AI service, and
-  `GET /api/v1/health/live`
-- FastAPI AI service: config, structured logging, internal-token auth, error
-  handlers, health endpoints — independently runnable
-- PostgreSQL with PostGIS, pgvector and pg_trgm; Prisma 7 with an initial
-  migration and a `User` model with roles
-- Redis connection and health probe
-- Docker Compose for PostgreSQL and Redis
-- Tests: 96 API unit, 158 API e2e, 71 web unit, 7 AI service
+- **Authentication and RBAC** — registration, sign-in, refresh, sign-out;
+  Argon2id; JWT access tokens plus revocable refresh sessions in `httpOnly`
+  cookies; global guards with `@Roles()` / `@Public()`
+- **Profiles** — user and organisation profiles, expertise on the problem
+  taxonomy, membership roles
+- **Citizen problem reporting** — multi-step flow with images, map location
+  picker and an `SAM-` reference; provider-agnostic object storage
+- **AI problem analysis** and **duplicate detection** (embeddings plus
+  geographic matching), through the FastAPI AI service
+- **Citizen dashboard and discovery** — ranked nearby feed, filters
+- **Community** — support, follow, comments with one level of replies
+- **Notifications** — event-driven, deduplicated, bell and activity centre
+- **Maps** — MapLibre map with clustering, PostGIS viewport queries,
+  aggregation, server-side geocoding
+- **Organisation workspace** — for NGO, university and industry members:
+  membership-gated access derived from the session, organisation switcher,
+  dashboard with real counts, deterministic problem discovery and "civic
+  opportunities" (expertise + service area, server-side filters and
+  pagination), team page with invitations and an OWNER/ADMIN/MEMBER role
+  hierarchy, profile and settings (information, contact, location, expertise),
+  verification display, audit entries for every management action
+- **AI organisation matching** — an embedding-assisted heuristic baseline (not
+  a trained model): organisation profile embeddings with content-hash
+  freshness, two-stage retrieval (pgvector + category, PostGIS distance),
+  six explainable signals scored in the AI service, versioned and persisted
+  matches, background re-matching on change; "Organisations that may be able
+  to help" on problem pages and recommended opportunities in the workspace —
+  suggestions only, never assignments
+  ([`docs/ML_ORGANIZATION_MATCHING.md`](./docs/ML_ORGANIZATION_MATCHING.md))
+- **Government portal** — a civic intelligence command centre for government
+  offices: jurisdiction (PostGIS boundary, or cities/postal codes, failing
+  closed) enforced on every query; dashboard with real counts and a
+  reports-over-time series; a filterable, searchable review queue; problem
+  review with AI transparency, duplicate and community evidence, nearby
+  reports and potential organisations; the three review transitions
+  (SUBMITTED → UNDER_REVIEW → VERIFIED / REJECTED) with reporter
+  notifications; private internal notes; an append-only audit log; and a
+  jurisdiction-scoped map ([`docs/GOVERNMENT_PORTAL.md`](./docs/GOVERNMENT_PORTAL.md))
+- **Government allocation**:
+  - An official assigns a verified problem in their jurisdiction to an
+    eligible (verified, active) NGO, university or industry organisation.
+    Matching recommendations are decision support only, and any eligible
+    organisation can be found by name.
+  - The organisation's owners and admins accept, which moves the problem to
+    in progress, or decline with a reason.
+  - The office can withdraw a pending request, and reallocate with the full
+    history kept.
+  - One active allocation per problem, enforced by the database. Races are
+    resolved by conditional updates.
+  - In-app notifications, audit entries, dashboard counts, and a public
+    "Government-assigned" card.
+  - See [`docs/ALLOCATION.md`](./docs/ALLOCATION.md).
+- Monorepo with npm workspaces and a shared types package; health probes;
+  Docker Compose for PostgreSQL (PostGIS, pgvector, pg_trgm) and Redis
+- Tests: 316 API unit, 483 API e2e, 354 web unit, 86 AI service
 
 ### Not implemented
 
-Comments, voting, suggestions, AI classification, duplicate detection,
-organisation workflows, government dashboards, resolution rooms, evidence
-verification, leaderboard, RAG, custom ML models.
+Organisation applications, resolution rooms and projects, AI project coordination, RAG, the AI priority
+engine, resolution verification, impact points and leaderboard, advanced
+analytics.
 
-**AI analysis has not been built.** A submitted report is `SUBMITTED` and
-unassessed; the confirmation screen says so rather than implying otherwise.
-
-Organisation and government accounts can be seeded but cannot yet self-register —
-their verification and invitation flows arrive with the organisations milestone.
+Organisation and government accounts cannot self-register, and organisation
+verification has no workflow yet — it is displayed, and set by Samadhaan.
+Organisation invitations are in-app only (no email delivery).
 
 **No fake AI logic and no mock data exist in this repository.** The status page
 shows real probes against real services.
@@ -419,8 +443,8 @@ shows real probes against real services.
 | AI understanding | Multimodal analysis, classification, severity estimation |
 | Duplicate detection | Embeddings, geographic + semantic + visual cascade |
 | Community | Support, comments, suggestions, endorsement |
-| Organisations | Profiles, verification, discovery, expressions of interest |
-| Government | Triage queue, priority prediction, allocation |
+| Organisations | Workspace, team, discovery, AI matching baseline (done); verification workflow, a trained matching model |
+| Government | Review portal, jurisdiction and allocation (done); priority prediction |
 | Resolution rooms | Collaboration workspace, AI Project Coordinator, progress extraction |
 | Verification | Completion evidence, AI-assisted verification, closure |
 | Impact | Impact Points, leaderboard, analytics |
@@ -438,6 +462,10 @@ Details: [`docs/PRODUCT.md`](./docs/PRODUCT.md) and [`docs/ML_PLAN.md`](./docs/M
 | [`docs/DATABASE.md`](./docs/DATABASE.md) | Entities implemented now vs planned, index plan |
 | [`docs/API.md`](./docs/API.md) | Conventions and implemented endpoints |
 | [`docs/ML_PLAN.md`](./docs/ML_PLAN.md) | The twelve planned AI systems and their model stack |
+| [`docs/ML_DUPLICATE_DETECTION.md`](./docs/ML_DUPLICATE_DETECTION.md) | Duplicate detection: retrieval, signals, thresholds |
+| [`docs/GOVERNMENT_PORTAL.md`](./docs/GOVERNMENT_PORTAL.md) | Government access, jurisdiction, review, notes, audit |
+| [`docs/ALLOCATION.md`](./docs/ALLOCATION.md) | Government allocation: state machine, authorisation, races, privacy |
+| [`docs/ML_ORGANIZATION_MATCHING.md`](./docs/ML_ORGANIZATION_MATCHING.md) | Organisation matching: baseline, signals, weights, fairness, evaluation |
 
 ## Troubleshooting
 

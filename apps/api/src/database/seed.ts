@@ -181,6 +181,29 @@ const ORGANIZATIONS = [
   },
 ] as const;
 
+/**
+ * Government jurisdictions (Prompt 15). Rough rectangles around each city —
+ * development data, not survey boundaries. `ORG_ID(5)` has no members: it
+ * exists so a second jurisdiction can be seen to stay out of the first's view.
+ */
+const JURISDICTIONS = [
+  {
+    org: 4,
+    type: 'URBAN_LOCAL_BODY',
+    name: 'Gurugram municipal area',
+    cities: ['Gurugram', 'Gurgaon'],
+    // [west, south, east, north]
+    bbox: [76.93, 28.36, 77.15, 28.54],
+  },
+  {
+    org: 5,
+    type: 'MUNICIPAL_CORPORATION',
+    name: 'Jaipur municipal area',
+    cities: ['Jaipur'],
+    bbox: [75.65, 26.75, 75.95, 27.05],
+  },
+] as const;
+
 // ---------------------------------------------------------------------------
 // Problems. Coordinates are real Gurugram locations so PostGIS radius queries
 // return believable distances; the reports themselves are invented.
@@ -471,6 +494,47 @@ async function main(): Promise<void> {
         },
       });
     }
+
+    // A second government office, with no members — see JURISDICTIONS.
+    await prisma.organization.upsert({
+      where: { slug: 'jaipur-municipal-corporation' },
+      update: {},
+      create: {
+        id: ORG_ID(5),
+        name: 'Jaipur Municipal Corporation',
+        slug: 'jaipur-municipal-corporation',
+        type: 'GOVERNMENT',
+        description: 'Municipal corporation for Jaipur.',
+        city: 'Jaipur',
+        state: 'Rajasthan',
+        country: 'India',
+        latitude: 26.9124,
+        longitude: 75.7873,
+        verificationStatus: 'VERIFIED',
+        verifiedAt: daysAfterEpoch(-20),
+      },
+    });
+
+    for (const area of JURISDICTIONS) {
+      const [west, south, east, north] = area.bbox;
+      await prisma.organization.update({
+        where: { id: ORG_ID(area.org) },
+        data: {
+          jurisdictionType: area.type,
+          jurisdictionName: area.name,
+          jurisdictionCities: [...area.cities],
+        },
+      });
+      // Prisma cannot write geography; the envelope is built in PostGIS.
+      await prisma.$executeRaw`
+        UPDATE organizations
+        SET "jurisdictionBoundary" = ST_Multi(
+          ST_MakeEnvelope(${west}, ${south}, ${east}, ${north}, 4326)
+        )::geography
+        WHERE id = ${ORG_ID(area.org)}::uuid
+      `;
+    }
+    console.log(`  ✓ ${JURISDICTIONS.length} government jurisdictions`);
 
     // A researcher who also advises an NGO — proves membership is many-to-many
     // rather than a single column on `User`.
@@ -830,6 +894,141 @@ async function main(): Promise<void> {
     `;
     console.log('  ✓ engagement counters recounted from rows');
 
+    // --- Notifications ----------------------------------------------------
+    // DEVELOPMENT SEED DATA. Every key starts `seed:`, so these rows are
+    // recognisable in the table and re-seeding never duplicates them. In a
+    // running system notifications are only ever created from domain events
+    // (see apps/api/src/notifications); nothing in the UI hardcodes them.
+    //
+    // They describe events that plausibly happened to the seeded problems, so
+    // each one opens a real problem page.
+    const publicIdOf = async (n: number) =>
+      (
+        await prisma.problem.findUniqueOrThrow({
+          where: { id: PROBLEM_ID(n) },
+          select: { publicId: true },
+        })
+      ).publicId;
+
+    const [p1, p3, p5, p6] = await Promise.all([1, 3, 5, 6].map(publicIdOf));
+    const minutesAgo = (minutes: number) => new Date(Date.now() - minutes * 60_000);
+
+    const notifications = [
+      {
+        recipient: 1,
+        type: 'AI_ANALYSIS_COMPLETED',
+        title: 'AI analysis completed',
+        message: `Samadhaan analysed your report ${p1} and identified it as a drainage issue.`,
+        entityType: 'PROBLEM',
+        entityId: PROBLEM_ID(1),
+        metadata: { problemPublicId: p1 },
+        minutes: 4,
+        read: false,
+      },
+      {
+        recipient: 1,
+        type: 'PROBLEM_SUPPORTED',
+        title: 'Someone supported your problem',
+        message: `Another citizen supported ${p1}, adding weight to it.`,
+        entityType: 'PROBLEM',
+        entityId: PROBLEM_ID(1),
+        metadata: { problemPublicId: p1 },
+        minutes: 35,
+        read: false,
+      },
+      {
+        recipient: 1,
+        type: 'PROBLEM_COMMENTED',
+        title: 'New comment on your problem',
+        message: `arjun commented on ${p1}.`,
+        entityType: 'COMMENT',
+        entityId: COMMENT_ID(3),
+        metadata: { problemPublicId: p1, commentId: COMMENT_ID(3) },
+        minutes: 90,
+        read: false,
+      },
+      {
+        recipient: 1,
+        type: 'POSSIBLE_DUPLICATE_FOUND',
+        title: 'Possible duplicate found',
+        message: `Samadhaan found a similar report: ${p6} (84% match). Review it on your problem.`,
+        entityType: 'DUPLICATE',
+        entityId: PROBLEM_ID(1),
+        metadata: { problemPublicId: p1, candidatePublicId: p6, similarity: 0.84 },
+        minutes: 60 * 5,
+        read: true,
+      },
+      {
+        recipient: 8,
+        type: 'COMMENT_REPLIED',
+        title: 'New reply to your comment',
+        message: `vikram replied to your comment on ${p1}.`,
+        entityType: 'COMMENT',
+        entityId: COMMENT_ID(2),
+        metadata: { problemPublicId: p1, commentId: COMMENT_ID(2) },
+        minutes: 60 * 24,
+        read: false,
+      },
+      {
+        recipient: 7,
+        type: 'FOLLOWED_PROBLEM_UPDATED',
+        title: `You're following ${p1}`,
+        message: `${p1} is now In progress.`,
+        entityType: 'PROBLEM',
+        entityId: PROBLEM_ID(1),
+        metadata: {
+          problemPublicId: p1,
+          fromStatus: 'UNDER_REVIEW',
+          toStatus: 'IN_PROGRESS',
+        },
+        minutes: 60 * 26,
+        read: false,
+      },
+      {
+        recipient: 1,
+        type: 'FOLLOWED_PROBLEM_UPDATED',
+        title: `You're following ${p5}`,
+        message: `${p5} is now Under review.`,
+        entityType: 'PROBLEM',
+        entityId: PROBLEM_ID(5),
+        metadata: {
+          problemPublicId: p5,
+          fromStatus: 'SUBMITTED',
+          toStatus: 'UNDER_REVIEW',
+        },
+        minutes: 60 * 30,
+        read: true,
+      },
+      {
+        recipient: 1,
+        type: 'AI_ANALYSIS_FAILED',
+        title: "AI analysis couldn't be completed",
+        message: `We couldn't analyse ${p3}. You can try again from your problem.`,
+        entityType: 'PROBLEM',
+        entityId: PROBLEM_ID(3),
+        metadata: { problemPublicId: p3 },
+        minutes: 60 * 48,
+        read: true,
+      },
+    ] as const;
+
+    await prisma.notification.createMany({
+      data: notifications.map((entry, index) => ({
+        recipientId: uid(entry.recipient),
+        type: entry.type,
+        title: entry.title,
+        message: entry.message,
+        entityType: entry.entityType,
+        entityId: entry.entityId,
+        metadata: entry.metadata,
+        dedupeKey: `seed:${index + 1}`,
+        readAt: entry.read ? minutesAgo(entry.minutes - 1) : null,
+        createdAt: minutesAgo(entry.minutes),
+      })),
+      skipDuplicates: true,
+    });
+    console.log(`  ✓ ${notifications.length} development notifications`);
+
     // --- Suggestions: one from an organisation, one from a citizen ---------
     await prisma.problemSuggestion.upsert({
       where: { id: SUGGESTION_ID(1) },
@@ -887,7 +1086,9 @@ async function main(): Promise<void> {
     await prisma.problemDuplicateCandidate.deleteMany({
       where: { problemId: { in: [PROBLEM_ID(6), PROBLEM_ID(7)] } },
     });
-    console.log('  ✓ 0 duplicate candidates (generated by the real detector, not seeded)');
+    console.log(
+      '  ✓ 0 duplicate candidates (generated by the real detector, not seeded)',
+    );
 
     // --- Audit log ---------------------------------------------------------
     await prisma.auditLog.createMany({

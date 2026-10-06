@@ -1,0 +1,164 @@
+{
+  "description": "Development evaluation set for organisation matching. Hand-written, small and deterministic. It checks that rankings behave sensibly; it is NOT a production benchmark and says nothing about real-world accuracy.",
+  "organizations": [
+    {
+      "id": "roadsafe",
+      "name": "RoadSafe Foundation",
+      "type": "NGO",
+      "description": "Road safety advocacy, pothole reporting drives and safer streets for two-wheeler riders and pedestrians.",
+      "expertise": [
+        { "category": "ROADS", "subcategory": "Road infrastructure", "level": "SPECIALIST" },
+        { "category": "POTHOLES", "subcategory": null, "level": "EXPERIENCED" },
+        { "category": "TRAFFIC", "subcategory": "Urban safety", "level": "EXPERIENCED" }
+      ],
+      "location": [28.4595, 77.0266],
+      "city": "Gurugram"
+    },
+    {
+      "id": "mobility-lab",
+      "name": "Urban Mobility Lab",
+      "type": "UNIVERSITY",
+      "description": "University transport research lab studying urban mobility and monitoring road surface condition with computer vision.",
+      "expertise": [
+        { "category": "TRAFFIC", "subcategory": "Smart mobility", "level": "SPECIALIST" },
+        { "category": "ROADS", "subcategory": "Infrastructure research", "level": "INTERESTED" }
+      ],
+      "location": [28.4721, 77.0891],
+      "city": "Gurugram"
+    },
+    {
+      "id": "cleancity",
+      "name": "CleanCity NGO",
+      "type": "NGO",
+      "description": "Waste management and community development: door-to-door collection, segregation awareness and neighbourhood clean-up drives.",
+      "expertise": [
+        { "category": "GARBAGE", "subcategory": "Waste management", "level": "SPECIALIST" },
+        { "category": "SANITATION", "subcategory": "Community development", "level": "EXPERIENCED" }
+      ],
+      "location": [28.4652, 77.0412],
+      "city": "Gurugram"
+    },
+    {
+      "id": "aqua",
+      "name": "Aqua Systems Engineering",
+      "type": "INDUSTRY",
+      "description": "Water supply engineering contractor: pipeline repair, leak detection and drain desilting.",
+      "expertise": [
+        { "category": "WATER", "subcategory": "Pipeline repair", "level": "SPECIALIST" },
+        { "category": "DRAINAGE", "subcategory": "Drain desilting", "level": "EXPERIENCED" }
+      ],
+      "location": [28.4402, 77.0512],
+      "city": "Gurugram"
+    },
+    {
+      "id": "flood-lab",
+      "name": "Institute of Hydrology",
+      "type": "UNIVERSITY",
+      "description": "Hydrology research on urban flooding, stormwater modelling and flood risk mapping.",
+      "expertise": [
+        { "category": "DRAINAGE", "subcategory": "Flood mapping", "level": "SPECIALIST" },
+        { "category": "WATER", "subcategory": "Urban water systems", "level": "EXPERIENCED" }
+      ],
+      "location": [28.5011, 77.0802],
+      "city": "Gurugram"
+    },
+    {
+      "id": "brightway",
+      "name": "Brightway Lighting",
+      "type": "INDUSTRY",
+      "description": "Street lighting contractor installing and maintaining LED street lights and electrical poles.",
+      "expertise": [
+        { "category": "STREETLIGHTS", "subcategory": "LED retrofits", "level": "SPECIALIST" },
+        { "category": "ELECTRICITY", "subcategory": null, "level": "EXPERIENCED" }
+      ],
+      "location": [28.4489, 77.0623],
+      "city": "Gurugram"
+    },
+    {
+      "id": "greenparks",
+      "name": "GreenParks Collective",
+      "type": "NGO",
+      "description": "Volunteers restoring public parks, planting trees and campaigning against open burning and air pollution.",
+      "expertise": [
+        { "category": "PARKS", "subcategory": "Park restoration", "level": "SPECIALIST" },
+        { "category": "POLLUTION", "subcategory": "Air quality", "level": "EXPERIENCED" }
+      ],
+      "location": [26.9124, 75.7873],
+      "city": "Jaipur"
+    },
+    {
+      "id": "pathfix",
+      "name": "PathFix Infra",
+      "type": "INDUSTRY",
+      "description": "Road construction company specialising in resurfacing and pothole repair.",
+      "expertise": [
+        { "category": "ROADS", "subcategory": "Road resurfacing", "level": "SPECIALIST" },
+        { "category": "POTHOLES", "subcategory": "Pothole repair", "level": "SPECIALIST" }
+      ],
+      "location": [19.076, 72.8777],
+      "city": "Mumbai"
+    }
+  ],
+  "problems": [
+    {
+      "id": "pothole",
+      "title": "Major road damage near Sector 48",
+      "description": "A large pothole is causing traffic disruption and could be dangerous for two-wheelers.",
+      "category": "POTHOLES",
+      "subcategory": "Road surface cavity",
+      "location": [28.4183, 77.0434],
+      "city": "Gurugram",
+      "relevance": { "roadsafe": 2, "pathfix": 2, "mobility-lab": 1 }
+    },
+    {
+      "id": "garbage",
+      "title": "Overflowing garbage bins outside the market",
+      "description": "Bins have not been emptied for a week and waste is spilling onto the footpath.",
+      "category": "GARBAGE",
+      "subcategory": "Uncollected waste",
+      "location": [28.4601, 77.0301],
+      "city": "Gurugram",
+      "relevance": { "cleancity": 2, "greenparks": 1 }
+    },
+    {
+      "id": "waterlogging",
+      "title": "Waterlogging after every rain near Sector 12 market",
+      "description": "Stormwater does not drain and the road floods knee-deep for hours after rain.",
+      "category": "DRAINAGE",
+      "subcategory": "Waterlogging",
+      "location": [28.4595, 77.0266],
+      "city": "Gurugram",
+      "relevance": { "flood-lab": 2, "aqua": 2 }
+    },
+    {
+      "id": "streetlights",
+      "title": "Street lights out along the park road",
+      "description": "Five consecutive street lights are not working, leaving the stretch dark and unsafe at night.",
+      "category": "STREETLIGHTS",
+      "subcategory": "Lights not working",
+      "location": [28.4512, 77.0598],
+      "city": "Gurugram",
+      "relevance": { "brightway": 2, "roadsafe": 1 }
+    },
+    {
+      "id": "pipe-leak",
+      "title": "Burst water pipe flooding the lane",
+      "description": "A drinking water pipeline has burst and clean water is being wasted for two days.",
+      "category": "WATER",
+      "subcategory": "Pipeline leak",
+      "location": [28.4422, 77.0533],
+      "city": "Gurugram",
+      "relevance": { "aqua": 2, "flood-lab": 1 }
+    },
+    {
+      "id": "burning",
+      "title": "Garbage being burnt in the park every evening",
+      "description": "Waste is set on fire inside the park, filling the area with smoke.",
+      "category": "POLLUTION",
+      "subcategory": "Open burning",
+      "location": [28.4701, 77.0401],
+      "city": "Gurugram",
+      "relevance": { "greenparks": 2, "cleancity": 1 }
+    }
+  ]
+}

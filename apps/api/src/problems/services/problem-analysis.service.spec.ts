@@ -6,6 +6,7 @@ import type {
   AnalyzeProblemInput,
 } from '../../ai/ai.service.js';
 import type { PrismaService } from '../../database/prisma.service.js';
+import type { DomainEventBus } from '../../events/domain-event-bus.js';
 import type { StorageService } from '../../storage/storage.types.js';
 import { ProblemAnalysisService, toAnalysisView } from './problem-analysis.service.js';
 import type { ProblemAiAnalysis } from '../../generated/prisma/client.js';
@@ -126,11 +127,25 @@ function build(
   const ai = { analyzeProblem } as unknown as AiService;
   const storage = { get: vi.fn(async () => storageBytes) } as unknown as StorageService;
 
+  const events = fakeEvents();
+
   return {
     analyzeProblem,
     storage,
-    service: new ProblemAnalysisService(prisma as unknown as PrismaService, ai, storage),
+    events,
+    service: new ProblemAnalysisService(
+      prisma as unknown as PrismaService,
+      ai,
+      storage,
+      events,
+    ),
   };
+}
+
+/** A bus that records what was published. */
+function fakeEvents() {
+  const publish = vi.fn();
+  return Object.assign({ publish } as unknown as DomainEventBus, { publish });
 }
 
 /** Lets every detached promise and backoff timer settle. */
@@ -159,6 +174,7 @@ describe('ProblemAnalysisService', () => {
       prisma as unknown as PrismaService,
       ai,
       storage,
+      fakeEvents(),
     ).enqueue('prb-1');
     await settle();
 
@@ -275,18 +291,28 @@ describe('ProblemAnalysisService', () => {
         retryable: true,
       },
     };
-    const { service, analyzeProblem } = build(prisma, [failure, failure, failure]);
+    const { service, analyzeProblem, events } = build(prisma, [
+      failure,
+      failure,
+      failure,
+    ]);
 
     await service.enqueue('prb-1');
     await settle();
 
     expect(analyzeProblem).toHaveBeenCalledTimes(3);
     expect(prisma.rows[0]?.processingStatus).toBe('FAILED');
+    // Three attempts, one outcome, one event — a notification per attempt
+    // would be exactly the spam the reporter must not get.
+    expect(events.publish).toHaveBeenCalledTimes(1);
+    expect(events.publish).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'AI_ANALYSIS_FAILED', problemId: 'prb-1' }),
+    );
   });
 
   it('completes on a later attempt when a transient failure clears', async () => {
     const prisma = createFakePrisma(PROBLEM);
-    const { service, analyzeProblem } = build(prisma, [
+    const { service, analyzeProblem, events } = build(prisma, [
       {
         ok: false,
         failure: { code: 'TIMEOUT', message: 'Too slow.', retryable: true },
@@ -298,6 +324,10 @@ describe('ProblemAnalysisService', () => {
     await settle();
 
     expect(analyzeProblem).toHaveBeenCalledTimes(2);
+    expect(events.publish).toHaveBeenCalledTimes(1);
+    expect(events.publish).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'AI_ANALYSIS_COMPLETED', problemId: 'prb-1' }),
+    );
     expect(prisma.rows[0]).toMatchObject({
       processingStatus: 'COMPLETED',
       rawResult: expect.objectContaining({ attempt: 2 }),
@@ -382,6 +412,7 @@ describe('ProblemAnalysisService', () => {
         prisma as unknown as PrismaService,
         ai,
         storage,
+        fakeEvents(),
       );
 
       await service.enqueue('prb-1');
@@ -456,7 +487,9 @@ describe('ProblemAnalysisService', () => {
         latitude: 18.52,
         longitude: 73.85,
       });
-      const { service, analyzeProblem } = build(prisma, [{ ok: true, analysis: ANALYSIS }]);
+      const { service, analyzeProblem } = build(prisma, [
+        { ok: true, analysis: ANALYSIS },
+      ]);
 
       await service.enqueue('prb-1');
       await settle();

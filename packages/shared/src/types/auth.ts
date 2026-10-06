@@ -62,36 +62,50 @@ export const ROLE_HOME_ROUTE: Record<UserRole, string> = {
   ADMIN: '/admin',
 };
 
-/** Route prefixes each role is allowed to enter. */
+/**
+ * Areas every signed-in role shares: civic records and the map are public
+ * information, and notifications, settings and the profile are the account.
+ */
+const SHARED_PREFIXES = [
+  '/explore',
+  '/map',
+  '/problems',
+  '/notifications',
+  '/settings',
+  '/profile',
+] as const;
+
+/**
+ * Route prefixes each role is allowed to enter.
+ *
+ * `/organization` is open to citizens as well as organisation roles because the
+ * workspace is gated by **membership**, not by platform role: a citizen invited
+ * to an NGO is a member of it. The page asks the API, and the API decides.
+ */
 export const ROLE_ALLOWED_PREFIXES: Record<UserRole, readonly string[]> = {
   CITIZEN: [
     '/dashboard',
-    '/explore',
     '/nearby',
     '/my-problems',
     '/leaderboard',
-    '/notifications',
-    '/settings',
-    '/profile',
     '/report',
+    '/organization',
+    ...SHARED_PREFIXES,
   ],
-  NGO: ['/organization', '/explore', '/notifications', '/settings', '/profile'],
-  UNIVERSITY: ['/organization', '/explore', '/notifications', '/settings', '/profile'],
-  INDUSTRY: ['/organization', '/explore', '/notifications', '/settings', '/profile'],
-  GOVERNMENT: ['/government', '/explore', '/notifications', '/settings', '/profile'],
+  NGO: ['/organization', ...SHARED_PREFIXES],
+  UNIVERSITY: ['/organization', ...SHARED_PREFIXES],
+  INDUSTRY: ['/organization', ...SHARED_PREFIXES],
+  GOVERNMENT: ['/government', ...SHARED_PREFIXES],
   ADMIN: [
     '/admin',
     '/government',
     '/organization',
     '/dashboard',
-    '/explore',
     '/nearby',
     '/my-problems',
     '/leaderboard',
-    '/notifications',
-    '/settings',
-    '/profile',
     '/report',
+    ...SHARED_PREFIXES,
   ],
 };
 

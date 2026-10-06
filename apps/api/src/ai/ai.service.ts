@@ -8,6 +8,13 @@ import {
   type AiAnalysisFailure,
 } from './dto/analysis.dto.js';
 import { parseEmbeddingResponse, type AiEmbeddings } from './dto/embedding.dto.js';
+import {
+  parseMatchResponse,
+  toMatchRequest,
+  type AiMatchResult,
+  type MatchCandidateInput,
+  type MatchProblemInput,
+} from './dto/matching.dto.js';
 
 /** One image, inlined for the AI service. */
 export interface AnalysisImagePayload {
@@ -32,13 +39,15 @@ export interface AnalyzeProblemInput {
 
 /** Either a validated analysis or a structured reason it could not be produced. */
 export type AnalysisOutcome =
-  | { ok: true; analysis: AiAnalysis }
-  | { ok: false; failure: AiAnalysisFailure };
+  { ok: true; analysis: AiAnalysis } | { ok: false; failure: AiAnalysisFailure };
+
+/** Either validated matches or a structured reason they could not be produced. */
+export type MatchOutcome =
+  { ok: true; result: AiMatchResult } | { ok: false; failure: AiAnalysisFailure };
 
 /** Either validated vectors or a structured reason they could not be produced. */
 export type EmbeddingOutcome =
-  | { ok: true; embeddings: AiEmbeddings }
-  | { ok: false; failure: AiAnalysisFailure };
+  { ok: true; embeddings: AiEmbeddings } | { ok: false; failure: AiAnalysisFailure };
 
 /**
  * Application-facing entry point to AI capabilities.
@@ -114,6 +123,50 @@ export class AiService {
   }
 
   /**
+   * Scores candidate organisations for one problem.
+   *
+   * Never throws. The AI service computes signals and a ranking; this process
+   * retrieved the candidates and persists the result, so nothing the AI
+   * service returns can name an organisation that was not offered to it.
+   */
+  async matchOrganizations(
+    problem: MatchProblemInput,
+    candidates: MatchCandidateInput[],
+    options: { resultLimit: number; minScore: number },
+    requestId?: string,
+  ): Promise<MatchOutcome> {
+    const result = await this.client.post<unknown>(
+      '/match/organizations',
+      toMatchRequest(problem, candidates, options),
+      // Phrase encoding on a cold model takes seconds; afterwards milliseconds.
+      { requestId, timeoutMs: 60_000 },
+    );
+
+    if (!result.ok) {
+      return { ok: false, failure: this.toFailure(result.error) };
+    }
+
+    const parsed = parseMatchResponse(
+      result.value,
+      new Set(candidates.map((candidate) => candidate.organizationId)),
+    );
+
+    if (!parsed) {
+      this.logger.error(`AI service returned an unusable match for ${problem.publicId}`);
+      return {
+        ok: false,
+        failure: {
+          code: 'INVALID_MODEL_OUTPUT',
+          message: 'The matching result could not be understood.',
+          retryable: true,
+        },
+      };
+    }
+
+    return { ok: true, result: parsed };
+  }
+
+  /**
    * Analyses a problem from its images and description.
    *
    * Never throws. Every failure comes back as a structured outcome carrying
@@ -155,9 +208,7 @@ export class AiService {
       // The AI service validates its own output, so reaching here means the
       // contract between the two services has drifted. Retryable, because a
       // second attempt may land on a healthy instance.
-      this.logger.error(
-        `AI service returned an unusable analysis for ${input.publicId}`,
-      );
+      this.logger.error(`AI service returned an unusable analysis for ${input.publicId}`);
 
       return {
         ok: false,

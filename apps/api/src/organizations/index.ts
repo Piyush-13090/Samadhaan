@@ -4,3 +4,6 @@ export * from './organization.serializer.js';
 export * from './organizations.module.js';
 export * from './organizations.service.js';
 export * from './slug.util.js';
+export * from './workspace/organization-problems.service.js';
+export * from './workspace/organization-workspace.guard.js';
+export * from './workspace/organization-workspace.service.js';

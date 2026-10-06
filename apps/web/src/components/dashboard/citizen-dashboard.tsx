@@ -1,4 +1,4 @@
-import { ArrowRight, FileText, Plus } from 'lucide-react';
+import { ArrowRight, FileText, Map as MapIcon, Plus } from 'lucide-react';
 import Link from 'next/link';
 import type { CitizenDashboard as CitizenDashboardData } from '@samadhaan/shared';
 import type { ImpactStat } from '@/types/domain';
@@ -10,6 +10,7 @@ import { ProblemListCard } from '@/components/problems/problem-list-card';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { EmptyState } from '@/components/ui/states';
+import { greeting } from '@/lib/greeting';
 
 /**
  * The citizen home page.
@@ -111,9 +112,14 @@ export function CitizenDashboard({
           title="Nearby problems"
           description="Civic issues reported around you, most relevant first."
           action={
-            <Button variant="ghost" size="sm" trailingIcon={<ArrowRight />} asChild>
-              <Link href="/explore">Explore all</Link>
-            </Button>
+            <div className="flex flex-wrap gap-1">
+              <Button variant="ghost" size="sm" leadingIcon={<MapIcon />} asChild>
+                <Link href="/map">Explore map</Link>
+              </Button>
+              <Button variant="ghost" size="sm" trailingIcon={<ArrowRight />} asChild>
+                <Link href="/explore">Explore all</Link>
+              </Button>
+            </div>
           }
         />
 
@@ -186,17 +192,4 @@ export function CitizenDashboard({
       </section>
     </div>
   );
-}
-
-/**
- * Time-aware greeting.
- *
- * Resolved on the server from the server's clock, which is close enough: every
- * user of this deployment is in one timezone, and a greeting is not worth
- * shipping a client-side hydration boundary for.
- */
-function greeting(hour = new Date().getHours()): string {
-  if (hour < 12) return 'Good morning';
-  if (hour < 17) return 'Good afternoon';
-  return 'Good evening';
 }

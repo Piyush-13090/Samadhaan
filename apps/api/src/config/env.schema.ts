@@ -174,6 +174,28 @@ export const envSchema = z.object({
    */
   DUPLICATE_MIN_TEXT_SIMILARITY: z.coerce.number().min(0).max(1).default(0.35),
 
+  // --- Geocoding --------------------------------------------------------------
+  /**
+   * Which geocoder backs location search and reverse lookup. `none` turns both
+   * off; the map and the report form still work with manual entry.
+   *
+   * The browser never calls the provider: requests go through the API, which
+   * holds any key, caches results and rate-limits callers.
+   */
+  GEOCODING_PROVIDER: z.enum(['nominatim', 'none']).default('nominatim'),
+  /** Nominatim-compatible base URL. Point at a self-hosted instance in production. */
+  GEOCODING_BASE_URL: z.string().url().default('https://nominatim.openstreetmap.org'),
+  /** Sent as a key/token where the provider needs one. Never sent to the browser. */
+  GEOCODING_API_KEY: z.string().optional(),
+  /**
+   * Identifies this deployment to the provider. The public Nominatim service
+   * requires a descriptive User-Agent with contact details.
+   */
+  GEOCODING_USER_AGENT: z.string().min(3).default('Samadhaan/0.1 (development)'),
+  /** ISO 3166-1 alpha-2 codes, comma separated, that searches are limited to. */
+  GEOCODING_COUNTRY_CODES: z.string().default('in'),
+  GEOCODING_TIMEOUT_MS: z.coerce.number().int().positive().default(5000),
+
   // Signal weights. Renormalised over whatever signals are actually available,
   // so a missing image embedding redistributes its weight rather than scoring 0.
   DUPLICATE_WEIGHT_TEXT: z.coerce.number().min(0).default(0.35),
@@ -204,6 +226,32 @@ export const envSchema = z.object({
   DUPLICATE_TEMPORAL_HALF_LIFE_DAYS: z.coerce.number().positive().default(120),
   /** Floor for the temporal signal, however old the candidate is. */
   DUPLICATE_TEMPORAL_FLOOR: z.coerce.number().min(0).max(1).default(0.35),
+
+  // --- Organisation matching (Prompt 14) -----------------------------------
+  // Retrieval and persistence limits. The scoring weights live in the AI
+  // service (MATCHING_WEIGHT_*) beside the engine that applies them. See
+  // docs/ML_ORGANIZATION_MATCHING.md.
+  MATCHING_ENABLED: z
+    .enum(['true', 'false'])
+    .default('true')
+    .transform((value) => value === 'true'),
+  /** Organisations retrieved by vector search, before detailed scoring. */
+  MATCHING_CANDIDATE_LIMIT: z.coerce.number().int().min(5).max(200).default(40),
+  /** Organisations kept per problem after ranking. */
+  MATCHING_RESULT_LIMIT: z.coerce.number().int().min(1).max(50).default(10),
+  /** Below this relevance a match is not stored or shown. */
+  MATCHING_MIN_SCORE: z.coerce.number().min(0).max(1).default(0.35),
+  /** Matching runs at once, per API process. */
+  MATCHING_CONCURRENCY: z.coerce.number().int().min(1).max(8).default(2),
+  /**
+   * On boot, embed organisations that have no embedding and re-match
+   * problems with stale or missing matches — bounded per boot.
+   */
+  MATCHING_SWEEP_ON_STARTUP: z
+    .enum(['true', 'false'])
+    .default('true')
+    .transform((value) => value === 'true'),
+  MATCHING_SWEEP_LIMIT: z.coerce.number().int().min(0).max(5000).default(200),
 });
 
 export type Env = z.infer<typeof envSchema>;

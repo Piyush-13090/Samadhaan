@@ -1,7 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ProblemsModule } from '../problems/problems.module.js';
 import { CommentsService } from './comments.service.js';
-import { CommunityEventPublisher } from './community-events.js';
 import { CommunityController } from './community.controller.js';
 import { EngagementService } from './engagement.service.js';
 
@@ -15,13 +14,12 @@ import { EngagementService } from './engagement.service.js';
  * module depends on it for exactly one thing, resolving a problem the caller
  * may see.
  *
- * `CommunityEventPublisher` is exported so the notification module can take it
- * over without reaching into this one.
+ * Every write publishes a `DomainEvent` on the global bus after it commits;
+ * notifications subscribe there, so this module does not know they exist.
  */
 @Module({
   imports: [ProblemsModule],
   controllers: [CommunityController],
-  providers: [EngagementService, CommentsService, CommunityEventPublisher],
-  exports: [CommunityEventPublisher],
+  providers: [EngagementService, CommentsService],
 })
 export class CommunityModule {}

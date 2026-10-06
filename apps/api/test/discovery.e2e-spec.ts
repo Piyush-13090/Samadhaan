@@ -348,7 +348,9 @@ describe('Discovery and dashboard (e2e)', () => {
         .expect(200);
 
       const firstIds = first.body.data.items.map((i: { publicId: string }) => i.publicId);
-      const secondIds = second.body.data.items.map((i: { publicId: string }) => i.publicId);
+      const secondIds = second.body.data.items.map(
+        (i: { publicId: string }) => i.publicId,
+      );
 
       // No overlap: an OFFSET would repeat rows as new reports arrive mid-scroll.
       expect(secondIds.filter((id: string) => firstIds.includes(id))).toEqual([]);
@@ -452,7 +454,10 @@ describe('Discovery and dashboard (e2e)', () => {
         .set('Cookie', cookies)
         .expect(200);
 
-      const items = response.body.data.items as Array<{ title: string; isOwnReport: boolean }>;
+      const items = response.body.data.items as Array<{
+        title: string;
+        isOwnReport: boolean;
+      }>;
       expect(items.length).toBeGreaterThan(0);
       expect(items.every((item) => item.isOwnReport === true)).toBe(true);
       expect(probes(items)).toContain('pothole 50 m away');
@@ -492,7 +497,9 @@ describe('Discovery and dashboard (e2e)', () => {
         .expect(200);
 
       const mineIds = mine.body.data.items.map((i: { publicId: string }) => i.publicId);
-      const theirIds = theirs.body.data.items.map((i: { publicId: string }) => i.publicId);
+      const theirIds = theirs.body.data.items.map(
+        (i: { publicId: string }) => i.publicId,
+      );
 
       expect(mineIds.filter((id: string) => theirIds.includes(id))).toEqual([]);
     });
@@ -551,7 +558,9 @@ describe('Discovery and dashboard (e2e)', () => {
       expect(page1.body.data.nextCursor).toBeTruthy();
 
       const page2 = await request(server)
-        .get(`/api/v1/problems/my?limit=2&cursor=${encodeURIComponent(page1.body.data.nextCursor)}`)
+        .get(
+          `/api/v1/problems/my?limit=2&cursor=${encodeURIComponent(page1.body.data.nextCursor)}`,
+        )
         .set('Cookie', cookies)
         .expect(200);
 
@@ -641,7 +650,9 @@ describe('Discovery and dashboard (e2e)', () => {
         theirs.body.data.activity.problemsReported,
       );
 
-      const mineIds = mine.body.data.recentReports.map((i: { publicId: string }) => i.publicId);
+      const mineIds = mine.body.data.recentReports.map(
+        (i: { publicId: string }) => i.publicId,
+      );
       const theirIds = theirs.body.data.recentReports.map(
         (i: { publicId: string }) => i.publicId,
       );

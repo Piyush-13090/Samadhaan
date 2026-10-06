@@ -22,8 +22,10 @@ import {
 import type { AuthenticatedRequest, RequestUser } from '../auth/auth.types.js';
 import { CurrentUser } from '../auth/decorators/current-user.decorator.js';
 import { Public } from '../auth/decorators/public.decorator.js';
+import { UserRateLimit } from '../auth/guards/user-rate-limit.guard.js';
 import {
   CreateExpertiseDto,
+  InviteMemberDto,
   UpdateMemberDto,
   UpdateOrganizationDto,
 } from './dto/organization.dto.js';
@@ -117,6 +119,23 @@ export class OrganizationsController {
     return this.organizations.removeExpertise(id, expertiseId, user);
   }
 
+  /**
+   * Invites an existing account. OWNER/ADMIN only, and rate limited: an
+   * invitation by email tells the inviter whether the address has an account,
+   * so it must not double as a bulk lookup.
+   */
+  @Post(':id/invitations')
+  @HttpCode(HttpStatus.CREATED)
+  @UserRateLimit({ bucket: 'org-invite', max: 20, windowSeconds: 3600 })
+  invite(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: InviteMemberDto,
+    @CurrentUser() user: RequestUser,
+  ): Promise<OrganizationMemberSummary> {
+    return this.organizations.invite(id, dto, user);
+  }
+
+  /** Role changes follow the hierarchy in `OrganizationAccessService`. */
   @Patch(':id/members/:memberId')
   updateMember(
     @Param('id', ParseUUIDPipe) id: string,
@@ -127,6 +146,7 @@ export class OrganizationsController {
     return this.organizations.updateMemberRole(id, memberId, dto.membershipRole, user);
   }
 
+  /** Removes a member or withdraws an invitation. Never the caller's own. */
   @Delete(':id/members/:memberId')
   @HttpCode(HttpStatus.NO_CONTENT)
   removeMember(

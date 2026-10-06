@@ -25,6 +25,11 @@ export class AppException extends HttpException {
     );
   }
 
+  /** A 404 whose message is a full sentence, for when "X not found" is not enough. */
+  static notFoundMessage(message: string): AppException {
+    return new AppException(ERROR_CODES.NOT_FOUND, message, HttpStatus.NOT_FOUND);
+  }
+
   static conflict(message: string, details?: ApiErrorDetail[]): AppException {
     return new AppException(ERROR_CODES.CONFLICT, message, HttpStatus.CONFLICT, details);
   }

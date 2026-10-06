@@ -31,6 +31,7 @@ const CREATED: ProblemView = {
   commentCount: 0,
   createdAt: '2026-09-13T09:00:00.000Z',
   submittedAt: '2026-09-13T09:00:00.000Z',
+  assignment: null,
 };
 
 /** Fills step 1 with values that pass client validation. */

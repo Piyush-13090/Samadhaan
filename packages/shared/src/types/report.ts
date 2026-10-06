@@ -1,3 +1,4 @@
+import type { ProblemAssignment } from './allocation.js';
 import type { ProblemCategory, ProblemStatus, ProblemSeverity } from './problem.js';
 
 /**
@@ -118,6 +119,11 @@ export interface ProblemView {
   submittedAt: string | null;
   /** True when the requesting user filed this report. */
   isOwnReport?: boolean;
+  /**
+   * The organisation a government office assigned, once it accepted
+   * (Prompt 16). Public facts only. Null when unassigned.
+   */
+  assignment: ProblemAssignment | null;
 }
 
 // ---------------------------------------------------------------------------

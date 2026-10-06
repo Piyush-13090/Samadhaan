@@ -163,25 +163,6 @@ export interface LeaderboardEntry {
   trend?: number;
 }
 
-export type NotificationKind =
-  | 'PROBLEM_UPDATE'
-  | 'AI_ANALYSIS'
-  | 'COMMENT'
-  | 'SUGGESTION'
-  | 'ALLOCATION'
-  | 'RESOLUTION';
-
-export interface NotificationSummary {
-  id: string;
-  kind: NotificationKind;
-  title: string;
-  body: string;
-  createdAt: string;
-  read: boolean;
-  /** Where clicking the notification should navigate. */
-  href?: string;
-}
-
 export interface ImpactStat {
   id: string;
   label: string;

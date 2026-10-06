@@ -40,6 +40,18 @@ export function formatDate(iso: string): string {
   }).format(new Date(iso));
 }
 
+/** `2026-10-06T09:02…` -> `6 Oct 2026, 14:32` (local time). */
+export function formatDateTime(iso: string): string {
+  return new Intl.DateTimeFormat(LOCALE, {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(new Date(iso));
+}
+
 const RELATIVE_UNITS: Array<[Intl.RelativeTimeFormatUnit, number]> = [
   ['year', 365 * 24 * 60 * 60 * 1000],
   ['month', 30 * 24 * 60 * 60 * 1000],

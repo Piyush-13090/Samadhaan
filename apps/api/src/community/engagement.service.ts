@@ -5,7 +5,7 @@ import type { RequestUser } from '../auth/auth.types.js';
 import { AppException } from '../common/app.exception.js';
 import { PrismaService } from '../database/prisma.service.js';
 import type { AccessibleProblem } from '../problems/problems.service.js';
-import { CommunityEventPublisher } from './community-events.js';
+import { DomainEventBus } from '../events/domain-event-bus.js';
 
 type Tx = Prisma.TransactionClient;
 
@@ -35,7 +35,7 @@ type Tx = Prisma.TransactionClient;
 export class EngagementService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly events: CommunityEventPublisher,
+    private readonly events: DomainEventBus,
   ) {}
 
   // ================================================================ support

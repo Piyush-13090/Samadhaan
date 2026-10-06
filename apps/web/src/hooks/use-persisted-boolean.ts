@@ -65,3 +65,38 @@ export function usePersistedBoolean(
 
   return [value, setValue];
 }
+
+/**
+ * A string preference backed by `localStorage` — the same store and the same
+ * hydration rules as `usePersistedBoolean`. `null` means unset.
+ */
+export function usePersistedString(
+  key: string,
+): [string | null, (value: string | null) => void] {
+  const getSnapshot = useCallback((): string | null => {
+    try {
+      return window.localStorage.getItem(key);
+    } catch {
+      return null;
+    }
+  }, [key]);
+
+  const getServerSnapshot = useCallback(() => null, []);
+
+  const value = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
+
+  const setValue = useCallback(
+    (next: string | null) => {
+      try {
+        if (next === null) window.localStorage.removeItem(key);
+        else window.localStorage.setItem(key, next);
+      } catch {
+        // Will not persist; the UI still updates via `emit`.
+      }
+      emit();
+    },
+    [key],
+  );
+
+  return [value, setValue];
+}

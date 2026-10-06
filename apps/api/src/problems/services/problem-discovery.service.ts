@@ -111,9 +111,7 @@ export class ProblemDiscoveryService {
         ? encodeCursor(last.rank, last.publicId, anchorMs)
         : null;
 
-    const items = await Promise.all(
-      page.map((row) => this.toListItem(row, viewerId)),
-    );
+    const items = await Promise.all(page.map((row) => this.toListItem(row, viewerId)));
 
     return { items, nextCursor, origin: this.describeOrigin(query, hasCoordinates) };
   }
@@ -187,7 +185,9 @@ export class ProblemDiscoveryService {
       : Prisma.sql`false`;
 
     if (origin) {
-      conditions.push(Prisma.sql`ST_DWithin(p."location", ${origin}, ${query.radiusMeters})`);
+      conditions.push(
+        Prisma.sql`ST_DWithin(p."location", ${origin}, ${query.radiusMeters})`,
+      );
     } else if (query.city) {
       conditions.push(Prisma.sql`p."city" ILIKE ${query.city}`);
     }
@@ -380,7 +380,11 @@ export class ProblemDiscoveryService {
       limit: number;
       cursor?: string;
     },
-  ): Promise<{ items: ProblemListItem[]; nextCursor: string | null; totalCount: number }> {
+  ): Promise<{
+    items: ProblemListItem[];
+    nextCursor: string | null;
+    totalCount: number;
+  }> {
     const where = {
       reporterId: userId,
       deletedAt: null,
@@ -488,9 +492,7 @@ export class ProblemDiscoveryService {
         row.distanceMeters === null ? null : Math.round(Number(row.distanceMeters)),
       voteCount: row.voteCount,
       commentCount: row.commentCount,
-      thumbnailUrl: row.thumbnailKey
-        ? await this.storage.getUrl(row.thumbnailKey)
-        : null,
+      thumbnailUrl: row.thumbnailKey ? await this.storage.getUrl(row.thumbnailKey) : null,
       createdAt: row.createdAt.toISOString(),
       hasAiAnalysis: row.hasAiAnalysis,
       // `reporterId` is selected to answer this and is never published itself.

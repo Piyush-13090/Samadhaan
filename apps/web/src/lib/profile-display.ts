@@ -62,6 +62,13 @@ export const MEMBERSHIP_ROLE_LABEL: Record<string, string> = {
   MEMBER: 'Member',
 };
 
+/** For sentences: "You are an admin", "Priya is now a member". */
+export const MEMBERSHIP_ROLE_WITH_ARTICLE: Record<string, string> = {
+  OWNER: 'an owner',
+  ADMIN: 'an admin',
+  MEMBER: 'a member',
+};
+
 export const MEMBERSHIP_STATUS_LABEL: Record<string, string> = {
   INVITED: 'Invited',
   ACTIVE: 'Active',

@@ -22,7 +22,23 @@ describe('role route access', () => {
   it('keeps a citizen out of the government and admin workspaces', () => {
     expect(canRoleAccessPath('CITIZEN', '/government')).toBe(false);
     expect(canRoleAccessPath('CITIZEN', '/admin')).toBe(false);
-    expect(canRoleAccessPath('CITIZEN', '/organization')).toBe(false);
+  });
+
+  // The organisation workspace is gated by membership, which only the API
+  // knows — a citizen invited to an NGO is a member of it. The route map lets
+  // them reach the page; the page asks the API.
+  it('lets a citizen reach the organisation workspace, which checks membership', () => {
+    expect(canRoleAccessPath('CITIZEN', '/organization')).toBe(true);
+    expect(canRoleAccessPath('CITIZEN', '/organization/clean-city/dashboard')).toBe(true);
+  });
+
+  it('lets organisation roles open problems and the map from their workspace', () => {
+    for (const role of ['NGO', 'UNIVERSITY', 'INDUSTRY'] as const) {
+      expect(canRoleAccessPath(role, '/problems/SAM-1023')).toBe(true);
+      expect(canRoleAccessPath(role, '/map')).toBe(true);
+      expect(canRoleAccessPath(role, '/organization/x/team')).toBe(true);
+      expect(canRoleAccessPath(role, '/report')).toBe(false);
+    }
   });
 
   it('keeps an organisation out of government and admin', () => {

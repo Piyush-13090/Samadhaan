@@ -81,4 +81,9 @@ describe('generateUniqueSlug', () => {
 
     expect(result.length).toBeLessThanOrEqual(80);
   });
+
+  it('never hands out a slug that is a route segment', async () => {
+    await expect(generateUniqueSlug('Mine', free)).resolves.toBe('mine-2');
+    await expect(generateUniqueSlug('Invitations', free)).resolves.toBe('invitations-2');
+  });
 });

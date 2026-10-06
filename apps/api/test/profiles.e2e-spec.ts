@@ -512,7 +512,9 @@ describe('Profiles (e2e)', () => {
 
     // The invariant that keeps an organisation manageable.
     it('refuses to demote the last owner', async () => {
-      const cookies = await loginAs('ngo@samadhaan.dev');
+      const cookies = await loginAs('admin@samadhaan.dev');
+      // A platform admin: the invariant binds even them, and an owner could
+      // not try this on their own membership in the first place.
 
       const members = await request(server).get(
         `/api/v1/organizations/${cleanCityId}/members`,
@@ -531,7 +533,9 @@ describe('Profiles (e2e)', () => {
     });
 
     it('refuses to remove the last owner', async () => {
-      const cookies = await loginAs('ngo@samadhaan.dev');
+      const cookies = await loginAs('admin@samadhaan.dev');
+      // A platform admin: the invariant binds even them, and an owner could
+      // not try this on their own membership in the first place.
 
       const members = await request(server).get(
         `/api/v1/organizations/${cleanCityId}/members`,
@@ -555,33 +559,37 @@ describe('Profiles (e2e)', () => {
       const other = members.body.data.find(
         (m: { membershipRole: string }) => m.membershipRole !== 'OWNER',
       );
+      const owner = members.body.data.find(
+        (m: { membershipRole: string }) => m.membershipRole === 'OWNER',
+      );
 
-      // Promote, then the original owner can be demoted.
+      // Promote a second owner…
       await request(server)
         .patch(`/api/v1/organizations/${cleanCityId}/members/${other.id}`)
         .set('Cookie', cookies)
         .send({ membershipRole: 'OWNER' })
         .expect(200);
 
-      const owner = members.body.data.find(
-        (m: { membershipRole: string }) => m.membershipRole === 'OWNER',
-      );
-
+      // …who may then demote the first. Nobody changes their own membership,
+      // so the original owner could not have done this themselves.
+      const second = await loginAs('university@samadhaan.dev');
       await request(server)
         .patch(`/api/v1/organizations/${cleanCityId}/members/${owner.id}`)
-        .set('Cookie', cookies)
+        .set('Cookie', second)
         .send({ membershipRole: 'ADMIN' })
         .expect(200);
 
       // Restore the seeded arrangement.
       await request(server)
         .patch(`/api/v1/organizations/${cleanCityId}/members/${owner.id}`)
-        .set('Cookie', cookies)
-        .send({ membershipRole: 'OWNER' });
+        .set('Cookie', second)
+        .send({ membershipRole: 'OWNER' })
+        .expect(200);
       await request(server)
         .patch(`/api/v1/organizations/${cleanCityId}/members/${other.id}`)
         .set('Cookie', cookies)
-        .send({ membershipRole: 'MEMBER' });
+        .send({ membershipRole: 'MEMBER' })
+        .expect(200);
     });
 
     // IDOR: a manager of one organisation must not reach another's membership.

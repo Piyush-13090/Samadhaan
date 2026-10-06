@@ -11,6 +11,10 @@ import { RequestIdMiddleware } from './common/middleware/request-id.middleware.j
 import { AppConfig } from './config/app.config.js';
 import { AppConfigModule } from './config/config.module.js';
 import { DatabaseModule } from './database/database.module.js';
+import { EventsModule } from './events/domain-event-bus.js';
+import { MatchingModule } from './matching/matching.module.js';
+import { GovernmentModule } from './government/government.module.js';
+import { GeoModule } from './geo/geo.module.js';
 import { HealthModule } from './health/health.module.js';
 import { MediaModule } from './media/media.module.js';
 import { NotificationsModule } from './notifications/notifications.module.js';
@@ -42,6 +46,8 @@ import { UsersModule } from './users/users.module.js';
     DatabaseModule,
     RedisModule,
     StorageModule,
+    // In-process domain events: publishers and consumers never import each other.
+    EventsModule,
 
     // Platform boundary to the Python AI service
     AiModule,
@@ -59,6 +65,9 @@ import { UsersModule } from './users/users.module.js';
     CommunityModule,
     SuggestionsModule,
     NotificationsModule,
+    GeoModule,
+    MatchingModule,
+    GovernmentModule,
   ],
   providers: [
     { provide: APP_FILTER, useClass: AllExceptionsFilter },

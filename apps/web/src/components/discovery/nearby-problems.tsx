@@ -21,7 +21,7 @@ import {
   ProblemListCard,
   ProblemListCardSkeleton,
 } from '@/components/problems/problem-list-card';
-import { NearbyMap } from '@/components/problems/nearby-map';
+import { NearbyMapPreview } from '@/components/map/nearby-map-preview';
 import { DiscoveryFilters } from './discovery-filters';
 import { LocationContext } from './location-context';
 
@@ -53,8 +53,13 @@ export function NearbyProblems({
   limit?: number;
   className?: string;
 }) {
-  const { location, locating, error: locationError, request, clear } =
-    useDiscoveryLocation(profileCity);
+  const {
+    location,
+    locating,
+    error: locationError,
+    request,
+    clear,
+  } = useDiscoveryLocation(profileCity);
 
   const [category, setCategory] = useState<ProblemCategory | 'ALL'>('ALL');
   const [status, setStatus] = useState<ProblemStatus | 'ALL'>('ALL');
@@ -70,7 +75,6 @@ export function NearbyProblems({
   // the app avoid it the same way.
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [selected, setSelected] = useState<string | null>(null);
 
   const hasOrigin = location.source !== 'none';
   // "Nearest" is meaningless without a device fix; fall back rather than send
@@ -162,9 +166,7 @@ export function NearbyProblems({
         cursor: feed.nextCursor,
       });
       setFeed((current) =>
-        current
-          ? { ...next, items: [...current.items, ...next.items] }
-          : next,
+        current ? { ...next, items: [...current.items, ...next.items] } : next,
       );
     } catch {
       setLoadMoreError(true);
@@ -221,7 +223,12 @@ export function NearbyProblems({
             description="Samadhaan uses your location only to find problems reported nearby. You can also add your city to your profile."
             action={
               <div className="flex flex-wrap justify-center gap-2">
-                <Button variant="primary" size="sm" loading={locating} onClick={() => void request()}>
+                <Button
+                  variant="primary"
+                  size="sm"
+                  loading={locating}
+                  onClick={() => void request()}
+                >
                   Use my location
                 </Button>
                 <Button variant="secondary" size="sm" asChild>
@@ -305,14 +312,17 @@ export function NearbyProblems({
         </Card>
       ) : feed ? (
         <div className={cn('space-y-4', loading && 'opacity-60 transition-opacity')}>
-          {showMap && location.source === 'device' && (
-            <NearbyMap
-              problems={feed.items}
-              radiusMeters={radiusMeters}
-              selectedPublicId={selected}
-              onSelect={setSelected}
-            />
-          )}
+          {showMap &&
+            location.source === 'device' &&
+            location.latitude !== undefined &&
+            location.longitude !== undefined && (
+              <NearbyMapPreview
+                center={{ latitude: location.latitude, longitude: location.longitude }}
+                radiusMeters={radiusMeters}
+                category={category === 'ALL' ? undefined : category}
+                status={status === 'ALL' ? undefined : status}
+              />
+            )}
 
           <ul className="grid gap-3 md:grid-cols-2">
             {feed.items.map((problem) => (
@@ -320,10 +330,7 @@ export function NearbyProblems({
                 <ProblemListCard
                   problem={problem}
                   showDistance={location.source === 'device'}
-                  className={cn(
-                    'w-full',
-                    selected === problem.publicId && 'ring-2 ring-focus',
-                  )}
+                  className="w-full"
                 />
               </li>
             ))}
