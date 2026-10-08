@@ -13,6 +13,8 @@ import { GovernmentAllocationPanel } from '@/components/allocation/government-al
 import { ProblemOrganizationMatches } from '@/components/matching/problem-organization-matches';
 import { AskKnowledge } from '@/components/knowledge/ask-knowledge';
 import { ProblemLocationMap } from '@/components/map/problem-location-map';
+import { PriorityInsightCard } from '@/components/priority/priority-insight-card';
+import { GovernmentVerificationPanel } from '@/components/verification/government-verification-panel';
 import { CategoryBadge } from '@/components/problems/category-badge';
 import { ProblemStatusBadge } from '@/components/problems/problem-status-badge';
 import { SeverityBadge } from '@/components/problems/severity-badge';
@@ -92,6 +94,12 @@ export function GovernmentProblemView({
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]">
         <div className="min-w-0 space-y-5">
+          <PriorityInsightCard slug={slug} publicId={problem.publicId} />
+
+          {(problem.status === 'IN_PROGRESS' || problem.status === 'RESOLVED') && (
+            <GovernmentVerificationPanel slug={slug} publicId={problem.publicId} />
+          )}
+
           <Card>
             <CardHeader title="Citizen report" />
             <CardBody className="space-y-4">

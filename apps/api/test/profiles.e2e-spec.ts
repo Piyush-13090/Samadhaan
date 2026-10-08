@@ -144,9 +144,15 @@ describe('Profiles (e2e)', () => {
       const activity = response.body.data;
       expect(activity.problemsReported).toBeTypeOf('number');
       expect(activity.problemsSupported).toBeTypeOf('number');
-      // Null, not zero: the ledger does not exist, and zero would read as a
-      // measured score rather than an unbuilt feature.
-      expect(activity.impactPoints).toBeNull();
+      // Prompt 23: the ledger exists, so this is the user's real total —
+      // the maintained aggregate of their impact ledger (0 if none).
+      const owner = await prisma.user.findUniqueOrThrow({
+        where: { email: 'citizen@samadhaan.dev' },
+      });
+      const stats = await prisma.userImpactStats.findUnique({
+        where: { userId: owner.id },
+      });
+      expect(activity.impactPoints).toBe(stats?.impactPoints ?? 0);
     });
 
     it('requires authentication', async () => {

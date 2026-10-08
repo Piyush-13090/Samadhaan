@@ -360,7 +360,7 @@ describe('ProjectWorkspace', () => {
       within(tabs)
         .getAllByRole('tab')
         .map((t) => t.textContent),
-    ).toEqual(['Summary', 'Tasks', 'Milestones', 'Activity']);
+    ).toEqual(['Summary', 'Tasks', 'Milestones', 'Evidence', 'Activity']);
     await userEvent.click(within(tabs).getByRole('tab', { name: 'Milestones' }));
     expect(within(tabs).getByRole('tab', { name: 'Milestones' })).toHaveAttribute(
       'aria-selected',

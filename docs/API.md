@@ -1013,7 +1013,7 @@ pending uploads.
 | Capability | Milestone |
 | --- | --- |
 | Full-text and semantic search | Prompt 25 |
-| AI priority engine | Prompt 21 |
+| AI priority engine | Prompt 21 — done for the government review queue, see [AI Priority Engine](#ai-priority-engine-prompt-21) |
 
 Support, follow and comments landed in Prompt 10, notifications in Prompt 11 — see
 [Community](#community--support-follow-and-discussion).
@@ -1545,6 +1545,204 @@ any public endpoint. Audited by id.
 The public viewport parameters, plus `status` (any but DRAFT), `severity`,
 `category`, `duplicate` (`possible`/`none`), `aiStatus`, `reportedWithinDays`
 (7/30/90) and `limit`. Same response shapes as `/problems/map`.
+
+---
+
+## Impact points, reputation and leaderboard (Prompt 23)
+
+Design: [`IMPACT_POINTS.md`](./IMPACT_POINTS.md),
+[`REPUTATION_SYSTEM.md`](./REPUTATION_SYSTEM.md).
+
+- **Points are created only by the server:** by its award rules on confirmed
+  outcomes, and by audited administrator adjustments.
+- **No endpoint writes points or badges** for the caller, and bodies cannot
+  carry them.
+
+| Method | Path | Who | Notes |
+| --- | --- | --- | --- |
+| GET | `/users/me/impact?filter=all\|reports\|community\|projects\|resolutions\|bonuses&page&limit` | Signed in | `ImpactSummary`: `impactPoints`, `resolvedContributions`, `tier`, paginated ledger `items` (amount, type, reason, problem publicId and title, `ruleVersion`, time) |
+| GET | `/users/me/reputation` | Signed in | `ReputationView`: `score` 0–100, `tier`, `next`, `impactPoints`, `verifiedReports`, `successfulContributions`, `resolvedContributions`, `note`. No negative signals |
+| GET | `/users/me/badges` | Signed in | Every active badge with `earned` and `awardedAt` |
+| GET | `/users/me/contributions?page&limit` | Signed in | Resolved problems the user is credited for, with roles and points |
+| GET | `/leaderboard?period=week\|month\|year\|all&city&state&category&page&limit (≤ 50)` | Public | `LeaderboardPage`: ranked `items` (rank, public name, display name, avatar, points, reputation score and tier, resolved contributions, up to 3 badges, `isViewer`); `viewer` (the caller's own row, if ranked); totals. Aggregated in SQL; cached 60 s |
+| POST | `/admin/users/:id/impact/adjust` | Platform ADMIN | `{ amount (±1–1000, not 0), reason (10–500) }` → `{ impactPoints }`. Writes a new `ADMIN_ADJUSTMENT` transaction plus an `IMPACT_POINTS_ADJUSTED` audit entry. `403` for anyone else, and for one's own account |
+
+**Also changed:**
+- `GET /users/me/activity` and the dashboard's `activity.impactPoints` are now
+  the real total (they were `null`).
+- New notification types `IMPACT_POINTS_AWARDED`, `BADGE_EARNED` and
+  `REPUTATION_TIER_REACHED`, linking to `/profile/impact`.
+- New per-user rate limits:
+
+  | Action | Limit |
+  | --- | --- |
+  | `POST /problems` | 20 per hour |
+  | `POST /problems/images` | 100 per hour |
+  | Duplicate confirm / reject | 30 per 10 min |
+
+---
+
+## Civic analytics (Prompt 24)
+
+Detail: [`ANALYTICS_ARCHITECTURE.md`](./ANALYTICS_ARCHITECTURE.md),
+[`ANALYTICS_METRICS.md`](./ANALYTICS_METRICS.md),
+[`CIVIC_HOTSPOTS.md`](./CIVIC_HOTSPOTS.md).
+
+**Common query** for every analytics read:
+
+| Parameter | Values |
+| --- | --- |
+| `preset` | `7d` · `30d` (default) · `90d` · `6m` · `1y` · `custom` |
+| `from`, `to` | `YYYY-MM-DD` local dates, for `custom`. From ≤ to, not in the future, at most 731 days. Giving both without a preset implies `custom` |
+| `timezone` | An IANA zone. Default `ANALYTICS_TIMEZONE` |
+| `category`, `severity`, `status`, `priority` | Enum filters (`status` excludes DRAFT; `priority` is the effective tier) |
+| `city` | Case-insensitive, at most 100 characters |
+| `area` | A postal code |
+
+- **Errors:** an invalid zone, range or unknown parameter gives `400
+  VALIDATION_FAILED`.
+- **Response envelope:** each response includes `period` (resolved dates,
+  zone, granularity, previous period), `filters` and `generatedAt`.
+- **Unavailable values are `null`.**
+
+### Government — `/api/v1/government/:slug/analytics/…`
+
+Government officials of that office only (`GovernmentGuard`). Every query is
+limited to the office's jurisdiction.
+
+| Endpoint | Returns |
+| --- | --- |
+| `GET overview` | Reported, verified, in progress, resolved, rejected, critical/high, resolution rate, avg/median days to verification and resolution, active now. Each with `previous` and `changePct` |
+| `GET trends` | Buckets (`day`/`week`/`month`) of reported, verified, resolved and rejected events |
+| `GET categories` | Category counts, share, previous-period change, direction, persistence; subcategories (minimum group 3); severity and priority distributions |
+| `GET areas` | Jurisdiction total; by state, city and postal code, with groups under 3 suppressed |
+| `GET resolution` | Summary (avg, median, fastest, longest waiting, rate, returned verifications), cumulative funnel with conversions, stage durations, bottleneck, time-to-resolution distribution, by priority and by severity |
+| `GET community` | Active contributors, verified reports, duplicates, supported reports, contributions to resolution, points earned, outcomes |
+| `GET hotspots` | `grid-zscore-v1`: `cells` (`MapAggregateCell[]`, at least 3 per cell, rounded) and scored `hotspots` |
+| `GET recurring` | `dbscan-300m-14d-v1` clusters (3+ reports, 2+ people, 14+ days, duplicates excluded) |
+| `GET insights` | `{ insight }`: the cached summary for exactly this period and filters, or `null` |
+| `POST insights` | Generates a summary (rate-limited, 10 per hour). `facts` (observed), `summary`/`observations`/`attention` citing fact keys (AI interpretation), `guidance`/`guidanceNotes` (reference knowledge, PUBLIC only), and `model.aiRan`. Returns 503 if the AI service fails; 403 if insights are disabled |
+| `GET export?dataset=overview\|trends\|categories\|areas\|resolution\|problems&format=csv\|json` | A file download. `problems` has public fields only and at most `ANALYTICS_EXPORT_MAX_ROWS` rows. Formula-safe CSV. Rate-limited (30 per hour). Audited as `ANALYTICS_EXPORTED` |
+
+Citizens and organisation members get 403. Officials of another office get
+404.
+
+### Organisation — `GET /api/v1/organizations/:slug/analytics`
+
+- **Members only** (`OrganizationWorkspaceGuard`); everyone else gets 404.
+  Takes `preset`/`from`/`to`/`timezone`.
+- **Returns:** problems accepted, active and completed projects, average
+  duration, on-time rate (with observations), tasks completed, open tasks,
+  evidence submitted, evidence approval rate, resolutions approved, and a
+  completion trend.
+- **No ranking or comparison** with other organisations.
+
+### Citizen — `GET /api/v1/users/me/analytics`
+
+The caller's own reports, all time: reported, verified, in progress, awaiting
+review, resolved, confirmed duplicates, median days to resolution, supporters
+across their reports, and impact points.
+
+### AI service: `POST /analytics/insights` (internal)
+
+- **Request:** `{ scope, period_label, facts[{key,label,value,signal?}] (1–60),
+  guidance[{ref,title,text}] (≤3) }`.
+- **Returns:** `summary`, `observations`/`attention` (`text`, `metric_keys`),
+  `guidance_notes` (`text`, `refs`), `ai_ran`, the model and prompt versions,
+  and `dropped_statements`.
+- **Statements are dropped** when they cite unknown facts, use numbers not in
+  the facts, or state causes.
+
+## Resolution verification (Prompt 22)
+
+Completion evidence and the government's verification decision. Design:
+[`RESOLUTION_VERIFICATION.md`](./RESOLUTION_VERIFICATION.md). Security:
+[`EVIDENCE_SECURITY.md`](./EVIDENCE_SECURITY.md).
+
+- **Access** to evidence and project verification is the project's. Anyone
+  outside it gets `404`.
+- **Decisions** are government-portal routes, for the allocating office only.
+- **The AI review is advisory.** Only an approval resolves a problem.
+
+| Method | Path | Who | Notes |
+| --- | --- | --- | --- |
+| GET | `/resolution-projects/:id/evidence` | Participants | `EvidenceView[]`. Drafts only for the organisation |
+| POST | `/resolution-projects/:id/evidence` | Assigned-organisation members | `{ evidenceType, title (1–200), description? (≤ 4000), replacesEvidenceId? }` → `201` DRAFT. No ids, status or ownership accepted (`400`). `409` unless the project is active or paused and the problem in progress. 30 per 10 min |
+| GET | `/resolution-projects/:id/verification` | Participants | `ProjectVerificationView`: evidence, pending `request`, `history`, `missingEvidence`, `timeline`, `canSubmitEvidence`, `canRequestVerification`, `requestBlockers`, `limitations` |
+| POST | `/resolution-projects/:id/verification/request` | Organisation OWNER/ADMIN | `{ note? }` → view. AI-reviewed and returned evidence moves to UNDER_GOVERNMENT_REVIEW. `409` while a review is running, with nothing reviewed, or with a request already pending. 5 per 10 min |
+| GET | `/evidence/:id` | Participants | `EvidenceView`: files (API URLs, distance, capture time; no storage key, no raw GPS), latest `assessment`, `permissions` |
+| POST | `/evidence/:id/files` | Draft author or OWNER/ADMIN | Multipart `file` plus optional `role` (BEFORE, AFTER, DOCUMENT, OTHER) → `201` view. The type is detected from the bytes and the extension must match. Images 10 MB, PDF 10 MB, MP4 50 MB, 8 files maximum. Images are stored without EXIF. 40 per 10 min |
+| DELETE | `/evidence/:id/files/:fileId` | Draft author or OWNER/ADMIN | Drafts only |
+| POST | `/evidence/:id/submit` | Draft author or OWNER/ADMIN | DRAFT → SUBMITTED, and the AI review is queued. `400` without a file (except a progress update with a description) |
+| POST | `/evidence/:id/withdraw` | Submitter or OWNER/ADMIN | Before government review. `409` otherwise |
+| POST | `/evidence/:id/analyze` | OWNER/ADMIN or the allocating office | `202`. Runs the AI review again; never changes the lifecycle status. 5 per 10 min |
+| GET | `/evidence/:id/files/:fileId` | Participants | The file, with `nosniff`, `CSP: sandbox` and `private, no-store` |
+| GET | `/government/:slug/problems/:publicId/verification` | Officials in jurisdiction | `GovernmentVerificationView`: problem and report photos, project progress, evidence, AI roll-up (advisory; conflicts flagged), missing evidence, request history, timeline, `canDecide`, `approvalBlockers`, limitations. Another office gets `project: null` and no evidence |
+| POST | `/government/:slug/problems/:publicId/verification/approve` | The allocating office | `{ note? }`. One transaction: problem → RESOLVED (`resolvedAt`), project → COMPLETED, evidence → APPROVED. `409` with open tasks, nothing pending, or a concurrent decision. 20 per 10 min |
+| POST | `/government/:slug/problems/:publicId/verification/reject` | The allocating office | `{ reason (10–2000) }`. Evidence → REJECTED; the problem and project are unchanged |
+| POST | `/government/:slug/problems/:publicId/verification/request-evidence` | The allocating office | `{ reason (10–2000) }`. Evidence → NEEDS_MORE_EVIDENCE |
+
+**Also changed:**
+- `POST /resolution-projects/:id/status { COMPLETED }` now returns `409`,
+  because completion happens through verification. `allowedTransitions` no
+  longer lists COMPLETED.
+- The public `GET /problems/:publicId` gains `resolution { resolvedAt,
+  verifiedBy }` once approved, and `assignment.progress` (0–100).
+- New notification types: `RESOLUTION_EVIDENCE_SUBMITTED`,
+  `RESOLUTION_EVIDENCE_REVIEWED`, `RESOLUTION_VERIFICATION_REQUESTED`,
+  `RESOLUTION_MORE_EVIDENCE_REQUESTED`, `RESOLUTION_APPROVED`,
+  `RESOLUTION_REJECTED`. The reporter's existing `PROBLEM_STATUS_CHANGED`
+  notification now has RESOLVED wording.
+- `/media/evidence/…` is refused (`404`).
+- **AI service (internal, token-guarded):** `POST /verify/evidence` takes a
+  bounded context with images (base64) and PDF documents (base64). It returns
+  four signals (value or null, plus confidence), a `recommendation` in
+  INSUFFICIENT_EVIDENCE, POSSIBLY_RESOLVED, LIKELY_RESOLVED or
+  LIKELY_NOT_RESOLVED (or null when no model ran), `confidence`, cited
+  `supporting` and `remaining_issues`, and versions. It never returns
+  "RESOLVED".
+
+---
+
+## AI Priority Engine (Prompt 21)
+
+Advisory, explainable priority for government review. Design:
+[`AI_PRIORITY_ENGINE.md`](./AI_PRIORITY_ENGINE.md).
+
+- **Government routes** use the portal's existing authorisation: role
+  GOVERNMENT, active membership of an operational office (`GovernmentGuard`),
+  and the problem inside that office's jurisdiction.
+- **Outside the jurisdiction is `404`,** the same as a problem that does not
+  exist.
+- **Admin is not a government official** here either, so admins get `403`.
+
+| Method | Path | Who | Notes |
+| --- | --- | --- | --- |
+| GET | `/government/:slug/problems/:publicId/priority` | Officials in jurisdiction | `GovernmentPriorityView`: `assessment` (`score` 0–100, `tier`, `confidence`, `dataCompleteness`, `provisional`, `reasons[]` driver/warning/info, `breakdown[]` per feature `value`/`confidence`/`available`/`weight`/`contribution`/`source`/`evidence`/`note`, `model` versions and `aiStatus`, PUBLIC `guidance[]`, `calculatedAt`, `confirmedAt`) or null; `override` (tier, reason, office, official, time, AI tier/score then) or null; `effective { tier, source: AI \| OVERRIDE }`; `history[]` (score, tier, time, trigger, `changes`); `canOverride`. **Never runs the pipeline** |
+| POST | `/government/:slug/problems/:publicId/priority/recalculate` | Officials in jurisdiction | `{ refreshAi? }` → view. Runs the pipeline now; AI features are reused unless the report changed or `refreshAi`. `409` for a problem that is not assessable. 10 per 10 min |
+| POST | `/government/:slug/problems/:publicId/priority/override` | Officials in jurisdiction | `{ tier: CRITICAL\|HIGH\|MEDIUM\|LOW, reason (10–1000) }` → view. Creates or updates the override; never edits the AI assessment. Audited `PRIORITY_OVERRIDE_CREATED` / `_UPDATED`. 30 per 10 min |
+| DELETE | `/government/:slug/problems/:publicId/priority/override` | Officials in jurisdiction | `{ reason? }` → view. Audited `PRIORITY_OVERRIDE_REMOVED`. `404` if none |
+| GET | `/problems/:publicId/priority` | Anyone who may see the problem | `PublicPriorityView { level, reasons[], assessedAt }`. Only once verified, else `level: null`. No score, confidence, override or reason |
+
+**Also changed:**
+- **`GET /government/:slug/problems`:**
+  - `sort` gains `priority` (effective tier, then score, then longest
+    waiting; unassessed last) and `urgency`;
+  - new filter `priority=CRITICAL|HIGH|MEDIUM|LOW|UNASSESSED`, on the
+    effective tier;
+  - each item gains `priority { tier, aiTier, score, overridden, confidence,
+    dataCompleteness, provisional, summary[] }`.
+- **Activity and audit entries** gain the kinds `PRIORITY_OVERRIDE_*`, with
+  `fromPriority` and `toPriority`.
+- **New notification type `PRIORITY_ESCALATED`.** Officials of every office
+  whose jurisdiction covers the problem are told when the AI tier newly
+  becomes CRITICAL, unless an override exists. It links to `#priority`.
+- **AI service (internal, token-guarded):** `POST /priority/features` takes
+  `{ problem_id, title, description, category, subcategory?, severity?,
+  urgency?, analysis_summary?, observations[], locality? }` and returns
+  `{ safety_risk, urgency, impact_breadth: { value 0–1|null, confidence,
+  evidence[] }, stated_affected, ai_ran, provider, model_name, model_version,
+  prompt_version }`. It never returns a score.
 
 ---
 
@@ -2092,6 +2290,8 @@ Base URL: `http://localhost:8001`
 | `POST /analyze/problem` | Multimodal problem analysis. Requires `x-internal-token`. |
 | `POST /embeddings/text` | Text embedding generation. Requires `x-internal-token`. |
 | `POST /knowledge/chunk`, `POST /knowledge/answer` | Knowledge extraction and chunking; evidence-only answers. Require `x-internal-token`. |
+| `POST /verify/evidence` | Advisory evidence review with images and documents — never a decision. Requires `x-internal-token`. |
+| `POST /priority/features` | Bounded priority signals with confidence and grounded evidence — never a score. Requires `x-internal-token`. |
 
 Health endpoints are intentionally unauthenticated so orchestrators can probe
 them. Capability endpoints require the `x-internal-token` shared secret
@@ -2195,4 +2395,3 @@ Not implemented — listed so the URL surface is predictable.
 | Notification delivery | Email, push and realtime channels; per-type preferences | Later milestone |
 | Organisations | `GET /organizations` (directory), `POST /organizations` (onboarding), `POST /organizations/:id/verify`, leaving an organisation, invitation emails | Later milestones |
 | Jurisdiction management | Setting an office's boundary, cities or postal codes | Later milestone |
-| Impact | `GET /leaderboard`, `GET /users/:id/impact` — the ledger behind `impactPoints` | Impact |

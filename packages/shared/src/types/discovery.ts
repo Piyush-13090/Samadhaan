@@ -125,7 +125,7 @@ export interface CitizenDashboard {
  *
  * Exported so the UI can explain the ordering and the API can apply it, from
  * one definition. Transparent and hand-chosen — this is basic discovery
- * ranking, not the AI priority engine, which is a later milestone.
+ * ranking, not the AI priority engine (Prompt 21), which serves government review.
  */
 export const DISCOVERY_RANKING = {
   proximity: 0.45,

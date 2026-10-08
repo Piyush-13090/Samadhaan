@@ -1,39 +1,53 @@
-import { PRIORITY_DISPLAY } from '@/lib/domain-display';
-import type { PriorityLevel } from '@/types/domain';
-import { Badge } from '@/components/ui/badge';
+import { Gavel } from 'lucide-react';
+import type { PriorityTier } from '@samadhaan/shared';
+import { Badge, StatusDot } from '@/components/ui/badge';
 import { Tooltip } from '@/components/ui/tooltip';
+import { PRIORITY_TIER_DISPLAY } from '@/lib/domain-display';
 
 /**
- * Triage priority for the government workspace.
- *
- * The code (P1–P4) is terse by design — it appears in dense queues — so the
- * meaning is carried in a tooltip and in screen-reader text rather than being
- * left implicit.
+ * An advisory priority tier (Prompt 21). `overridden` marks a tier an official
+ * set, so an AI estimate and a government decision never look the same;
+ * `provisional` marks a low-confidence or low-completeness assessment.
  */
 export function PriorityBadge({
-  priority,
+  tier,
+  overridden = false,
+  provisional = false,
   size = 'md',
   className,
 }: {
-  priority: PriorityLevel;
+  tier: PriorityTier | null;
+  overridden?: boolean;
+  provisional?: boolean;
   size?: 'sm' | 'md';
   className?: string;
 }) {
-  const display = PRIORITY_DISPLAY[priority];
-
+  if (!tier) {
+    return (
+      <Badge tone="neutral" size={size} className={className}>
+        Priority not assessed
+      </Badge>
+    );
+  }
+  const display = PRIORITY_TIER_DISPLAY[tier];
+  const description = overridden
+    ? `${display.label} — set by a government official`
+    : `${display.label} — AI-assisted estimate${provisional ? ', provisional' : ''}. ${display.description}`;
   return (
-    <Tooltip content={display.description}>
+    <Tooltip content={description}>
       <span className="inline-flex">
-        <Badge tone={display.tone} size={size} className={cnPriority(className)}>
-          {display.label}
-          <span className="sr-only"> — {display.description}</span>
+        <Badge
+          tone={display.tone}
+          size={size}
+          className={className}
+          icon={
+            overridden ? <Gavel aria-hidden="true" /> : <StatusDot tone={display.tone} />
+          }
+        >
+          {display.label} priority{provisional && !overridden ? ' (provisional)' : ''}
+          <span className="sr-only"> — {description}</span>
         </Badge>
       </span>
     </Tooltip>
   );
-}
-
-/** Priority codes are numeric-adjacent; tabular figures keep queues aligned. */
-function cnPriority(className?: string): string {
-  return ['tabular', className].filter(Boolean).join(' ');
 }

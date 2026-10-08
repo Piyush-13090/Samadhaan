@@ -1,5 +1,10 @@
 import { HttpStatus, Injectable, Logger } from '@nestjs/common';
-import { ERROR_CODES, type ProblemView, type UploadedImage } from '@samadhaan/shared';
+import {
+  ERROR_CODES,
+  type ProblemView,
+  type PublicResolution,
+  type UploadedImage,
+} from '@samadhaan/shared';
 import type { RequestUser } from '../auth/auth.types.js';
 import { AllocationsService } from '../allocations/allocations.service.js';
 import { AppException } from '../common/app.exception.js';
@@ -296,7 +301,31 @@ export class ProblemsService {
       // Who is on it, once a government office's allocation was accepted.
       // Public facts only — see AllocationsService.publicAssignment.
       assignment: await this.allocations.publicAssignment(problem.id),
+      resolution: await this.publicResolution(problem.id, problem.status, problem.resolvedAt),
     });
+  }
+
+  /**
+   * Public facts of a verified resolution (Prompt 22): when, and which office
+   * verified it. Never the evidence, the AI review or any reason or note.
+   */
+  private async publicResolution(
+    problemId: string,
+    status: string,
+    resolvedAt: Date | null,
+  ): Promise<PublicResolution | null> {
+    if (status !== 'RESOLVED' || !resolvedAt) return null;
+    const approved = await this.prisma.resolutionVerificationRequest.findFirst({
+      where: { problemId, status: 'APPROVED' },
+      orderBy: { decidedAt: 'desc' },
+      select: { governmentOrganizationId: true },
+    });
+    if (!approved) return null;
+    const office = await this.prisma.organization.findUnique({
+      where: { id: approved.governmentOrganizationId },
+      select: { name: true },
+    });
+    return { resolvedAt: resolvedAt.toISOString(), verifiedBy: office?.name ?? 'Government authority' };
   }
 
   /**

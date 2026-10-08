@@ -21,8 +21,8 @@ import type { DiscoverProblemsQueryDto } from '../dto/discover-problems.dto.js';
  * Severity as a 0–1 ranking contribution.
  *
  * Hand-chosen and evenly spaced: this is transparent discovery ranking, not a
- * calibrated risk model. The AI priority engine is a later milestone and will
- * replace this with something learned.
+ * calibrated risk model. The AI priority engine (Prompt 21) orders the
+ * government review queue separately; citizen discovery keeps this ranking.
  */
 const SEVERITY_WEIGHT: Record<ProblemSeverity, number> = {
   LOW: 0.25,
@@ -62,9 +62,9 @@ interface FeedRow {
  * one page of rows. Fetching problems and measuring distance in JavaScript
  * would work on seed data and fall over on a real city.
  *
- * Ranking is deliberately simple and explainable — see `rankExpression`. The
- * AI priority engine belongs to a later milestone and nothing here pretends to
- * be it.
+ * Ranking is deliberately simple and explainable — see `rankExpression`. It is
+ * not the AI priority engine (Prompt 21, `src/priority`), which serves
+ * government review, and nothing here pretends to be it.
  */
 @Injectable()
 export class ProblemDiscoveryService {

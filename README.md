@@ -473,15 +473,72 @@ together.
     in logs.
   - The AI Project Coordinator can cite public and project guidance.
   - See [`docs/RAG_ARCHITECTURE.md`](./docs/RAG_ARCHITECTURE.md).
+- **AI Priority Engine** (advisory):
+  - An explainable 0–100 priority and tier for problems under government
+    review. It combines severity, urgency, community impact, safety risk,
+    geographic impact, recency, stated affected population and evidence.
+  - AI-assisted signals carry confidence and evidence grounded in the report.
+  - Missing data is excluded and reported as data completeness, never
+    zero-filled.
+  - Fairness safeguards: engagement counts distinct people relative to the
+    local area, and both its share and recency are capped.
+  - The review queue sorts and filters by priority, with explanations and a
+    breakdown.
+  - Officials can override with a required reason. Overrides are audited and
+    never edit the AI assessment.
+  - Citizens see an attention level only.
+  - The engine never allocates or decides anything. See
+    [`docs/AI_PRIORITY_ENGINE.md`](./docs/AI_PRIORITY_ENGINE.md).
+- **Resolution verification** (AI-assisted, government-decided):
+  - The assigned organisation submits completion evidence: before and after
+    photos, documents, video. Upload uses drag-and-drop or the camera, with
+    progress and retry.
+  - Files are type-checked from their bytes. EXIF is read, then stripped
+    before storage, and a checksum and perceptual hash are kept.
+  - A background AI review compares the photos with the citizen's report and
+    reads documents against RAG guidance. It returns signals and an advisory
+    recommendation that never says "resolved", plus evidence quality, an
+    expected-evidence checklist, and potential evidence concerns (duplicates,
+    metadata, location).
+  - The allocating office approves, rejects or requests more evidence (with a
+    reason). Approval resolves the problem and completes the project in one
+    transaction.
+  - Every step is audited and notified, and citizens see "Resolved, verified
+    by …".
+  - See [`docs/RESOLUTION_VERIFICATION.md`](./docs/RESOLUTION_VERIFICATION.md).
+- **Impact points, reputation and leaderboard:**
+  - An append-only, idempotent ledger of points for confirmed outcomes:
+    verified reports, confirmed duplicates, and contributions to problems
+    verified as resolved. Nothing is awarded for raw activity.
+  - Point values are versioned; caps and rate limits work against gaming;
+    administrator corrections are audited.
+  - A separate 0–100 reputation, an initial heuristic of quality, drives tiers
+    together with points.
+  - Badges are earned through real conditions.
+  - A public, server-ranked leaderboard by period, city, state and category
+    shows public names only.
+  - See [`docs/IMPACT_POINTS.md`](./docs/IMPACT_POINTS.md).
+- **Civic analytics:**
+  - The government analytics command centre: KPIs with definitions,
+    trends, categories, areas, the resolution funnel, stage times,
+    bottlenecks, distributions, community impact, deterministic hotspots on
+    the map, and recurring problems.
+  - Aggregates come from real data, scoped by jurisdiction and timezone-aware,
+    with "Not enough data yet" instead of invented numbers.
+  - AI summaries cite the metrics they use, with public guidance shown
+    separately.
+  - Audited, formula-safe CSV/JSON exports.
+  - Organisation delivery analytics (members only, no ranking) and a
+    citizen `/impact` page.
+  - See [`docs/ANALYTICS_ARCHITECTURE.md`](./docs/ANALYTICS_ARCHITECTURE.md).
 - Monorepo with npm workspaces and a shared types package; health probes;
   Docker Compose for PostgreSQL (PostGIS, pgvector, pg_trgm) and Redis
-- Tests: 367 API unit, 612 API e2e, 418 web unit, 128 AI service
+- Tests: 452 API unit, 679 API e2e, 464 web unit, 167 AI service
 
 ### Not implemented
 
-Organisation applications, project budgets, the AI priority
-engine, resolution verification, impact points and leaderboard, advanced
-analytics.
+Organisation applications, project budgets, advanced search, forecasting,
+financial analytics, organisation rankings.
 
 Organisation and government accounts cannot self-register, and organisation
 verification has no workflow yet — it is displayed, and set by Samadhaan.
@@ -501,10 +558,10 @@ shows real probes against real services.
 | Duplicate detection | Embeddings, geographic + semantic + visual cascade |
 | Community | Support, comments, suggestions, endorsement |
 | Organisations | Workspace, team, discovery, AI matching baseline (done); verification workflow, a trained matching model |
-| Government | Review portal, jurisdiction and allocation (done); priority prediction |
+| Government | Review portal, jurisdiction, allocation and the AI priority engine baseline (done); a trained priority model once outcome data exists |
 | Resolution rooms | Collaboration workspace, project management and AI Project Coordinator, knowledge retrieval (RAG) (done) |
-| Verification | Completion evidence, AI-assisted verification, closure |
-| Impact | Impact Points, leaderboard, analytics |
+| Verification | Completion evidence, AI-assisted verification, closure (done); image embeddings, re-inspection follow-ups |
+| Impact | Impact Points, reputation, badges, leaderboard (done); analytics |
 
 Details: [`docs/PRODUCT.md`](./docs/PRODUCT.md) and [`docs/ML_PLAN.md`](./docs/ML_PLAN.md).
 
@@ -525,6 +582,14 @@ Details: [`docs/PRODUCT.md`](./docs/PRODUCT.md) and [`docs/ML_PLAN.md`](./docs/M
 | [`docs/RESOLUTION_ROOMS.md`](./docs/RESOLUTION_ROOMS.md) | Resolution rooms: lifecycle, access, messages, attachments, realtime, privacy |
 | [`docs/PROJECT_MANAGEMENT.md`](./docs/PROJECT_MANAGEMENT.md) | Resolution projects: lifecycles, tasks, milestones, progress, permissions |
 | [`docs/AI_PROJECT_COORDINATOR.md`](./docs/AI_PROJECT_COORDINATOR.md) | AI Project Coordinator: health engine, grounding, questions, updates, privacy |
+| [`docs/IMPACT_POINTS.md`](./docs/IMPACT_POINTS.md) | Impact points: ledger, point rules and versions, attribution, idempotency, anti-gaming, leaderboard |
+| [`docs/REPUTATION_SYSTEM.md`](./docs/REPUTATION_SYSTEM.md) | Reputation heuristic, tiers, badges, fairness |
+| [`docs/ANALYTICS_ARCHITECTURE.md`](./docs/ANALYTICS_ARCHITECTURE.md) | Civic analytics: pipeline, time zones, scope, caching, insights, exports |
+| [`docs/ANALYTICS_METRICS.md`](./docs/ANALYTICS_METRICS.md) | Every metric's definition, formula and threshold |
+| [`docs/CIVIC_HOTSPOTS.md`](./docs/CIVIC_HOTSPOTS.md) | Hotspot scoring and recurring-problem detection |
+| [`docs/RESOLUTION_VERIFICATION.md`](./docs/RESOLUTION_VERIFICATION.md) | Resolution verification: evidence lifecycle, AI review, scoring, guard rules, government decision, audit |
+| [`docs/EVIDENCE_SECURITY.md`](./docs/EVIDENCE_SECURITY.md) | Evidence authorisation, upload validation, EXIF handling, integrity, injection, leakage |
+| [`docs/AI_PRIORITY_ENGINE.md`](./docs/AI_PRIORITY_ENGINE.md) | AI Priority Engine: features, scoring, tiers, confidence, missing data, fairness, override, recalculation |
 | [`docs/RAG_ARCHITECTURE.md`](./docs/RAG_ARCHITECTURE.md) | Knowledge & RAG: ingestion, hybrid retrieval, answering, coordinator integration |
 | [`docs/KNOWLEDGE_MODEL.md`](./docs/KNOWLEDGE_MODEL.md) | Knowledge sources, documents, chunks, answers; visibility scopes; lifecycle |
 | [`docs/RAG_SECURITY.md`](./docs/RAG_SECURITY.md) | RAG access control in SQL, prompt-injection defence, uploads, logging, caching |

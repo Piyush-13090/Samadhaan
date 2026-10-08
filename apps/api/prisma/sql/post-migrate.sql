@@ -46,3 +46,7 @@ CREATE INDEX IF NOT EXISTS "knowledge_chunks_embedding_hnsw"
   ON "knowledge_chunks" USING hnsw ("embedding" vector_cosine_ops);
 CREATE INDEX IF NOT EXISTS "knowledge_chunks_content_fts"
   ON "knowledge_chunks" USING gin (to_tsvector('english', "content"));
+
+-- At most one pending resolution verification request per project (Prompt 22).
+CREATE UNIQUE INDEX IF NOT EXISTS "resolution_verification_requests_one_pending"
+  ON "resolution_verification_requests" ("projectId") WHERE "status" = 'PENDING';

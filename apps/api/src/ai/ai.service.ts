@@ -22,6 +22,22 @@ import {
   type AiKnowledgeAnswer,
 } from './dto/knowledge.dto.js';
 import {
+  parseVerificationResponse,
+  type AiVerification,
+} from './dto/verification.dto.js';
+import {
+  parseInsight,
+  toInsightRequest,
+  type AiInsight,
+  type InsightRequestInput,
+} from './dto/insights.dto.js';
+import {
+  parsePriorityFeatures,
+  toPriorityFeatureRequest,
+  type AiPriorityFeatures,
+  type PriorityFeatureInput,
+} from './dto/priority.dto.js';
+import {
   parseMatchResponse,
   toMatchRequest,
   type AiMatchResult,
@@ -67,6 +83,12 @@ export type ChunkOutcome =
 
 export type KnowledgeAnswerOutcome =
   { ok: true; answer: AiKnowledgeAnswer } | { ok: false; failure: AiAnalysisFailure };
+
+export type PriorityFeaturesOutcome =
+  { ok: true; features: AiPriorityFeatures } | { ok: false; failure: AiAnalysisFailure };
+
+export type VerificationOutcome =
+  { ok: true; verification: AiVerification } | { ok: false; failure: AiAnalysisFailure };
 
 export type ExtractOutcome =
   { ok: true; update: AiExtractedUpdate } | { ok: false; failure: AiAnalysisFailure };
@@ -393,6 +415,97 @@ export class AiService {
       };
     }
     return { ok: true, answer: parsed };
+  }
+
+  /**
+   * AI-assisted priority signals for one problem (Prompt 21) — never a score.
+   * The scoring engine weighs them by their confidence.
+   */
+  async priorityFeatures(
+    input: PriorityFeatureInput,
+    requestId?: string,
+  ): Promise<PriorityFeaturesOutcome> {
+    const result = await this.client.post<unknown>(
+      '/priority/features',
+      toPriorityFeatureRequest(input),
+      { requestId, timeoutMs: 60_000 },
+    );
+    if (!result.ok) return { ok: false, failure: this.toFailure(result.error) };
+    const parsed = parsePriorityFeatures(result.value);
+    if (!parsed) {
+      return {
+        ok: false,
+        failure: {
+          code: 'INVALID_MODEL_OUTPUT',
+          message: 'The priority features could not be understood.',
+          retryable: true,
+        },
+      };
+    }
+    return { ok: true, features: parsed };
+  }
+
+  /**
+   * Advisory review of one evidence item (Prompt 22). `request` is the
+   * already-bounded context, in the AI service's wire format.
+   */
+  async verifyEvidence(
+    request: Record<string, unknown>,
+    knownRefs: ReadonlySet<string>,
+    requestId?: string,
+  ): Promise<VerificationOutcome> {
+    const result = await this.client.post<unknown>('/verify/evidence', request, {
+      requestId,
+      timeoutMs: 120_000,
+    });
+    if (!result.ok) return { ok: false, failure: this.toFailure(result.error) };
+    const parsed = parseVerificationResponse(result.value, knownRefs);
+    if (!parsed) {
+      return {
+        ok: false,
+        failure: {
+          code: 'INVALID_MODEL_OUTPUT',
+          message: 'The evidence review could not be understood.',
+          retryable: true,
+        },
+      };
+    }
+    return { ok: true, verification: parsed };
+  }
+
+  /**
+   * A plain-language summary of computed analytics (Prompt 24). The facts are
+   * the only data the model sees; statements that cite anything else are
+   * discarded here as well as in the AI service.
+   */
+  async analyticsInsights(
+    input: InsightRequestInput,
+    requestId?: string,
+  ): Promise<
+    { ok: true; insight: AiInsight } | { ok: false; failure: AiAnalysisFailure }
+  > {
+    const result = await this.client.post<unknown>(
+      '/analytics/insights',
+      toInsightRequest(input),
+      { requestId, timeoutMs: 60_000 },
+    );
+    if (!result.ok) return { ok: false, failure: this.toFailure(result.error) };
+    const parsed = parseInsight(
+      result.value,
+      new Set(input.facts.map((f) => f.key)),
+      new Set(input.guidance.map((g) => g.ref)),
+    );
+    if (!parsed) {
+      return {
+        ok: false,
+        failure: {
+          code: 'INVALID_MODEL_OUTPUT',
+          message: 'The analytics summary could not be understood.',
+          retryable: true,
+        },
+      };
+    }
+    return { ok: true, insight: parsed };
   }
 
   /** Maps a transport or HTTP failure onto the structured failure shape. */

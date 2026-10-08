@@ -221,7 +221,6 @@ const PROBLEMS = [
     status: 'IN_PROGRESS',
     severity: 'HIGH',
     urgency: 'HIGH',
-    priorityScore: 78.5,
     address: 'Sector 12 Market Road, near Bus Stop 4',
     city: 'Gurugram',
     state: 'Haryana',
@@ -241,7 +240,6 @@ const PROBLEMS = [
     status: 'SUBMITTED',
     severity: 'MEDIUM',
     urgency: 'MEDIUM',
-    priorityScore: 41.0,
     address: 'Community Park, North Gate',
     city: 'Gurugram',
     state: 'Haryana',
@@ -261,7 +259,6 @@ const PROBLEMS = [
     status: 'UNDER_REVIEW',
     severity: 'HIGH',
     urgency: 'HIGH',
-    priorityScore: 71.2,
     address: 'Main Market Crossing, opposite State Bank',
     city: 'Gurugram',
     state: 'Haryana',
@@ -281,7 +278,6 @@ const PROBLEMS = [
     status: 'RESOLVED',
     severity: 'MEDIUM',
     urgency: 'MEDIUM',
-    priorityScore: 38.0,
     address: 'Block B service lane',
     city: 'Gurugram',
     state: 'Haryana',
@@ -302,7 +298,6 @@ const PROBLEMS = [
     status: 'VERIFIED',
     severity: 'CRITICAL',
     urgency: 'CRITICAL',
-    priorityScore: 94.0,
     address: 'Link Road, outside Sector 12 clinic',
     city: 'Gurugram',
     state: 'Haryana',
@@ -324,7 +319,6 @@ const PROBLEMS = [
     status: 'SUBMITTED',
     severity: 'HIGH',
     urgency: 'MEDIUM',
-    priorityScore: 52.0,
     address: 'Sector 12 Market, shop row near bus stop',
     city: 'Gurugram',
     state: 'Haryana',
@@ -347,7 +341,6 @@ const PROBLEMS = [
     status: 'SUBMITTED',
     severity: 'HIGH',
     urgency: 'HIGH',
-    priorityScore: 66.0,
     address: 'Main Market Crossing, near the bank ATM',
     city: 'Gurugram',
     state: 'Haryana',
@@ -370,7 +363,6 @@ const PROBLEMS = [
     status: 'SUBMITTED',
     severity: 'HIGH',
     urgency: 'HIGH',
-    priorityScore: 64.0,
     address: 'Kishanpole Bazaar crossing',
     city: 'Jaipur',
     state: 'Rajasthan',
@@ -628,7 +620,8 @@ async function main(): Promise<void> {
 
       await prisma.problem.upsert({
         where: { id: PROBLEM_ID(problem.n) },
-        update: { status: problem.status, priorityScore: problem.priorityScore },
+        // Priority is never seeded: the engine computes it (Prompt 21).
+        update: { status: problem.status },
         create: {
           id: PROBLEM_ID(problem.n),
           // publicId is left to the database sequence, which is the whole point
@@ -641,7 +634,6 @@ async function main(): Promise<void> {
           status: problem.status,
           severity: problem.severity,
           urgency: problem.urgency,
-          priorityScore: problem.priorityScore,
           address: problem.address,
           city: problem.city,
           state: problem.state,
@@ -1171,6 +1163,18 @@ Check the lamp, the driver or choke, and the supply before replacing the fitting
     }
     console.log(
       `  ✓ ${KNOWLEDGE.length} sample knowledge sources (indexed by the API on startup)`,
+    );
+
+    // --- Priority (Prompt 21) ----------------------------------------------
+    // Not seeded. Scores written by older seeds, before the engine existed,
+    // are cleared so none is mistaken for an assessment; the API's start-up
+    // sweep then assesses every problem under review from real data.
+    const cleared = await prisma.$executeRaw`
+      UPDATE problems SET "priorityScore" = 0
+      WHERE "priorityAssessedAt" IS NULL AND "priorityScore" <> 0
+    `;
+    console.log(
+      `  ✓ priority left to the engine${cleared ? ` (${cleared} unassessed placeholder score(s) cleared)` : ''}`,
     );
 
     // --- Audit log ---------------------------------------------------------

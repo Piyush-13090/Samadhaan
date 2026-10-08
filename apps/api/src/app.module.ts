@@ -17,6 +17,10 @@ import { MatchingModule } from './matching/matching.module.js';
 import { GovernmentModule } from './government/government.module.js';
 import { GeoModule } from './geo/geo.module.js';
 import { KnowledgeModule } from './knowledge/knowledge.module.js';
+import { PriorityModule } from './priority/priority.module.js';
+import { VerificationModule } from './verification/verification.module.js';
+import { ImpactModule } from './impact/impact.module.js';
+import { AnalyticsModule } from './analytics/analytics.module.js';
 import { HealthModule } from './health/health.module.js';
 import { MediaModule } from './media/media.module.js';
 import { NotificationsModule } from './notifications/notifications.module.js';
@@ -65,6 +69,10 @@ import { UsersModule } from './users/users.module.js';
     ResolutionModule,
     CoordinatorModule,
     KnowledgeModule,
+    PriorityModule,
+    VerificationModule,
+    ImpactModule,
+    AnalyticsModule,
     ProblemsModule,
     DashboardModule,
     OrganizationsModule,

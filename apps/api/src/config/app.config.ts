@@ -196,6 +196,93 @@ export class AppConfig {
     };
   }
 
+  get priority(): PriorityConfig {
+    const tiers = {
+      critical: this.get('PRIORITY_TIER_CRITICAL'),
+      high: this.get('PRIORITY_TIER_HIGH'),
+      medium: this.get('PRIORITY_TIER_MEDIUM'),
+    };
+    if (!(tiers.critical > tiers.high && tiers.high > tiers.medium)) {
+      throw new Error(
+        'PRIORITY_TIER_CRITICAL > PRIORITY_TIER_HIGH > PRIORITY_TIER_MEDIUM must hold.',
+      );
+    }
+    const test = this.nodeEnv === 'test';
+    return {
+      enabled: this.get('PRIORITY_ENABLED'),
+      model: this.get('PRIORITY_MODEL'),
+      aiFeatures: this.get('PRIORITY_AI_FEATURES_ENABLED'),
+      weights: {
+        severity: this.get('PRIORITY_WEIGHT_SEVERITY'),
+        urgency: this.get('PRIORITY_WEIGHT_URGENCY'),
+        communityImpact: this.get('PRIORITY_WEIGHT_COMMUNITY'),
+        safetyRisk: this.get('PRIORITY_WEIGHT_SAFETY'),
+        geographicImpact: this.get('PRIORITY_WEIGHT_GEOGRAPHIC'),
+        recency: this.get('PRIORITY_WEIGHT_RECENCY'),
+        affectedPopulation: this.get('PRIORITY_WEIGHT_POPULATION'),
+        evidence: this.get('PRIORITY_WEIGHT_EVIDENCE'),
+      },
+      tiers,
+      provisional: {
+        confidence: this.get('PRIORITY_PROVISIONAL_CONFIDENCE'),
+        completeness: this.get('PRIORITY_PROVISIONAL_COMPLETENESS'),
+      },
+      debounceMs: this.get('PRIORITY_DEBOUNCE_SECONDS') * 1000,
+      // No timers or sweeps in tests: suites drive recalculation directly.
+      scheduleMinutes: test ? 0 : this.get('PRIORITY_SCHEDULE_MINUTES'),
+      refreshHours: this.get('PRIORITY_REFRESH_HOURS'),
+      batchSize: this.get('PRIORITY_BATCH_SIZE'),
+      sweepOnStartup: this.get('PRIORITY_SWEEP_ON_STARTUP') && !test,
+      aiReuseDays: this.get('PRIORITY_AI_REUSE_DAYS'),
+      recencyHalfLifeDays: this.get('PRIORITY_RECENCY_HALF_LIFE_DAYS'),
+      nearbyRadiusM: this.get('PRIORITY_NEARBY_RADIUS_M'),
+      baselineRadiusM: this.get('PRIORITY_BASELINE_RADIUS_M'),
+      guidanceTopK: this.get('PRIORITY_GUIDANCE_TOP_K'),
+    };
+  }
+
+  get impact(): ImpactConfig {
+    const test = this.nodeEnv === 'test';
+    return {
+      // Off under test: other suites verify and resolve problems filed by
+      // seed accounts, and the ledger is append-only. The impact suite turns
+      // awarding on for its own app (ImpactEventHandler.activate).
+      enabled: this.get('IMPACT_ENABLED') && !test,
+      // No timers or sweeps in tests: suites drive reconciliation directly.
+      reconcileMinutes: test ? 0 : this.get('IMPACT_RECONCILE_MINUTES'),
+      reconcileBatch: this.get('IMPACT_RECONCILE_BATCH'),
+      reconcileOnStartup: this.get('IMPACT_RECONCILE_ON_STARTUP') && !test,
+      leaderboardCacheSeconds: test ? 0 : this.get('LEADERBOARD_CACHE_SECONDS'),
+    };
+  }
+
+  get analytics(): AnalyticsConfig {
+    const test = this.nodeEnv === 'test';
+    return {
+      timezone: this.get('ANALYTICS_TIMEZONE'),
+      // Uncached under test: suites change data between requests.
+      cacheSeconds: test ? 0 : this.get('ANALYTICS_CACHE_SECONDS'),
+      insightsEnabled: this.get('ANALYTICS_INSIGHTS_ENABLED'),
+      insightCacheSeconds: this.get('ANALYTICS_INSIGHT_CACHE_HOURS') * 3600,
+      exportMaxRows: this.get('ANALYTICS_EXPORT_MAX_ROWS'),
+    };
+  }
+
+  get verification(): VerificationConfig {
+    const test = this.nodeEnv === 'test';
+    return {
+      aiEnabled: this.get('VERIFICATION_AI_ENABLED'),
+      maxAttempts: this.get('VERIFICATION_MAX_ATTEMPTS'),
+      // Tests drive retries themselves.
+      retryMs: test ? 0 : this.get('VERIFICATION_RETRY_SECONDS') * 1000,
+      sweepOnStartup: this.get('VERIFICATION_SWEEP_ON_STARTUP') && !test,
+      guidanceTopK: this.get('VERIFICATION_GUIDANCE_TOP_K'),
+      locationNearM: this.get('VERIFICATION_LOCATION_NEAR_M'),
+      locationFarM: this.get('VERIFICATION_LOCATION_FAR_M'),
+      imageMaxPx: this.get('VERIFICATION_IMAGE_MAX_PX'),
+    };
+  }
+
   get coordinator(): CoordinatorConfig {
     return {
       // The background check never runs in tests; refreshes are explicit there.
@@ -315,6 +402,64 @@ export interface RagConfig {
   queryCacheSeconds: number;
   coordinatorTopK: number;
   sweepOnStartup: boolean;
+}
+
+export interface AnalyticsConfig {
+  timezone: string;
+  cacheSeconds: number;
+  insightsEnabled: boolean;
+  insightCacheSeconds: number;
+  exportMaxRows: number;
+}
+
+export interface ImpactConfig {
+  enabled: boolean;
+  reconcileMinutes: number;
+  reconcileBatch: number;
+  reconcileOnStartup: boolean;
+  leaderboardCacheSeconds: number;
+}
+
+export interface VerificationConfig {
+  aiEnabled: boolean;
+  maxAttempts: number;
+  retryMs: number;
+  sweepOnStartup: boolean;
+  guidanceTopK: number;
+  locationNearM: number;
+  locationFarM: number;
+  imageMaxPx: number;
+}
+
+export interface PriorityWeights {
+  severity: number;
+  urgency: number;
+  communityImpact: number;
+  safetyRisk: number;
+  geographicImpact: number;
+  recency: number;
+  affectedPopulation: number;
+  evidence: number;
+}
+
+export interface PriorityConfig {
+  enabled: boolean;
+  model: 'heuristic';
+  aiFeatures: boolean;
+  weights: PriorityWeights;
+  /** Inclusive lower bounds on the 0–100 score. */
+  tiers: { critical: number; high: number; medium: number };
+  provisional: { confidence: number; completeness: number };
+  debounceMs: number;
+  scheduleMinutes: number;
+  refreshHours: number;
+  batchSize: number;
+  sweepOnStartup: boolean;
+  aiReuseDays: number;
+  recencyHalfLifeDays: number;
+  nearbyRadiusM: number;
+  baselineRadiusM: number;
+  guidanceTopK: number;
 }
 
 export interface CoordinatorHealthThresholds {

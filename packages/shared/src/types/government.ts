@@ -1,6 +1,7 @@
 import type { GovernmentAllocationPanel } from './allocation.js';
 import type { ProjectSummary } from './project.js';
 import type { BoundingBox } from './geo.js';
+import type { PriorityTier, QueuePriority } from './priority.js';
 import type { ProblemListItem } from './discovery.js';
 import type {
   OrganizationMemberRole,
@@ -137,9 +138,11 @@ export type AiStatusFilter = (typeof AI_STATUS_FILTERS)[number];
 
 export const GOVERNMENT_SORTS = [
   'queue',
+  'priority',
   'newest',
   'oldest',
   'severity',
+  'urgency',
   'supported',
 ] as const;
 export type GovernmentSort = (typeof GOVERNMENT_SORTS)[number];
@@ -161,6 +164,8 @@ export interface GovernmentQueueItem extends ProblemListItem {
     possible: number;
     confirmedOf: string | null;
   };
+  /** Advisory priority (Prompt 21); the override when one exists. */
+  priority: QueuePriority;
 }
 
 export interface GovernmentProblemPage {
@@ -217,13 +222,19 @@ export interface GovernmentActivityEntry {
     | 'ALLOCATION_CREATED'
     | 'ALLOCATION_ACCEPTED'
     | 'ALLOCATION_DECLINED'
-    | 'ALLOCATION_CANCELLED';
+    | 'ALLOCATION_CANCELLED'
+    | 'PRIORITY_OVERRIDE_CREATED'
+    | 'PRIORITY_OVERRIDE_UPDATED'
+    | 'PRIORITY_OVERRIDE_REMOVED';
   /** The organisation an allocation entry concerns. Public name only. */
   organizationName: string | null;
   problemPublicId: string;
   problemTitle: string;
   fromStatus: ProblemStatus | null;
   toStatus: ProblemStatus | null;
+  /** Priority override entries (Prompt 21): the effective tier before and after. */
+  fromPriority?: PriorityTier | null;
+  toPriority?: PriorityTier | null;
   /**
    * A member of this office is named. Anyone else is described by role only —
    * the activity feed is not a way to learn who reported or reviewed what.

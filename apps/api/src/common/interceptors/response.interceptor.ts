@@ -3,6 +3,7 @@ import {
   type ExecutionContext,
   Injectable,
   type NestInterceptor,
+  StreamableFile,
 } from '@nestjs/common';
 import type { Request } from 'express';
 import { map, type Observable } from 'rxjs';
@@ -25,6 +26,12 @@ export class ResponseInterceptor<T> implements NestInterceptor<T, ApiSuccessResp
 
     return next
       .handle()
-      .pipe(map((data) => buildSuccessResponse(data, getRequestId(request))));
+      .pipe(
+        map((data) =>
+          data instanceof StreamableFile
+            ? (data as unknown as ApiSuccessResponse<T>)
+            : buildSuccessResponse(data, getRequestId(request)),
+        ),
+      );
   }
 }

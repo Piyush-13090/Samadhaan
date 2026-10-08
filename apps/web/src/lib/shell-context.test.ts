@@ -190,13 +190,14 @@ describe('resolveShellContext', () => {
         '/government/gurgaon-mc/dashboard',
         '/government/gurgaon-mc/problems',
         '/government/gurgaon-mc/map',
+        '/government/gurgaon-mc/analytics',
         '/notifications',
       ]),
     );
-    // Allocation, verification and analytics are later milestones.
-    expect(
-      hrefs(context).some((href) => /allocations|verification|analytics/.test(href)),
-    ).toBe(false);
+    // Allocation and verification are reached from a problem, not the menu.
+    expect(hrefs(context).some((href) => /allocations|verification/.test(href))).toBe(
+      false,
+    );
     expect(context.homeHref).toBe('/government/gurgaon-mc/dashboard');
     expect(context.mobileItems.map((item) => item.label)).toEqual([
       'Home',

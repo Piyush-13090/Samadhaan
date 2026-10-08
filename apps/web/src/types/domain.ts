@@ -35,11 +35,6 @@ import type {
   OrganizationType,
 } from '@samadhaan/shared';
 
-/** Triage priority assigned in the government workspace. */
-export const PRIORITY_LEVELS = ['P1', 'P2', 'P3', 'P4'] as const;
-
-export type PriorityLevel = (typeof PRIORITY_LEVELS)[number];
-
 /**
  * Display alias kept for existing components: severity bands and the AI's
  * severity vocabulary are the same set.

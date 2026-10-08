@@ -54,6 +54,16 @@ export function queueItem(
     thumbnailUrl: null,
     createdAt: '2026-10-06T08:00:00.000Z',
     hasAiAnalysis: true,
+    priority: {
+      tier: 'HIGH',
+      aiTier: 'HIGH',
+      score: 72.4,
+      overridden: false,
+      confidence: 0.82,
+      dataCompleteness: 0.9,
+      provisional: false,
+      summary: ['High severity', 'Significant community support'],
+    },
     ai: {
       status: 'COMPLETED',
       category: 'POTHOLES',

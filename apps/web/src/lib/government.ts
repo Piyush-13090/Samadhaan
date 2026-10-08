@@ -3,8 +3,9 @@ import type {
   DuplicateFilter,
   GovernmentActivityEntry,
   JurisdictionType,
+  PriorityTier,
 } from '@samadhaan/shared';
-import { PROBLEM_STATUS_DISPLAY } from './domain-display';
+import { PRIORITY_TIER_DISPLAY, PROBLEM_STATUS_DISPLAY } from './domain-display';
 
 /**
  * Paths and vocabulary for the government portal. As in the organisation
@@ -12,7 +13,7 @@ import { PROBLEM_STATUS_DISPLAY } from './domain-display';
  * API, which checks role, membership and jurisdiction.
  */
 
-export const GOVERNMENT_SECTIONS = ['dashboard', 'problems', 'map'] as const;
+export const GOVERNMENT_SECTIONS = ['dashboard', 'problems', 'map', 'analytics'] as const;
 export type GovernmentSection = (typeof GOVERNMENT_SECTIONS)[number];
 
 export function governmentPath(
@@ -77,6 +78,13 @@ export function describeActivity(entry: GovernmentActivityEntry): string {
       return `${org} declined ${entry.problemPublicId}`;
     case 'ALLOCATION_CANCELLED':
       return `Allocation of ${entry.problemPublicId} to ${org} withdrawn`;
+    case 'PRIORITY_OVERRIDE_CREATED':
+    case 'PRIORITY_OVERRIDE_UPDATED':
+      return `${entry.problemPublicId} priority set to ${tierWord(entry.toPriority)}`;
+    case 'PRIORITY_OVERRIDE_REMOVED':
+      return `${entry.problemPublicId} priority override removed${
+        entry.toPriority ? ` (back to the AI's ${tierWord(entry.toPriority)})` : ''
+      }`;
   }
   const to = entry.toStatus
     ? PROBLEM_STATUS_DISPLAY[entry.toStatus].label.toLowerCase()
@@ -100,3 +108,6 @@ export function describeActor(entry: GovernmentActivityEntry): string {
       return 'Another office';
   }
 }
+
+const tierWord = (tier: PriorityTier | null | undefined) =>
+  tier ? PRIORITY_TIER_DISPLAY[tier].label.toLowerCase() : 'unassessed';

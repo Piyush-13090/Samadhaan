@@ -3,6 +3,7 @@ import Link from 'next/link';
 import type { ProblemAssignment } from '@samadhaan/shared';
 import { Avatar } from '@/components/ui/avatar';
 import { Card, CardBody, CardHeader } from '@/components/ui/card';
+import { ProgressBar } from '@/components/ui/progress-bar';
 import { formatDate } from '@/lib/format';
 import { ORGANIZATION_TYPE_LABEL } from '@/lib/workspace';
 
@@ -49,6 +50,14 @@ export function ProblemAssignmentCard({ assignment }: { assignment: ProblemAssig
           </time>
           .
         </p>
+        {assignment.progress !== undefined && assignment.progress !== null && (
+          <ProgressBar
+            value={assignment.progress}
+            label="Work progress"
+            showLabel
+            size="sm"
+          />
+        )}
       </CardBody>
     </Card>
   );

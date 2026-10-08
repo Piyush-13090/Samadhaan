@@ -24,5 +24,8 @@ import { GovernmentService } from './government.service.js';
     GovernmentProblemsService,
     GovernmentMapService,
   ],
+  // For the priority engine's government endpoints (Prompt 21), which reuse
+  // the portal's guard and jurisdiction check.
+  exports: [GovernmentAccessService, GovernmentGuard, GovernmentProblemsService],
 })
 export class GovernmentModule {}

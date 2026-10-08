@@ -80,9 +80,7 @@ class HealthService:
         )
 
     @staticmethod
-    def _capability(
-        name: str, configured: bool, detail: str | None = None
-    ) -> DependencyHealth:
+    def _capability(name: str, configured: bool, detail: str | None = None) -> DependencyHealth:
         """An unconfigured provider is `degraded`, not `down`: the service
         itself is healthy, it simply cannot perform that class of work yet."""
         if not configured:

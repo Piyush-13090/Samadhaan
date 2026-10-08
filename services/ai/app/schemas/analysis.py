@@ -9,9 +9,21 @@ from pydantic import BaseModel, Field, field_validator
 from app.core.taxonomy import CATEGORIES, SEVERITIES, URGENCIES
 
 CategoryLiteral = Literal[
-    "ROADS", "POTHOLES", "STREETLIGHTS", "WATER", "DRAINAGE", "SANITATION",
-    "GARBAGE", "TRAFFIC", "PUBLIC_SAFETY", "POLLUTION", "ELECTRICITY",
-    "PUBLIC_TRANSPORT", "PARKS", "PUBLIC_INFRASTRUCTURE", "OTHER",
+    "ROADS",
+    "POTHOLES",
+    "STREETLIGHTS",
+    "WATER",
+    "DRAINAGE",
+    "SANITATION",
+    "GARBAGE",
+    "TRAFFIC",
+    "PUBLIC_SAFETY",
+    "POLLUTION",
+    "ELECTRICITY",
+    "PUBLIC_TRANSPORT",
+    "PARKS",
+    "PUBLIC_INFRASTRUCTURE",
+    "OTHER",
 ]
 
 LevelLiteral = Literal["LOW", "MEDIUM", "HIGH", "CRITICAL"]

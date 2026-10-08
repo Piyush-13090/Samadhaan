@@ -1,7 +1,8 @@
-import { Copy, MapPin, Sparkles, Users } from 'lucide-react';
+import { Copy, Info, MapPin, Sparkles, Users } from 'lucide-react';
 import Link from 'next/link';
 import type { GovernmentQueueItem } from '@samadhaan/shared';
 import { CategoryBadge } from '@/components/problems/category-badge';
+import { PriorityBadge } from '@/components/problems/priority-badge';
 import { ProblemStatusBadge } from '@/components/problems/problem-status-badge';
 import { SeverityBadge } from '@/components/problems/severity-badge';
 import { Card } from '@/components/ui/card';
@@ -33,6 +34,20 @@ export function ReviewQueueItem({
         <span className="font-mono type-caption text-ink-subtle">{item.publicId}</span>
         <ProblemStatusBadge status={item.status} size="sm" />
         <SeverityBadge severity={item.severity} size="sm" />
+        <PriorityBadge
+          tier={item.priority.tier}
+          overridden={item.priority.overridden}
+          provisional={item.priority.provisional}
+          size="sm"
+        />
+        {item.priority.score !== null && (
+          <span className="tabular type-caption text-ink-subtle">
+            Score {Math.round(item.priority.score)}
+            {item.priority.overridden && item.priority.aiTier
+              ? ` · AI ${item.priority.aiTier.toLowerCase()}`
+              : ''}
+          </span>
+        )}
       </div>
 
       <h3 className="mt-2 type-body-sm font-semibold text-ink">
@@ -55,6 +70,25 @@ export function ReviewQueueItem({
         )}
         <span>Reported {formatRelativeTime(item.createdAt)}</span>
       </div>
+
+      {item.priority.summary.length > 0 && (
+        <p className="mt-2 type-caption text-ink-muted">
+          <span className="sr-only">Why prioritised: </span>
+          {item.priority.summary.join(' · ')}
+        </p>
+      )}
+      {item.priority.confidence !== null && item.priority.dataCompleteness !== null && (
+        <p
+          className={cn(
+            'mt-1 inline-flex items-center gap-1 type-caption',
+            item.priority.provisional ? 'text-warning' : 'text-ink-subtle',
+          )}
+        >
+          <Info className="size-3.5" aria-hidden="true" />
+          Confidence {Math.round(item.priority.confidence * 100)}% · data{' '}
+          {Math.round(item.priority.dataCompleteness * 100)}% complete
+        </p>
+      )}
 
       <ul
         className="mt-3 flex flex-wrap gap-x-4 gap-y-1 type-caption text-ink-muted"

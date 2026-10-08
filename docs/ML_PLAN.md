@@ -226,9 +226,16 @@ yet factored into the threshold — the same argument applies.
 
 ---
 
-## 8. Priority prediction
+## 8. Priority prediction — **implemented** (explainable baseline)
 
-Order the government triage queue.
+Order the government triage queue (Prompt 21). Implemented as a documented,
+explainable heuristic over eight features. Some are AI-assisted (safety,
+urgency, impact breadth, stated affected count), each weighted by its
+confidence. Missing data is excluded and reported, there are fairness caps,
+government overrides are audited, and the history is versioned. **Not a
+trained or validated model.** Details:
+[`AI_PRIORITY_ENGINE.md`](./AI_PRIORITY_ENGINE.md). The text below is the
+original plan, which the baseline follows.
 
 **Approach.** Severity and urgency, plus community signal (supporters, velocity),
 plus category-specific escalation rules, plus age. Explicitly rule-based and
@@ -331,7 +338,22 @@ decisions.
 
 ---
 
-## 12. Resolution verification
+## 12. Resolution verification — **implemented** (advisory baseline)
+
+Prompt 22. The baseline combines:
+
+- a vision-language review of the evidence photos against the report photos,
+  plus document reading, for four signals with confidence and a
+  recommendation that has no "resolved";
+- deterministic location, time, completeness and image-quality signals from
+  metadata and PostGIS;
+- perceptual-hash and checksum duplicate checks;
+- guard rules that can only make the recommendation more cautious;
+- a human decision, always.
+
+**No image-embedding model exists yet,** so none is used. Details:
+[`RESOLUTION_VERIFICATION.md`](./RESOLUTION_VERIFICATION.md). The original
+plan follows.
 
 Assist a government reviewer in deciding whether submitted evidence shows the
 problem is actually resolved.

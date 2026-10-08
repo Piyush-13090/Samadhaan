@@ -26,25 +26,49 @@ from app.schemas.analysis import AnalysisImage, ModelAnalysis
 # Keyword rules, most specific first. Deliberately crude — this is a stub, and
 # making it cleverer would only make it easier to mistake for real analysis.
 _RULES: list[tuple[tuple[str, ...], str, str, str, str]] = [
-    (("manhole", "exposed wire", "live wire", "electrocut", "collapse"),
-     "PUBLIC_SAFETY", "open hazard", "CRITICAL", "CRITICAL"),
+    (
+        ("manhole", "exposed wire", "live wire", "electrocut", "collapse"),
+        "PUBLIC_SAFETY",
+        "open hazard",
+        "CRITICAL",
+        "CRITICAL",
+    ),
     (("pothole", "crater"), "POTHOLES", "road surface cavity", "HIGH", "HIGH"),
-    (("waterlog", "flood", "drain", "sewage", "sewer"),
-     "DRAINAGE", "blocked drainage", "HIGH", "MEDIUM"),
-    (("streetlight", "street light", "lamp post", "unlit", "dark"),
-     "STREETLIGHTS", "light not working", "MEDIUM", "MEDIUM"),
-    (("garbage", "trash", "waste", "rubbish", "dump"),
-     "GARBAGE", "uncollected waste", "MEDIUM", "MEDIUM"),
-    (("water supply", "tap", "pipeline", "leak"),
-     "WATER", "supply problem", "MEDIUM", "MEDIUM"),
+    (
+        ("waterlog", "flood", "drain", "sewage", "sewer"),
+        "DRAINAGE",
+        "blocked drainage",
+        "HIGH",
+        "MEDIUM",
+    ),
+    (
+        ("streetlight", "street light", "lamp post", "unlit", "dark"),
+        "STREETLIGHTS",
+        "light not working",
+        "MEDIUM",
+        "MEDIUM",
+    ),
+    (
+        ("garbage", "trash", "waste", "rubbish", "dump"),
+        "GARBAGE",
+        "uncollected waste",
+        "MEDIUM",
+        "MEDIUM",
+    ),
+    (("water supply", "tap", "pipeline", "leak"), "WATER", "supply problem", "MEDIUM", "MEDIUM"),
     (("toilet", "defecat", "sanitation"), "SANITATION", "sanitation problem", "MEDIUM", "MEDIUM"),
     (("signal", "traffic", "parking", "congestion"), "TRAFFIC", "traffic problem", "MEDIUM", "LOW"),
     (("pollution", "smoke", "burning", "noise"), "POLLUTION", "pollution", "MEDIUM", "MEDIUM"),
     (("transformer", "power cut", "electricity"), "ELECTRICITY", "supply problem", "HIGH", "HIGH"),
     (("bus stop", "shelter"), "PUBLIC_TRANSPORT", "transport facility", "LOW", "LOW"),
     (("park", "playground", "garden"), "PARKS", "park maintenance", "LOW", "LOW"),
-    (("footpath", "pavement", "bench", "railing"),
-     "PUBLIC_INFRASTRUCTURE", "damaged public asset", "MEDIUM", "LOW"),
+    (
+        ("footpath", "pavement", "bench", "railing"),
+        "PUBLIC_INFRASTRUCTURE",
+        "damaged public asset",
+        "MEDIUM",
+        "LOW",
+    ),
     (("road", "street"), "ROADS", "road condition", "MEDIUM", "MEDIUM"),
 ]
 
@@ -111,6 +135,7 @@ class DevelopmentProvider(VisionLanguageProvider):
         output_type: type[T],
         development_fallback: Callable[[], T] | None = None,
         max_tokens: int = 2048,
+        images: list[AnalysisImage] | None = None,
     ) -> T:
         """Returns the caller's deterministic result — never generated text.
 

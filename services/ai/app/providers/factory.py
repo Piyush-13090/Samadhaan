@@ -53,8 +53,7 @@ def build_provider(settings: Settings) -> VisionLanguageProvider:
 
     raise ProviderError(
         "PROVIDER_UNAVAILABLE",
-        f"Unsupported LLM_PROVIDER '{settings.llm_provider}'. "
-        "Supported: anthropic, development.",
+        f"Unsupported LLM_PROVIDER '{settings.llm_provider}'. Supported: anthropic, development.",
         retryable=False,
     )
 

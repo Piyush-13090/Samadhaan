@@ -13,9 +13,7 @@ from app.schemas.analysis import AnalysisImage, AnalyzeProblemRequest, ModelAnal
 from app.services.analysis_service import AnalysisService
 
 # A 1×1 PNG. Valid base64, so schema tests exercise the real path.
-TINY_PNG = (
-    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
-)
+TINY_PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="  # noqa: E501
 
 
 def make_request(**overrides) -> AnalyzeProblemRequest:
@@ -42,9 +40,7 @@ class FakeProvider(VisionLanguageProvider):
         return ProviderInfo(provider="fake", model_name="fake-model", model_version="1")
 
     async def analyze(self, *, system_prompt, user_message, images) -> ModelAnalysis:
-        self.calls.append(
-            {"system": system_prompt, "user": user_message, "images": images}
-        )
+        self.calls.append({"system": system_prompt, "user": user_message, "images": images})
         if self._error:
             raise self._error
         assert self._result is not None
@@ -89,9 +85,7 @@ class TestAnalysisService:
         provider = FakeProvider(valid_analysis())
         service = AnalysisService(provider, settings())
 
-        request = make_request(
-            images=[AnalysisImage(media_type="image/png", data=TINY_PNG)]
-        )
+        request = make_request(images=[AnalysisImage(media_type="image/png", data=TINY_PNG)])
         await service.analyze(request)
 
         call = provider.calls[0]
@@ -132,11 +126,12 @@ class TestAnalysisService:
 
     async def test_derives_severity_score_from_the_band(self) -> None:
         for severity, expected in [
-            ("LOW", 2.0), ("MEDIUM", 5.0), ("HIGH", 7.5), ("CRITICAL", 9.5),
+            ("LOW", 2.0),
+            ("MEDIUM", 5.0),
+            ("HIGH", 7.5),
+            ("CRITICAL", 9.5),
         ]:
-            service = AnalysisService(
-                FakeProvider(valid_analysis(severity=severity)), settings()
-            )
+            service = AnalysisService(FakeProvider(valid_analysis(severity=severity)), settings())
             result = await service.analyze(make_request())
             assert result.severity_score == expected
 
@@ -200,9 +195,7 @@ class TestDevelopmentProvider:
 
 class TestProviderFactory:
     def test_builds_the_development_provider_outside_production(self) -> None:
-        provider = build_provider(
-            Settings(NODE_ENV="development", LLM_PROVIDER="development")
-        )
+        provider = build_provider(Settings(NODE_ENV="development", LLM_PROVIDER="development"))
 
         assert isinstance(provider, DevelopmentProvider)
 
@@ -274,9 +267,7 @@ class TestAnalysisEndpoint:
                 "problem_id": "prb-1",
                 "title": "A title here",
                 "description": "A description long enough to pass validation.",
-                "images": [
-                    {"media_type": "image/png", "data": TINY_PNG} for _ in range(9)
-                ],
+                "images": [{"media_type": "image/png", "data": TINY_PNG} for _ in range(9)],
             },
         )
 

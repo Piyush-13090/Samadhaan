@@ -91,9 +91,7 @@ def test_embedding_health_names_the_model() -> None:
         )
     ).readiness()
 
-    embedding = next(
-        dep for dep in report.dependencies if dep.name == "embeddingProvider"
-    )
+    embedding = next(dep for dep in report.dependencies if dep.name == "embeddingProvider")
     assert embedding.message is not None
     assert "all-MiniLM-L6-v2" in embedding.message
     assert "384d" in embedding.message

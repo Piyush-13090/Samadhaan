@@ -89,9 +89,7 @@ class TestEmbeddingService:
     async def test_returns_one_vector_per_text_with_provenance(self):
         service = EmbeddingService(FakeEmbeddingProvider())
 
-        result = await service.embed_text(
-            EmbedTextRequest(texts=["a pothole", "a streetlight"])
-        )
+        result = await service.embed_text(EmbedTextRequest(texts=["a pothole", "a streetlight"]))
 
         assert len(result.embeddings) == 2
         assert [vector.index for vector in result.embeddings] == [0, 1]
@@ -299,8 +297,7 @@ class TestRealModel:
 
         assert result.dimensions == DIMENSIONS
         assert all(
-            abs(sum(value * value for value in vector) ** 0.5 - 1.0) < 1e-5
-            for vector in vectors
+            abs(sum(value * value for value in vector) ** 0.5 - 1.0) < 1e-5 for vector in vectors
         )
         # The whole premise of semantic deduplication: two wordings of the same
         # problem must sit closer than two different problems.

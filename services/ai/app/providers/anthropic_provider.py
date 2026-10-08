@@ -150,14 +150,29 @@ class AnthropicVisionProvider(VisionLanguageProvider):
         output_type: type[T],
         development_fallback: Callable[[], T] | None = None,
         max_tokens: int = 2048,
+        images: list[AnalysisImage] | None = None,
     ) -> T:
-        """Constrained structured output for a text-only task (Prompt 19)."""
+        """Constrained structured output (Prompt 19); images optional (Prompt 22)."""
+        content: str | list[dict[str, object]] = user_message
+        if images:
+            content = [
+                {
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": image.media_type,
+                        "data": image.data,
+                    },
+                }
+                for image in images
+            ]
+            content.append({"type": "text", "text": user_message})
         try:
             response = await self._client.messages.parse(
                 model=self._model,
                 max_tokens=max_tokens,
                 system=system_prompt,
-                messages=[{"role": "user", "content": user_message}],
+                messages=[{"role": "user", "content": content}],
                 output_format=output_type,
             )
         except anthropic.AuthenticationError as error:

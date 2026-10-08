@@ -19,6 +19,14 @@ import {
   X,
   XCircle,
   type LucideIcon,
+  Siren,
+  FileCheck2,
+  ClipboardCheck,
+  BadgeCheck,
+  FileWarning,
+  Sparkles,
+  Award,
+  TrendingUp,
 } from 'lucide-react';
 import Link from 'next/link';
 import type { NotificationType, NotificationView } from '@samadhaan/shared';
@@ -69,6 +77,28 @@ const TYPE_META: Record<
     className: 'bg-warning-soft text-warning',
   },
   PROJECT_COORDINATOR_QUESTION: { icon: AiSparkIcon, className: 'bg-ai-soft text-ai' },
+  PRIORITY_ESCALATED: { icon: Siren, className: 'bg-danger-soft text-danger' },
+  RESOLUTION_EVIDENCE_SUBMITTED: {
+    icon: FileCheck2,
+    className: 'bg-primary-soft text-primary',
+  },
+  RESOLUTION_EVIDENCE_REVIEWED: { icon: AiSparkIcon, className: 'bg-ai-soft text-ai' },
+  RESOLUTION_VERIFICATION_REQUESTED: {
+    icon: ClipboardCheck,
+    className: 'bg-primary-soft text-primary',
+  },
+  RESOLUTION_MORE_EVIDENCE_REQUESTED: {
+    icon: FileWarning,
+    className: 'bg-warning-soft text-warning',
+  },
+  RESOLUTION_APPROVED: { icon: BadgeCheck, className: 'bg-success-soft text-success' },
+  RESOLUTION_REJECTED: { icon: XCircle, className: 'bg-danger-soft text-danger' },
+  IMPACT_POINTS_AWARDED: { icon: Sparkles, className: 'bg-primary-soft text-primary' },
+  BADGE_EARNED: { icon: Award, className: 'bg-success-soft text-success' },
+  REPUTATION_TIER_REACHED: {
+    icon: TrendingUp,
+    className: 'bg-success-soft text-success',
+  },
 };
 
 /**

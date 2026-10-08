@@ -1026,9 +1026,68 @@ Migration `20261013090000_knowledge_rag`. Detail:
 - **Both vector and full-text indexes** are also kept in `post-migrate.sql`.
 - **Access is enforced in the retrieval SQL itself.** See `RAG_SECURITY.md`.
 
+## 14o. AI Priority Engine (Prompt 21)
+
+Migration `20261014090000_priority_engine`. Detail:
+[`AI_PRIORITY_ENGINE.md`](./AI_PRIORITY_ENGINE.md).
+
+| Table / column | Purpose | Notable constraints and indexes |
+| --- | --- | --- |
+| `problems.priorityTier`, `priorityAssessedAt` (+ existing `priorityScore`) | The latest AI assessment, denormalised for queue sort/filter. Written by the engine only (raw SQL, so `updatedAt` is untouched); never by an override | `(status, priorityTier, priorityScore)` |
+| `problem_priority_assessments` | Append-only history: score, tier, eight component scores (null = unavailable), `confidence`, `dataCompleteness`, AI model/prompt, `aiStatus`, scoring model/version, feature version, `explanation`, `featureMetadata` (every feature + AI block + facts), `guidance`, `changes`, `outcomeHash`, `aiInputsHash`, `trigger`, `calculatedAt`, `confirmedAt` | CHECK `problem_priority_assessments_bounds`; `(problemId, calculatedAt DESC)`, `(calculatedAt)` |
+| `problem_priority_overrides` | One per problem: the official's tier and reason, office, official, and the AI tier/score/assessment at the time | UNIQUE `problemId`; CHECK reason 10–1000; `(organizationId)` |
+
+- **New enum** `PriorityTier`.
+- **New notification type** `PRIORITY_ESCALATED`.
+- **New audit actions** `PRIORITY_OVERRIDE_CREATED`, `_UPDATED` and
+  `_REMOVED`. The audit log stays append-only.
+- **History is de-duplicated by outcome fingerprint:** an unchanged
+  recalculation moves `confirmedAt` instead of adding a row.
+- **The seed no longer writes `priorityScore`.** Placeholder scores from
+  earlier seeds are reset to 0 for never-assessed problems, and the engine
+  assesses them on start-up.
+- **Prisma's** proposal to drop the HNSW indexes was removed again.
+
+## 14p. Resolution verification (Prompt 22)
+
+Migration `20261015090000_resolution_verification`. Detail:
+[`RESOLUTION_VERIFICATION.md`](./RESOLUTION_VERIFICATION.md).
+
+| Table | Purpose | Notable constraints and indexes |
+| --- | --- | --- |
+| `resolution_evidence` | Evidence item: project and the problem, room, allocation and organisation copied from it; submitter; type; title; description; status; `version`; `replacesEvidenceId` (UNIQUE: one successor); verification request; `aiStatus`; `aiAttempts`; `decisionReason`; timestamps | CHECK title 1–200, description ≤ 4000, `submittedAt` consistent with status, version ≥ 1; `(projectId, createdAt)`, `(status, updatedAt)`, `(problemId)` |
+| `resolution_evidence_files` | Metadata only (bytes in storage): role, storage key (UNIQUE), safe name, MIME type, size, `checksum`, `storedChecksum`, `perceptualHash` (BIGINT), dimensions, EXIF `capturedAt`, GPS (never exposed), `locationDistanceM`, metadata | CHECK size > 0, checksums are 64 hex characters; `(evidenceId)`, `(checksum)` |
+| `resolution_verification_assessments` | One AI review: eight signal scores, `evidenceQuality`, `confidence`, `aiRecommendation`, guarded `recommendation`, explanation, references, concerns, missing evidence, guidance, model, prompt, embedding and verification versions | CHECK quality 0–100; `(evidenceId, createdAt DESC)` |
+| `resolution_verification_requests` | Organisation's request and the office's decision | Partial UNIQUE `resolution_verification_requests_one_pending (projectId) WHERE status = 'PENDING'` (also in `post-migrate.sql`); CHECK a reason (≥ 10) for REJECTED and MORE_EVIDENCE_REQUESTED; CHECK `decidedAt` consistent with status |
+
+- **New enums:** `EvidenceType`, `EvidenceStatus`, `EvidenceFileRole`,
+  `VerificationRecommendation` (deliberately no RESOLVED) and
+  `VerificationRequestStatus`.
+- **Six new notification types.**
+- **New audit actions,** listed in `RESOLUTION_VERIFICATION.md` §9.
+- **No binary data in the database.**
+
+## 14q. Impact points, reputation and badges (Prompt 23)
+
+Migration `20261016090000_impact_points`. Detail:
+[`IMPACT_POINTS.md`](./IMPACT_POINTS.md),
+[`REPUTATION_SYSTEM.md`](./REPUTATION_SYSTEM.md).
+
+| Table | Purpose | Notable constraints and indexes |
+| --- | --- | --- |
+| `impact_point_transactions` | The ledger: user, amount, type, reason, entity, `problemId` (no FK; for filters), `ruleVersion`, `idempotencyKey`, `actorUserId`, metadata | **Append-only trigger** `impact_point_transactions_append_only`; UNIQUE `idempotencyKey`; CHECK amount ≠ 0 and \|amount\| ≤ 10 000; CHECK reason 1–500; CHECK an adjustment names its actor; `(userId, createdAt DESC)`, `(type, createdAt)`, `(entityId)`, `(problemId)`, `(createdAt)` |
+| `user_impact_stats` | Maintained aggregate (the ledger is the source of truth): `impactPoints`, `resolvedContributions`, `reputationScore`, `reputationTier`, `reputationVersion` | CHECK reputation 0–100; `(impactPoints DESC)`, `(reputationScore DESC)` |
+| `badge_definitions` | Badge catalogue, upserted from code on start-up | PK `key` |
+| `user_badges` | Badges earned, with the evidence at the time | **Append-only trigger**; UNIQUE `(userId, badgeKey)`; `(badgeKey)` |
+
+- **New enums:** `ImpactTransactionType`, `ReputationTier`.
+- **Three new notification types.**
+- **No points are seeded.** The API's start-up reconciliation awards them from
+  the seeded data's real states.
+
 ## 15. Planned, not yet modelled
 
-Completion evidence and verification, impact-point ledger,
+Comment reports for moderation,
 comment reports for moderation, notification
 preferences and delivery channels beyond in-app. Each attaches to `Problem`
 through its own table.

@@ -5,6 +5,7 @@ import { Public } from '../auth/decorators/public.decorator.js';
 import { AppException } from '../common/app.exception.js';
 import { RESOLUTION_STORAGE_PREFIX } from '../resolution/resolution-attachments.service.js';
 import { KNOWLEDGE_STORAGE_PREFIX } from '../knowledge/knowledge-sources.service.js';
+import { EVIDENCE_STORAGE_PREFIX } from '../verification/evidence-files.js';
 import { isSafeStorageKey } from '../storage/storage-key.js';
 import { StorageService } from '../storage/storage.types.js';
 
@@ -50,7 +51,8 @@ export class MediaController {
     // room's authorised endpoint, never from this public route.
     if (
       key.startsWith(RESOLUTION_STORAGE_PREFIX) ||
-      key.startsWith(KNOWLEDGE_STORAGE_PREFIX)
+      key.startsWith(KNOWLEDGE_STORAGE_PREFIX) ||
+      key.startsWith(EVIDENCE_STORAGE_PREFIX)
     ) {
       throw AppException.notFound('File');
     }

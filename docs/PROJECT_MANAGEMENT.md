@@ -72,9 +72,14 @@ PLANNED ──▶ ACTIVE ──▶ COMPLETED
 - **Work beginning starts the project.** The first task moved to
   `IN_PROGRESS` on a `PLANNED` project also moves the project to `ACTIVE`, in
   the same transaction.
-- **COMPLETED** needs no open tasks (TODO, IN_PROGRESS or BLOCKED). It does
-  **not** change the problem's status: confirming that the civic problem is
-  resolved is the verification workflow (Prompt 22).
+- **COMPLETED** needs no open tasks (TODO, IN_PROGRESS or BLOCKED), and since
+  Prompt 22 it is reached **only through resolution verification**:
+  - the organisation submits completion evidence and requests verification;
+  - the allocating office's approval completes the project and resolves the
+    problem in one transaction;
+  - an organisation moving its own project to COMPLETED gets 409.
+
+  See [`RESOLUTION_VERIFICATION.md`](./RESOLUTION_VERIFICATION.md).
 - **PAUSED** stops work: tasks cannot be started or completed until the
   project resumes. Planning edits are still allowed.
 - **COMPLETED or CANCELLED** makes the whole plan read-only. So does a closed

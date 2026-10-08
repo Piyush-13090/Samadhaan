@@ -130,10 +130,67 @@ export class NotificationEventHandler implements OnModuleInit, OnModuleDestroy {
           ),
         };
 
+      case 'EVIDENCE_SUBMITTED':
+      case 'EVIDENCE_REVIEWED':
+        return {
+          officialIds: await officialFacts(this.prisma, event.governmentOrganizationId),
+        };
+      case 'VERIFICATION_REQUESTED':
+        return {
+          officialIds: await officialFacts(this.prisma, event.governmentOrganizationId),
+          organizationManagerIds: await managerFacts(this.prisma, event.organizationId),
+        };
+      case 'VERIFICATION_DECIDED':
+        return {
+          organizationManagerIds: await managerFacts(this.prisma, event.organizationId),
+        };
+
+      case 'PRIORITY_TIER_CHANGED': {
+        if (event.toTier !== 'CRITICAL') return {};
+        const [recipients, override] = await Promise.all([
+          escalationRecipientFacts(this.prisma, event.problemId),
+          this.prisma.problemPriorityOverride.findUnique({
+            where: { problemId: event.problemId },
+            select: { id: true },
+          }),
+        ]);
+        return { escalationRecipients: recipients, overridden: override !== null };
+      }
+
       default:
         return {};
     }
   }
+}
+
+/**
+ * Officials of every operational government office whose jurisdiction covers
+ * the problem — the same rule `resolveJurisdiction` applies (a boundary, else
+ * cities, else postal codes), evaluated for all offices in one query. A user in
+ * several such offices is notified once, linked to the first.
+ */
+export async function escalationRecipientFacts(
+  prisma: PrismaService,
+  problemId: string,
+): Promise<Array<{ userId: string; governmentSlug: string }>> {
+  const rows = await prisma.$queryRaw<Array<{ userId: string; slug: string }>>`
+    SELECT DISTINCT ON (m."userId") m."userId", o.slug
+    FROM problems p
+    JOIN organizations o ON o.type = 'GOVERNMENT' AND o."deletedAt" IS NULL
+      AND o."isActive" AND o."verificationStatus" <> 'SUSPENDED'
+    JOIN organization_members m ON m."organizationId" = o.id AND m.status = 'ACTIVE'
+    JOIN users u ON u.id = m."userId" AND u.role = 'GOVERNMENT' AND u."deletedAt" IS NULL
+    WHERE p.id = ${problemId}::uuid
+      AND (
+        (o."jurisdictionBoundary" IS NOT NULL AND ST_Covers(o."jurisdictionBoundary", p.location))
+        OR (o."jurisdictionBoundary" IS NULL AND cardinality(o."jurisdictionCities") > 0
+            AND lower(p.city) IN (SELECT lower(btrim(c)) FROM unnest(o."jurisdictionCities") c))
+        OR (o."jurisdictionBoundary" IS NULL AND cardinality(o."jurisdictionCities") = 0
+            AND upper(p."postalCode") IN (SELECT upper(btrim(c)) FROM unnest(o."jurisdictionPostalCodes") c))
+      )
+    ORDER BY m."userId", o.slug
+  `;
+  return rows.map((r) => ({ userId: r.userId, governmentSlug: r.slug }));
 }
 
 /**
@@ -209,4 +266,37 @@ async function coordinatorRecipientFacts(
     select: { userId: true },
   });
   return [...new Set(members.map((member) => member.userId))];
+}
+
+/** Active officials of a government office (role GOVERNMENT). */
+async function officialFacts(
+  prisma: PrismaService,
+  organizationId: string,
+): Promise<string[]> {
+  const rows = await prisma.organizationMember.findMany({
+    where: {
+      organizationId,
+      status: 'ACTIVE',
+      user: { deletedAt: null, role: 'GOVERNMENT' },
+    },
+    select: { userId: true },
+  });
+  return rows.map((r) => r.userId);
+}
+
+/** An organisation's active OWNER/ADMIN members. */
+async function managerFacts(
+  prisma: PrismaService,
+  organizationId: string,
+): Promise<string[]> {
+  const rows = await prisma.organizationMember.findMany({
+    where: {
+      organizationId,
+      status: 'ACTIVE',
+      membershipRole: { in: ['OWNER', 'ADMIN'] },
+      user: { deletedAt: null },
+    },
+    select: { userId: true },
+  });
+  return rows.map((r) => r.userId);
 }

@@ -8,6 +8,8 @@ import { PageContainer } from '@/components/layout/page-container';
 import { ProblemLocationMap } from '@/components/map/problem-location-map';
 import { ProblemOrganizationMatches } from '@/components/matching/problem-organization-matches';
 import { CategoryBadge } from '@/components/problems/category-badge';
+import { PublicPriorityCard } from '@/components/priority/public-priority-card';
+import { ProblemResolutionCard } from '@/components/verification/problem-resolution-card';
 import { ProblemStatusBadge } from '@/components/problems/problem-status-badge';
 import { SeverityBadge } from '@/components/problems/severity-badge';
 import { Alert } from '@/components/ui/alert';
@@ -213,6 +215,10 @@ async function ProblemContent({ publicId }: { publicId: string }) {
         </div>
 
         <aside className="space-y-5">
+          {problem.resolution && (
+            <ProblemResolutionCard resolution={problem.resolution} />
+          )}
+          <PublicPriorityCard publicId={problem.publicId} />
           {problem.assignment && (
             <ProblemAssignmentCard assignment={problem.assignment} />
           )}

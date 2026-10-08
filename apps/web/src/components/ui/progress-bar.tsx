@@ -53,7 +53,7 @@ export function ProgressBar({
 
       <ProgressPrimitive.Root
         value={clamped}
-        aria-label={showLabel ? undefined : label}
+        aria-label={label}
         className={cn(
           'relative w-full overflow-hidden rounded-full bg-subtle',
           size === 'sm' ? 'h-1' : 'h-1.5',

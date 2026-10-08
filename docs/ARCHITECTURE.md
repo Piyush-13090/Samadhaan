@@ -475,9 +475,10 @@ Two properties are worth stating here because they are easy to get wrong:
   between requests and the boundary row would be returned twice. Pinning it also
   keeps the feed stable while a citizen scrolls it.
 
-This is basic, transparent discovery ranking. **It is not the AI priority
-engine**, which is a later milestone and will be a learned model — nothing here
-pretends otherwise, and no AI priority score is displayed.
+This is basic, transparent discovery ranking for citizens. **It is not the AI
+priority engine** (Prompt 21), which orders the government review queue and is
+described in [`AI_PRIORITY_ENGINE.md`](./AI_PRIORITY_ENGINE.md); no priority
+score is shown in citizen feeds.
 
 ### What a feed publishes
 
@@ -783,6 +784,112 @@ Detail: [`GOVERNMENT_PORTAL.md`](./GOVERNMENT_PORTAL.md).
   (`resolveShellContext`); the old placeholder links to verification and
   analytics are gone, because those do not exist yet. Allocation (Prompt 16)
   lives on the problem review page.
+
+## Impact points and reputation
+
+Detail: [`IMPACT_POINTS.md`](./IMPACT_POINTS.md),
+[`REPUTATION_SYSTEM.md`](./REPUTATION_SYSTEM.md).
+
+```
+DomainEventBus ─▶ ImpactEventHandler (VERIFIED · DUPLICATE · RESOLVED · rejections) + reconciliation sweep
+                    └▶ ContributionAttributionService (attributeResolution: pure, deterministic)
+                         └▶ ImpactLedgerService: per-user advisory lock · caps · INSERT … ON CONFLICT DO NOTHING
+                              · user_impact_stats in the same transaction
+                              ─▶ ReputationService (bounded counts) ─▶ tier
+                              ─▶ BadgeEvaluationService (one grouped query) ─▶ user_badges
+                              ─▶ IMPACT_POINTS_AWARDED / BADGE_EARNED / REPUTATION_TIER_REACHED ─▶ notifications
+ImpactController (/users/me/*) · LeaderboardController (SQL RANK(), cached) · AdminImpactController (audited)
+```
+
+- **The ledger is append-only and idempotent at the database.** Point values
+  are versioned in code.
+- **Rewards hang on confirmed outcomes,** never on raw activity.
+- **Web:**
+  - `/leaderboard` (`LeaderboardBoard`, `LeaderboardRow`);
+  - `/profile/impact` (`ImpactOverview`, `ImpactScoreCard`, `ReputationCard`,
+    `BadgeGrid` / `BadgeCard`, `ContributionHistory`);
+  - a summary on `/profile`.
+
+## Civic analytics
+
+Detail: [`ANALYTICS_ARCHITECTURE.md`](./ANALYTICS_ARCHITECTURE.md),
+[`ANALYTICS_METRICS.md`](./ANALYTICS_METRICS.md),
+[`CIVIC_HOTSPOTS.md`](./CIVIC_HOTSPOTS.md).
+
+```
+GovernmentGuard / OrganizationWorkspaceGuard / session
+  └▶ resolvePeriod (IANA zone → local-midnight instants, granularity, previous period)
+       └▶ filterSql AND jurisdiction.condition ─▶ indexed SQL aggregates (timeline CTE, FILTER counts,
+            percentile_cont, ST_ClusterDBSCAN) ─▶ pure rules (rates, change, funnel, suppression, hotspots)
+            └▶ Redis cache keyed by scope + jurisdiction hash + endpoint + period + filters
+                 └▶ dashboards: sections load independently; charts paired with tables
+POST insights ─▶ facts ─▶ AI service /analytics/insights (validated: cited facts only, no new numbers,
+                 no causes) + PUBLIC RAG guidance kept separate ─▶ cached 6 h
+```
+
+- **No new tables.** Hotspots are computed on demand.
+- **Local-day bucketing** uses the true-instant correction. The command
+  centre's trend now shares it.
+- **Exports are audited.** Insights and exports never carry coordinates or
+  personal data.
+
+## Resolution verification
+
+Detail: [`RESOLUTION_VERIFICATION.md`](./RESOLUTION_VERIFICATION.md),
+[`EVIDENCE_SECURITY.md`](./EVIDENCE_SECURITY.md).
+
+```
+EvidenceController ─▶ ProjectsService.resolve (room access) ─▶ EvidenceService
+   create draft · upload (bytes → type, sharp: EXIF read then stripped, dHash, SHA-256; PostGIS distance)
+   submit ─▶ VerificationJobsService (claim · retry · bounded · resumed on boot)
+              └▶ VerificationAnalysisService: bounded context + photos + PDFs + RAG guidance
+                   ─▶ AiService.verifyEvidence ─▶ FastAPI /verify/evidence (signals + advisory recommendation)
+                   ─▶ deterministic signals, concerns, checklist ─▶ guard rules ─▶ assessment ─▶ AI_REVIEWED
+   request verification (one pending per project)
+GovernmentVerificationController (GovernmentGuard + findInScope + allocating office)
+   approve ─▶ one transaction: request, evidence, ProjectsService.completeOnVerification, problem RESOLVED, audit
+   reject / request evidence (reason) ─▶ evidence REJECTED / NEEDS_MORE_EVIDENCE
+DomainEventBus ─▶ notifications (organisation, officials, reporter, followers)
+```
+
+- **Advisory AI.** The vocabulary has no "resolved", and guard rules only
+  ever make the recommendation more cautious.
+- **One door to completion.** Organisations cannot complete a project;
+  approval does it atomically with resolving the problem.
+- **Web:**
+  - the project "Evidence" tab (`ProjectEvidencePanel`, `EvidenceUploadDialog`
+    with drag-and-drop, camera, progress and retry; `EvidenceCard`;
+    `AiVerificationReview`);
+  - the government `GovernmentVerificationPanel`;
+  - the citizen `ProblemResolutionCard` and assignment progress.
+
+## AI Priority Engine
+
+Detail: [`AI_PRIORITY_ENGINE.md`](./AI_PRIORITY_ENGINE.md).
+
+```
+DomainEventBus ─▶ PriorityJobsService (coalesce per problem · in-process queue · sweeps, Redis lock)
+                    └▶ PriorityCalculationService
+                         PriorityFeatureService ─ SQL: distinct engaged people, duplicate cluster,
+                         │                        PostGIS density + local baseline, analysis, photos
+                         ├─ AiService.priorityFeatures ─▶ FastAPI /priority/features (signals only)
+                         ├─ KnowledgeRetrievalService (PUBLIC guidance, context only)
+                         PriorityModel.score (HeuristicPriorityModel) ─▶ tier · reasons · changes
+                         persist (advisory lock, de-duplicated history) ─▶ problems.priorityScore/Tier
+                         PRIORITY_TIER_CHANGED ─▶ NotificationEventHandler (PRIORITY_ESCALATED)
+GovernmentPriorityController (GovernmentGuard + findInScope) ─▶ PriorityService: view · recalc · override (audited)
+GovernmentProblemsService.list: effective tier = override ?? AI tier (sort/filter)
+```
+
+- **Advisory.** The engine writes assessments and the denormalised score and
+  tier. It never changes status, allocation or projects.
+- **Signals, not verdicts, from the model.** The score is a documented
+  formula over features weighted by confidence.
+- **Web:**
+  - review-queue priority badges, sort, filter and tier sections;
+  - `PriorityInsightCard`, with breakdown, history, guidance and override, on
+    the review page;
+  - `PublicPriorityCard`, an attention level only, on the citizen page.
 
 ## Knowledge & RAG
 

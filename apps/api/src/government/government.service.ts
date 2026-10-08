@@ -12,8 +12,13 @@ import type { GovernmentScope } from './government-access.service.js';
 import { ProjectsService } from '../resolution/projects.service.js';
 import { AllocationsService } from '../allocations/allocations.service.js';
 import { GovernmentProblemsService } from './government-problems.service.js';
-
-const DAY_MS = 86_400_000;
+import { AppConfig } from '../config/app.config.js';
+import {
+  addDays,
+  bucketSql,
+  localDate,
+  zonedMidnight,
+} from '../analytics/analytics-time.js';
 
 /**
  * The command centre's reads. Every figure is an aggregate computed in
@@ -27,6 +32,7 @@ export class GovernmentService {
     private readonly problems: GovernmentProblemsService,
     private readonly allocations: AllocationsService,
     private readonly projects: ProjectsService,
+    private readonly config: AppConfig,
   ) {}
 
   async context(scope: GovernmentScope, userId: string): Promise<GovernmentContext> {
@@ -63,14 +69,14 @@ export class GovernmentService {
     const office = { governmentOrganizationId: scope.organization.id };
     const [counts, allocationCounts, points, queue, activity, projects, activeProjects] =
       await Promise.all([
-      this.metrics(scope),
-      this.allocations.governmentMetrics(scope.organization.id),
-      this.trend(scope, range),
-      this.problems.list(scope, { view: 'queue', sort: 'queue' }, 1, 6),
-      this.problems.audit(scope, { limit: 8 }),
-      this.projects.summaries(office),
-      this.projects.countLive(office),
-    ]);
+        this.metrics(scope),
+        this.allocations.governmentMetrics(scope.organization.id),
+        this.trend(scope, range),
+        this.problems.list(scope, { view: 'queue', sort: 'queue' }, 1, 6),
+        this.problems.audit(scope, { limit: 8 }),
+        this.projects.summaries(office),
+        this.projects.countLive(office),
+      ]);
 
     return {
       metrics: { ...counts, ...allocationCounts, activeProjects },
@@ -121,20 +127,23 @@ export class GovernmentService {
   }
 
   /**
-   * Reports and resolutions per day over the range — two grouped counts,
-   * merged onto a complete list of days so quiet days show as zero rather
-   * than vanishing from the chart.
+   * Reports and resolutions per local day over the range — two grouped
+   * counts, merged onto a complete list of days so quiet days show as zero
+   * rather than vanishing from the chart.
+   *
+   * Days are the reporting time zone's (ANALYTICS_TIMEZONE), not UTC's: a
+   * report filed at 01:00 in Kolkata belongs to that day. The bucketing is
+   * shared with the analytics module (Prompt 24).
    */
   async trend(scope: GovernmentScope, range: TrendRange): Promise<TrendPoint[]> {
-    const today = new Date();
-    const start = new Date(
-      Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()) -
-        (range - 1) * DAY_MS,
-    );
+    const zone = this.config.analytics.timezone;
+    const today = localDate(new Date(), zone);
+    const first = addDays(today, -(range - 1));
+    const start = zonedMidnight(first, zone);
 
     const grouped = (column: 'createdAt' | 'resolvedAt') =>
       this.prisma.$queryRaw<Array<{ day: string; count: number }>>(Prisma.sql`
-        SELECT to_char((p.${Prisma.raw(`"${column}"`)} AT TIME ZONE 'UTC')::date, 'YYYY-MM-DD') AS day,
+        SELECT ${bucketSql(Prisma.sql`p.${Prisma.raw(`"${column}"`)}`, 'day', zone)} AS day,
                count(*)::int AS count
         FROM problems p
         WHERE p."deletedAt" IS NULL
@@ -152,7 +161,7 @@ export class GovernmentService {
     const resolvedBy = new Map(resolved.map((row) => [row.day, row.count]));
 
     return Array.from({ length: range }, (_, index) => {
-      const date = new Date(start.getTime() + index * DAY_MS).toISOString().slice(0, 10);
+      const date = addDays(first, index);
       return {
         date,
         reported: reportedBy.get(date) ?? 0,

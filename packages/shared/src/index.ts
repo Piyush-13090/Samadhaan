@@ -21,3 +21,7 @@ export * from './types/resolution.js';
 export * from './types/project.js';
 export * from './types/coordinator.js';
 export * from './types/knowledge.js';
+export * from './types/priority.js';
+export * from './types/verification.js';
+export * from './types/impact.js';
+export * from './types/analytics.js';

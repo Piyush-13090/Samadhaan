@@ -8,9 +8,13 @@ import {
   DUPLICATE_FILTERS,
   GOVERNMENT_SORTS,
   GOVERNMENT_STATUS_FILTERS,
+  PRIORITY_FILTERS,
+  PRIORITY_TIERS,
   PROBLEM_CATEGORIES,
   PROBLEM_SEVERITIES,
   type GovernmentProblemPage,
+  type GovernmentQueueItem,
+  type PriorityTier,
 } from '@samadhaan/shared';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -30,6 +34,7 @@ import { ApiError } from '@/lib/api-error';
 import { cn } from '@/lib/cn';
 import {
   CATEGORY_DISPLAY,
+  PRIORITY_TIER_DISPLAY,
   PROBLEM_STATUS_DISPLAY,
   SEVERITY_DISPLAY,
 } from '@/lib/domain-display';
@@ -46,12 +51,17 @@ export const SEARCH_DEBOUNCE_MS = 400;
 const ALL = 'ALL';
 
 const SORT_LABEL: Record<(typeof GOVERNMENT_SORTS)[number], string> = {
-  queue: 'Review order',
+  priority: 'Priority',
+  queue: 'Severity, then longest waiting',
   newest: 'Newest',
   oldest: 'Oldest',
   severity: 'Most severe',
+  urgency: 'Most urgent',
   supported: 'Most supported',
 };
+
+/** The default order: effective priority (an official's override wins). */
+const DEFAULT_SORT = 'priority';
 
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -73,6 +83,7 @@ function readQuery(params: URLSearchParams): GovernmentProblemsQuery {
     aiStatus: pick('aiStatus', AI_STATUS_FILTERS),
     duplicate: pick('duplicate', DUPLICATE_FILTERS),
     sort: pick('sort', GOVERNMENT_SORTS),
+    priority: pick('priority', PRIORITY_FILTERS),
     q: params.get('q')?.trim() || undefined,
     area: params.get('area')?.trim() || undefined,
     reportedFrom: date('reportedFrom'),
@@ -143,7 +154,11 @@ export function ReviewList({ slug }: { slug: string }) {
   useEffect(() => {
     const controller = new AbortController();
     const key = `${requestKey}#${attempt}`;
-    fetchGovernmentProblems(slug, query, controller.signal)
+    fetchGovernmentProblems(
+      slug,
+      { ...query, sort: query.sort ?? DEFAULT_SORT },
+      controller.signal,
+    )
       .then((data) => setResult({ key, kind: 'ok', data }))
       .catch((error: unknown) => {
         if (controller.signal.aborted) return;
@@ -163,7 +178,9 @@ export function ReviewList({ slug }: { slug: string }) {
   const current = result?.key === `${requestKey}#${attempt}` ? result : null;
   const data = current?.kind === 'ok' ? current.data : null;
   const allReports = query.view === 'all';
+  const byPriority = (query.sort ?? DEFAULT_SORT) === 'priority';
   const filtered = Boolean(
+    query.priority ||
     query.status ||
     query.severity ||
     query.category ||
@@ -215,6 +232,18 @@ export function ReviewList({ slug }: { slug: string }) {
           ]),
           'Any status',
         )}
+      {select(
+        'Priority',
+        query.priority,
+        (priority) => update({ priority }),
+        [
+          ...PRIORITY_TIERS.map(
+            (tier) => [tier, PRIORITY_TIER_DISPLAY[tier].label] as [string, string],
+          ),
+          ['UNASSESSED', 'Not yet assessed'],
+        ],
+        'Any priority',
+      )}
       {select(
         'Severity',
         query.severity,
@@ -275,11 +304,11 @@ export function ReviewList({ slug }: { slug: string }) {
         'Order',
         query.sort,
         (sort) => update({ sort }),
-        GOVERNMENT_SORTS.filter((sort) => sort !== 'queue').map((sort) => [
+        GOVERNMENT_SORTS.filter((sort) => sort !== DEFAULT_SORT).map((sort) => [
           sort,
           SORT_LABEL[sort],
         ]),
-        SORT_LABEL.queue,
+        SORT_LABEL[DEFAULT_SORT],
       )}
     </>
   );
@@ -440,10 +469,21 @@ export function ReviewList({ slug }: { slug: string }) {
               aria-label={allReports ? 'Reports' : 'Reports needing review'}
               className="grid gap-3 md:grid-cols-2"
             >
-              {data.items.map((item) => (
-                <li key={item.publicId} className="flex">
-                  <ReviewQueueItem slug={slug} item={item} className="w-full" />
-                </li>
+              {data.items.map((item, index) => (
+                <QueueEntry
+                  key={item.publicId}
+                  slug={slug}
+                  item={item}
+                  // In priority order, a heading opens each tier. Every report
+                  // stays listed — lower tiers are never hidden.
+                  heading={
+                    byPriority &&
+                    (index === 0 ||
+                      data.items[index - 1]!.priority.tier !== item.priority.tier)
+                      ? item.priority.tier
+                      : undefined
+                  }
+                />
               ))}
             </ul>
             <Pagination
@@ -459,5 +499,34 @@ export function ReviewList({ slug }: { slug: string }) {
         ) : null}
       </div>
     </div>
+  );
+}
+
+function QueueEntry({
+  slug,
+  item,
+  heading,
+}: {
+  slug: string;
+  item: GovernmentQueueItem;
+  /** A tier heading before this item; `null` for "not yet assessed". */
+  heading?: PriorityTier | null;
+}) {
+  return (
+    <>
+      {heading !== undefined && (
+        <li
+          role="presentation"
+          className="mt-2 flex items-center gap-2 border-b border-border-subtle pb-1 first:mt-0 md:col-span-2"
+        >
+          <h3 className="type-overline text-ink-muted">
+            {heading ? PRIORITY_TIER_DISPLAY[heading].label : 'Not yet assessed'}
+          </h3>
+        </li>
+      )}
+      <li className="flex">
+        <ReviewQueueItem slug={slug} item={item} className="w-full" />
+      </li>
+    </>
   );
 }

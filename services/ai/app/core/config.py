@@ -54,9 +54,7 @@ class Settings(BaseSettings):
         return "claude-opus-5"
 
     # --- Embeddings ---------------------------------------------------------
-    embedding_provider: str = Field(
-        default="sentence-transformers", alias="EMBEDDING_PROVIDER"
-    )
+    embedding_provider: str = Field(default="sentence-transformers", alias="EMBEDDING_PROVIDER")
     """Which encoder to use. `sentence-transformers` runs a real model locally
     and needs no credentials, which is why it is the default: deduplication cost
     must not scale with report volume."""

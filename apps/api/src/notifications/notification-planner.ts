@@ -47,6 +47,17 @@ export interface PlanningFacts {
    * the active assignees the questions are about.
    */
   coordinatorRecipientIds?: string[];
+  /**
+   * Priority escalation: active officials of every operational government
+   * office whose jurisdiction covers the problem, with the office's slug for
+   * the link. `overridden` — an official has already set the priority.
+   */
+  escalationRecipients?: Array<{ userId: string; governmentSlug: string }>;
+  overridden?: boolean;
+  /** Resolution verification: active officials of the allocating office. */
+  officialIds?: string[];
+  /** …and the assigned organisation's OWNER/ADMIN members. */
+  organizationManagerIds?: string[];
 }
 
 /**
@@ -391,6 +402,189 @@ export function planNotifications(
     // The coordinator is quiet by design: only a worsening health or a new
     // potential blocker alerts, and new questions notify once per analysis.
     // Never the person who asked for the refresh; never on every refresh.
+    // Advisory: officials are told a problem in their area was newly assessed
+    // CRITICAL — unless one of them has already set its priority. Nothing is
+    // decided or changed by this.
+    case 'PRIORITY_TIER_CHANGED': {
+      if (
+        event.toTier !== 'CRITICAL' ||
+        event.fromTier === 'CRITICAL' ||
+        facts.overridden
+      ) {
+        return [];
+      }
+      return (facts.escalationRecipients ?? []).map(({ userId, governmentSlug }) => ({
+        recipientId: userId,
+        type: 'PRIORITY_ESCALATED',
+        title: `${event.problemPublicId} assessed critical`,
+        message: `The priority engine now ranks ${event.problemPublicId} as critical (score ${Math.round(event.score)}). Review the evidence and decide.`,
+        entityType: 'PROBLEM',
+        entityId: event.problemId,
+        metadata: { problemPublicId: event.problemPublicId, governmentSlug },
+        dedupeKey: `priority_escalated:${event.assessmentId}`,
+      }));
+    }
+
+    // --- Resolution verification (Prompt 22) -------------------------------
+    // Officials get links to their verification page; the organisation to its
+    // project. A government reason is shared with the organisation because it
+    // must act on it; nothing else from the review is.
+    case 'EVIDENCE_SUBMITTED':
+      return (facts.officialIds ?? [])
+        .filter((id) => id !== event.actorUserId)
+        .map((recipientId) => ({
+          recipientId,
+          type: 'RESOLUTION_EVIDENCE_SUBMITTED',
+          title: 'New resolution evidence',
+          message: `${event.organizationName} submitted evidence for ${event.problemPublicId}: “${clip(event.evidenceTitle)}”.`,
+          entityType: 'RESOLUTION_PROJECT',
+          entityId: event.projectId,
+          metadata: {
+            problemPublicId: event.problemPublicId,
+            roomId: event.roomId,
+            governmentSlug: event.governmentSlug,
+          },
+          dedupeKey: `evidence_submitted:${event.evidenceId}`,
+        }));
+
+    case 'EVIDENCE_REVIEWED': {
+      const message = `The AI review of “${clip(event.evidenceTitle)}” for ${event.problemPublicId} is ready. It is advisory — inspect the evidence.`;
+      const officials = (facts.officialIds ?? []).map((recipientId) => ({
+        recipientId,
+        type: 'RESOLUTION_EVIDENCE_REVIEWED' as const,
+        title: 'Evidence review ready',
+        message,
+        entityType: 'RESOLUTION_PROJECT' as const,
+        entityId: event.projectId,
+        metadata: {
+          problemPublicId: event.problemPublicId,
+          roomId: event.roomId,
+          governmentSlug: event.governmentSlug,
+        },
+        dedupeKey: `evidence_reviewed:${event.assessmentId}`,
+      }));
+      return [
+        ...officials,
+        {
+          recipientId: event.submittedById,
+          type: 'RESOLUTION_EVIDENCE_REVIEWED',
+          title: 'Evidence review ready',
+          message,
+          entityType: 'RESOLUTION_PROJECT',
+          entityId: event.projectId,
+          metadata: { problemPublicId: event.problemPublicId, roomId: event.roomId },
+          dedupeKey: `evidence_reviewed:${event.assessmentId}`,
+        },
+      ];
+    }
+
+    case 'VERIFICATION_REQUESTED':
+      return [
+        ...(facts.officialIds ?? []).map((recipientId) => ({
+          recipientId,
+          type: 'RESOLUTION_VERIFICATION_REQUESTED' as const,
+          title: 'Resolution awaiting verification',
+          message: `${event.organizationName} asks you to verify the resolution of ${event.problemPublicId}.`,
+          entityType: 'RESOLUTION_PROJECT' as const,
+          entityId: event.projectId,
+          metadata: {
+            problemPublicId: event.problemPublicId,
+            roomId: event.roomId,
+            governmentSlug: event.governmentSlug,
+          },
+          dedupeKey: `verification_requested:${event.requestId}`,
+        })),
+        ...(facts.organizationManagerIds ?? [])
+          .filter((id) => id !== event.actorUserId)
+          .map((recipientId) => ({
+            recipientId,
+            type: 'RESOLUTION_VERIFICATION_REQUESTED' as const,
+            title: 'Verification requested',
+            message: `The evidence for ${event.problemPublicId} is with the government office for review.`,
+            entityType: 'RESOLUTION_PROJECT' as const,
+            entityId: event.projectId,
+            metadata: { problemPublicId: event.problemPublicId, roomId: event.roomId },
+            dedupeKey: `verification_requested:${event.requestId}`,
+          })),
+      ];
+
+    case 'VERIFICATION_DECIDED': {
+      const recipients = new Set([
+        ...(facts.organizationManagerIds ?? []),
+        ...event.submitterIds,
+      ]);
+      recipients.delete(event.actorUserId);
+      const reason = event.reason ? ` ${clip(event.reason, 300)}` : '';
+      const wording = {
+        APPROVED: {
+          type: 'RESOLUTION_APPROVED' as const,
+          title: 'Resolution approved',
+          message: `${event.governmentName} verified the resolution of ${event.problemPublicId}. The problem is resolved.${reason}`,
+        },
+        REJECTED: {
+          type: 'RESOLUTION_REJECTED' as const,
+          title: 'Resolution not accepted',
+          message: `${event.governmentName} did not accept the resolution of ${event.problemPublicId}.${reason}`,
+        },
+        MORE_EVIDENCE_REQUESTED: {
+          type: 'RESOLUTION_MORE_EVIDENCE_REQUESTED' as const,
+          title: 'More evidence requested',
+          message: `${event.governmentName} asked for more evidence for ${event.problemPublicId}.${reason}`,
+        },
+      }[event.decision];
+      return [...recipients].map((recipientId) => ({
+        recipientId,
+        ...wording,
+        entityType: 'RESOLUTION_PROJECT',
+        entityId: event.projectId,
+        metadata: { problemPublicId: event.problemPublicId, roomId: event.roomId },
+        dedupeKey: `verification_decided:${event.requestId}`,
+      }));
+    }
+
+    // --- Impact (Prompt 23): meaningful achievements only — the ledger
+    // notifies at most once per user per source event, and only above a
+    // threshold; badges and tiers once each, ever.
+    case 'IMPACT_POINTS_AWARDED':
+      return [
+        {
+          recipientId: event.userId,
+          type: 'IMPACT_POINTS_AWARDED',
+          title: `You earned ${event.points} Impact Points`,
+          message: event.headline,
+          entityType: 'SYSTEM',
+          entityId: null,
+          metadata: event.problemPublicId ? { problemPublicId: event.problemPublicId } : {},
+          dedupeKey: `impact:${event.eventKey}`,
+        },
+      ];
+    case 'BADGE_EARNED':
+      return [
+        {
+          recipientId: event.userId,
+          type: 'BADGE_EARNED',
+          title: 'New badge unlocked',
+          message: `${event.badgeName}.`,
+          entityType: 'SYSTEM',
+          entityId: null,
+          metadata: {},
+          dedupeKey: `badge:${event.badgeKey}`,
+        },
+      ];
+    case 'REPUTATION_TIER_REACHED':
+      return [
+        {
+          recipientId: event.userId,
+          type: 'REPUTATION_TIER_REACHED',
+          title: 'You moved up a tier',
+          message: `You are now a ${TIER_LABEL[event.tier]}.`,
+          entityType: 'SYSTEM',
+          entityId: null,
+          metadata: {},
+          dedupeKey: `tier:${event.tier}`,
+        },
+      ];
+
     case 'COORDINATOR_ALERT':
       return (facts.coordinatorRecipientIds ?? [])
         .filter((id) => id !== event.actorUserId)
@@ -463,6 +657,7 @@ function reporterTitle(to: ProblemStatus): string {
   if (to === 'VERIFIED') return 'Your problem was verified';
   if (to === 'REJECTED') return 'Your report was not accepted';
   if (to === 'UNDER_REVIEW') return 'Your problem is being reviewed';
+  if (to === 'RESOLVED') return 'Your reported problem has been resolved';
   return 'Your problem was updated';
 }
 
@@ -478,6 +673,9 @@ function reporterMessage(
     return `${publicId} was reviewed${by} and not accepted as a civic problem for action.`;
   }
   if (to === 'UNDER_REVIEW') return `${publicId} is now under review${by}.`;
+  if (to === 'RESOLVED') {
+    return `Your reported problem ${publicId} has been resolved${reviewedBy ? `, verified by ${reviewedBy}` : ''}.`;
+  }
   return `${publicId} is now ${label}.`;
 }
 
@@ -572,3 +770,14 @@ function projectDraft(
     metadata: { problemPublicId: event.problemPublicId, roomId: event.roomId },
   };
 }
+
+const clip = (text: string, max = 120) =>
+  text.length > max ? `${text.slice(0, max - 1)}…` : text;
+
+const TIER_LABEL: Record<string, string> = {
+  NEW_CONTRIBUTOR: 'New Contributor',
+  ACTIVE_CONTRIBUTOR: 'Active Contributor',
+  TRUSTED_CONTRIBUTOR: 'Trusted Contributor',
+  CIVIC_CHAMPION: 'Civic Champion',
+  CIVIC_LEADER: 'Civic Leader',
+};

@@ -30,6 +30,15 @@ export interface NotificationMetadata {
 }
 
 const PUBLIC_ID = /^SAM-\d{1,10}$/;
+
+const VERIFICATION_TYPES: ReadonlySet<NotificationType> = new Set([
+  'RESOLUTION_EVIDENCE_SUBMITTED',
+  'RESOLUTION_EVIDENCE_REVIEWED',
+  'RESOLUTION_VERIFICATION_REQUESTED',
+  'RESOLUTION_MORE_EVIDENCE_REQUESTED',
+  'RESOLUTION_APPROVED',
+  'RESOLUTION_REJECTED',
+]);
 const SLUG = /^[a-z0-9](?:[a-z0-9-]{0,78}[a-z0-9])?$/;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -102,6 +111,18 @@ function isStatus(value: unknown): value is ProblemStatus {
  * nowhere.
  */
 export function hrefFor(type: NotificationType, metadata: NotificationMetadata): string {
+  // Impact (Prompt 23): the person's own impact page.
+  if (type === 'IMPACT_POINTS_AWARDED' || type === 'BADGE_EARNED' || type === 'REPUTATION_TIER_REACHED') {
+    return '/profile/impact';
+  }
+  // Resolution verification (Prompt 22): officials open their verification
+  // page; the organisation opens its project's evidence.
+  if (VERIFICATION_TYPES.has(type)) {
+    if (metadata.governmentSlug && metadata.problemPublicId) {
+      return `/government/${metadata.governmentSlug}/problems/${metadata.problemPublicId}#verification`;
+    }
+    if (metadata.roomId) return `/resolution/${metadata.roomId}/project#evidence`;
+  }
   if (type.startsWith('PROJECT_') && metadata.roomId) {
     return `/resolution/${metadata.roomId}/project`;
   }
@@ -128,6 +149,13 @@ export function hrefFor(type: NotificationType, metadata: NotificationMetadata):
     metadata.problemPublicId
   ) {
     return `/government/${metadata.governmentSlug}/problems/${metadata.problemPublicId}#allocation`;
+  }
+  if (
+    type === 'PRIORITY_ESCALATED' &&
+    metadata.governmentSlug &&
+    metadata.problemPublicId
+  ) {
+    return `/government/${metadata.governmentSlug}/problems/${metadata.problemPublicId}#priority`;
   }
 
   const publicId = metadata.problemPublicId;

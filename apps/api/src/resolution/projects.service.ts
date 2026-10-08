@@ -246,9 +246,10 @@ export class ProjectsService {
         canManage: context.canManage,
         canUpdateOwnTasks: room.side === 'ORGANIZATION',
         isEditable: context.isEditable,
+        // COMPLETED is reached only through resolution verification (Prompt 22).
         allowedTransitions:
           context.canManage && room.room.status === 'OPEN'
-            ? [...PROJECT_TRANSITIONS[project.status]]
+            ? PROJECT_TRANSITIONS[project.status].filter((s) => s !== 'COMPLETED')
             : [],
       },
       today: projectToday(),
@@ -336,17 +337,46 @@ export class ProjectsService {
     if (to === 'CANCELLED' && !reason) {
       throw AppException.badRequest('Give a reason for cancelling the project.');
     }
+    // Prompt 22: completion is a government verification decision. The
+    // organisation submits completion evidence; the allocating office's
+    // approval completes the project and resolves the problem together.
     if (to === 'COMPLETED') {
-      const open = await this.prisma.resolutionTask.count({
-        where: { projectId: project.id, status: { in: [...OPEN_TASK_STATUSES] } },
-      });
-      if (open > 0) {
-        throw AppException.conflict(
-          `Complete or cancel the ${open} open ${open === 1 ? 'task' : 'tasks'} first.`,
-        );
-      }
+      throw AppException.conflict(
+        'Submit completion evidence and request verification. The project is completed when the government office approves the resolution.',
+      );
     }
     await this.applyTransition(context, project.status, to, reason, user);
+  }
+
+  /**
+   * ACTIVE → COMPLETED inside the caller's transaction, for an approved
+   * resolution verification only (Prompt 22). `context` is the approving
+   * official's (government side). Returns the publisher to run after commit.
+   */
+  async completeOnVerification(
+    context: ProjectContext,
+    user: RequestUser,
+    tx: Prisma.TransactionClient,
+  ): Promise<() => Promise<void>> {
+    if (context.project.status !== 'ACTIVE') {
+      throw AppException.conflict('Only an active project can be completed.');
+    }
+    const open = await tx.resolutionTask.count({
+      where: { projectId: context.project.id, status: { in: [...OPEN_TASK_STATUSES] } },
+    });
+    if (open > 0) {
+      throw AppException.conflict(
+        `The project still has ${open} open ${open === 1 ? 'task' : 'tasks'}. The organisation must complete or cancel ${open === 1 ? 'it' : 'them'} first.`,
+      );
+    }
+    return this.applyTransition(
+      context,
+      'ACTIVE',
+      'COMPLETED',
+      'Resolution verified by the government office.',
+      user,
+      tx,
+    );
   }
 
   private async applyTransition(

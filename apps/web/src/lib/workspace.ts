@@ -17,6 +17,7 @@ export const WORKSPACE_SECTIONS = [
   'problems',
   'opportunities',
   'allocations',
+  'analytics',
   'team',
   'profile',
   'settings',

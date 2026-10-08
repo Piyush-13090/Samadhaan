@@ -1,4 +1,4 @@
-import type { ProblemCategory, ProblemStatus } from '@samadhaan/shared';
+import type { PriorityTier, ProblemCategory, ProblemStatus, ReputationTier } from '@samadhaan/shared';
 
 /**
  * Domain events — facts about things that have already happened.
@@ -225,6 +225,82 @@ export type DomainEvent =
       governmentName: string;
       actorUserId: string;
     }
+  // -------------------------------------------------- priority engine (P21)
+  | {
+      /** The AI tier moved. Advisory: nothing acts on it automatically. */
+      type: 'PRIORITY_TIER_CHANGED';
+      problemId: string;
+      problemPublicId: string;
+      assessmentId: string;
+      fromTier: PriorityTier | null;
+      toTier: PriorityTier;
+      score: number;
+    }
+  // ----------------------------------------- resolution verification (P22)
+  | {
+      type: 'EVIDENCE_SUBMITTED';
+      evidenceId: string;
+      evidenceTitle: string;
+      projectId: string;
+      roomId: string;
+      problemPublicId: string;
+      governmentOrganizationId: string;
+      governmentSlug: string;
+      organizationName: string;
+      actorUserId: string;
+    }
+  | {
+      type: 'EVIDENCE_REVIEWED';
+      evidenceId: string;
+      evidenceTitle: string;
+      projectId: string;
+      roomId: string;
+      problemPublicId: string;
+      governmentOrganizationId: string;
+      governmentSlug: string;
+      submittedById: string;
+      assessmentId: string;
+      /** Null when no AI review ran or it failed. Advisory either way. */
+      recommendation: string | null;
+    }
+  | {
+      type: 'VERIFICATION_REQUESTED';
+      requestId: string;
+      projectId: string;
+      roomId: string;
+      problemPublicId: string;
+      governmentOrganizationId: string;
+      governmentSlug: string;
+      organizationId: string;
+      organizationName: string;
+      actorUserId: string;
+    }
+  | {
+      type: 'VERIFICATION_DECIDED';
+      requestId: string;
+      decision: 'APPROVED' | 'REJECTED' | 'MORE_EVIDENCE_REQUESTED';
+      projectId: string;
+      roomId: string;
+      problemPublicId: string;
+      organizationId: string;
+      governmentName: string;
+      /** Shared with the organisation: the reason it must act on. */
+      reason: string | null;
+      submitterIds: string[];
+      actorUserId: string;
+    }
+  // ----------------------------------------------------- impact points (P23)
+  | {
+      type: 'IMPACT_POINTS_AWARDED';
+      userId: string;
+      points: number;
+      headline: string;
+      problemPublicId: string | null;
+      /** The source event, for notification de-duplication. */
+      eventKey: string;
+    }
+  | { type: 'BADGE_EARNED'; userId: string; badgeKey: string; badgeName: string }
+  | { type: 'REPUTATION_TIER_REACHED'; userId: string; tier: ReputationTier }
   // --------------------------------------------------------------- lifecycle
   | {
       /**

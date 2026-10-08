@@ -5,7 +5,9 @@ import type {
   GovernmentInternalNote,
   GovernmentProblemDetail,
   GovernmentProblemPage,
+  GovernmentPriorityView,
   GovernmentWorkspaceSummary,
+  PriorityTier,
   ProblemStatus,
   TrendRange,
 } from '@samadhaan/shared';
@@ -107,6 +109,7 @@ export interface GovernmentProblemsQuery {
   reportedFrom?: string;
   reportedTo?: string;
   sort?: string;
+  priority?: string;
   page?: number;
   limit?: number;
 }
@@ -147,4 +150,51 @@ export function addInternalNote(
 
 export function governmentMapSource(slug: string) {
   return { problems: `${base(slug)}/map`, aggregate: `${base(slug)}/map/aggregate` };
+}
+
+// --- Priority (Prompt 21) -------------------------------------------------
+
+const priorityPath = (slug: string, publicId: string) =>
+  `${base(slug)}/problems/${encodeURIComponent(publicId)}/priority`;
+
+export function fetchPriority(
+  slug: string,
+  publicId: string,
+): Promise<GovernmentPriorityView> {
+  return api.get<GovernmentPriorityView>(priorityPath(slug, publicId), {
+    cache: 'no-store',
+  });
+}
+
+export function recalculatePriority(
+  slug: string,
+  publicId: string,
+  refreshAi = false,
+): Promise<GovernmentPriorityView> {
+  return api.post<GovernmentPriorityView>(`${priorityPath(slug, publicId)}/recalculate`, {
+    refreshAi,
+  });
+}
+
+export function overridePriority(
+  slug: string,
+  publicId: string,
+  input: { tier: PriorityTier; reason: string },
+): Promise<GovernmentPriorityView> {
+  return api.post<GovernmentPriorityView>(
+    `${priorityPath(slug, publicId)}/override`,
+    input,
+  );
+}
+
+export function removePriorityOverride(
+  slug: string,
+  publicId: string,
+  reason?: string,
+): Promise<GovernmentPriorityView> {
+  return api.delete<GovernmentPriorityView>(
+    `${priorityPath(slug, publicId)}/override`,
+    {},
+    reason ? { reason } : {},
+  );
 }

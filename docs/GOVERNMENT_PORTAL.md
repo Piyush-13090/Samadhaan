@@ -71,8 +71,14 @@ Samadhaan (the seed shows how, with `ST_MakeEnvelope`).
 
 ## 3. Review queue and status transitions
 
-The queue is `SUBMITTED` + `UNDER_REVIEW`, most severe first, then longest
-waiting. Filters: status (any but `DRAFT`, with *All reports*), severity,
+The queue is `SUBMITTED` + `UNDER_REVIEW`. The portal orders it by
+**priority** by default (Prompt 21). That is the effective tier (an
+official's override, else the AI priority engine's tier), then score, then
+longest waiting, grouped under tier headings; unassessed reports are listed
+last, never hidden. Other orders: most severe then longest waiting (the API
+default, `queue`), severity, urgency, newest, oldest and most supported. See
+[`AI_PRIORITY_ENGINE.md`](./AI_PRIORITY_ENGINE.md). Filters: priority tier
+(or not yet assessed), status (any but `DRAFT`, with *All reports*), severity,
 category, subcategory, city, area (address words), reported from/to, duplicate
 state (`possible` — open candidates from duplicate detection; `confirmed`;
 `none`), AI analysis state, and basic search (reference, title, description,
@@ -157,10 +163,27 @@ grouped counts merged onto every day of the range (quiet days are zero, not
 missing); the top six of the review queue; the eight latest audit entries.
 Nothing is computed in the browser.
 
+## 8a. Resolution verification
+
+On a problem in progress or resolved, the review page shows **Resolution
+verification**:
+
+- the original problem and photos;
+- the project's progress;
+- every submitted evidence item, with raw files and the advisory AI review;
+- the expected-evidence checklist and the history;
+- for the allocating office, the decision: approve (optional note), request
+  more evidence (reason), or reject (reason).
+
+Approval resolves the problem and completes the project in one transaction.
+See [`RESOLUTION_VERIFICATION.md`](./RESOLUTION_VERIFICATION.md).
+
 ## 9. Not yet
 
 - No UI or API to define a jurisdiction; no finer review roles.
 - Government notifications ("new report in your area") are not sent:
   without per-official preferences they would be noise.
-- Day buckets in the trend inherit the database time-zone issue documented in
-  `DATABASE.md` §16.
+- ~~Day buckets in the trend inherit the database time-zone issue documented in
+  `DATABASE.md` §16.~~ Fixed in Prompt 24: the trend groups by local day in
+  `ANALYTICS_TIMEZONE`, correcting for the session offset
+  (see [`ANALYTICS_ARCHITECTURE.md`](./ANALYTICS_ARCHITECTURE.md) §3).

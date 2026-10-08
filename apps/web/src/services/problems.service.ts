@@ -2,6 +2,7 @@ import type {
   DuplicateCheckView,
   CreateProblemInput,
   ProblemAnalysisView,
+  PublicPriorityView,
   ProblemView,
   UploadedImage,
 } from '@samadhaan/shared';
@@ -120,6 +121,18 @@ export async function fetchProblemOnServer(
     if (error instanceof ApiError && error.status === 404) return null;
     throw error;
   }
+}
+
+// --- Priority (Prompt 21) -------------------------------------------------
+
+/** The public attention level: no score, no override details. */
+export function fetchPublicPriority(publicId: string): Promise<PublicPriorityView> {
+  return api.get<PublicPriorityView>(
+    `/problems/${encodeURIComponent(publicId)}/priority`,
+    {
+      cache: 'no-store',
+    },
+  );
 }
 
 // --- AI analysis -----------------------------------------------------------

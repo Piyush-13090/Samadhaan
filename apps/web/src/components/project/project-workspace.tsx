@@ -55,6 +55,7 @@ import {
 } from '@/services/project.service';
 import { AIProjectCoordinator } from '@/components/coordinator/ai-project-coordinator';
 import { AskKnowledge } from '@/components/knowledge/ask-knowledge';
+import { ProjectEvidencePanel } from '@/components/verification/project-evidence-panel';
 import { ProjectUpdates } from '@/components/coordinator/project-updates';
 import { MilestoneList } from './milestone-list';
 import { NativeSelect } from './native-select';
@@ -65,11 +66,12 @@ import { TaskBoard } from './task-board';
 import { TaskDialog } from './task-dialog';
 import { TaskTable } from './task-table';
 
-type Tab = 'summary' | 'tasks' | 'milestones' | 'activity';
+type Tab = 'summary' | 'tasks' | 'milestones' | 'evidence' | 'activity';
 const TABS: Array<{ id: Tab; label: string }> = [
   { id: 'summary', label: 'Summary' },
   { id: 'tasks', label: 'Tasks' },
   { id: 'milestones', label: 'Milestones' },
+  { id: 'evidence', label: 'Evidence' },
   { id: 'activity', label: 'Activity' },
 ];
 
@@ -508,6 +510,14 @@ export function ProjectWorkspace({ initial }: { initial: ProjectView }) {
                 refreshAll();
               }}
             />
+          </div>
+          <div
+            id="project-panel-evidence"
+            role="tabpanel"
+            aria-labelledby="project-tab-evidence"
+            className={cn(tab !== 'evidence' && 'hidden', 'lg:block')}
+          >
+            <ProjectEvidencePanel projectId={id} />
           </div>
           <div
             id="project-panel-activity"

@@ -85,12 +85,16 @@ class VisionLanguageProvider(ABC):
         output_type: type[T],
         development_fallback: Callable[[], T] | None = None,
         max_tokens: int = 2048,
+        images: list[AnalysisImage] | None = None,
     ) -> T:
         """Text in, a validated instance of ``output_type`` out (Prompt 19).
 
         The general structured-generation entry point: the coordinator and the
         update extractor use it. Like ``analyze``, the result is schema-checked
         before it is returned, and failures raise ``ProviderError``.
+
+        ``images`` (Prompt 22) are sent before the text, for tasks that compare
+        photographs; text-only callers omit them.
 
         ``development_fallback`` is used **only** by the development provider,
         which runs no model: the caller supplies a deterministic result built

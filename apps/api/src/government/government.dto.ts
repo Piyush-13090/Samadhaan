@@ -19,6 +19,7 @@ import {
   GOVERNMENT_PAGE_LIMIT_MAX,
   GOVERNMENT_SORTS,
   GOVERNMENT_STATUS_FILTERS,
+  PRIORITY_FILTERS,
   ALLOCATION_NOTE_MAX_LENGTH,
   INTERNAL_NOTE_MAX_LENGTH,
   MAP_FEATURE_DEFAULT_LIMIT,
@@ -32,6 +33,7 @@ import {
   type DuplicateFilter,
   type GovernmentSort,
   type GovernmentStatusFilter,
+  type PriorityFilter,
   type ProblemCategory,
   type ProblemSeverity,
   type ProblemStatus,
@@ -119,6 +121,11 @@ export class GovernmentProblemsQueryDto {
   @IsOptional()
   @IsIn(GOVERNMENT_SORTS)
   sort: GovernmentSort = 'queue';
+
+  /** Effective priority (the override when there is one), or UNASSESSED. */
+  @IsOptional()
+  @IsIn(PRIORITY_FILTERS)
+  priority?: PriorityFilter;
 
   @IsOptional()
   @Type(() => Number)

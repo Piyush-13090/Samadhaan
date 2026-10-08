@@ -92,40 +92,47 @@ model User {
   emailVerifiedAt DateTime? @db.Timestamptz(3)
   lastLoginAt     DateTime? @db.Timestamptz(3)
 
-  sessions             Session[]
-  organizationMembers  OrganizationMember[]
-  expertiseAdded       OrganizationExpertise[]     @relation("ExpertiseAddedBy")
-  reportedProblems     Problem[]                   @relation("ProblemReporter")
-  votes                ProblemVote[]
-  follows              ProblemFollow[]
-  comments             ProblemComment[]
-  suggestions          ProblemSuggestion[]
-  reviewedSuggestions  ProblemSuggestion[]         @relation("SuggestionReviewer")
-  duplicateReviews     ProblemDuplicateCandidate[] @relation("DuplicateReviewer")
-  auditEvents          AuditLog[]
-  internalNotes        ProblemInternalNote[]       @relation("InternalNoteAuthor")
-  allocationsMade      ProblemAllocation[]         @relation("AllocationAllocatedBy")
-  allocationResponses  ProblemAllocation[]         @relation("AllocationRespondedBy")
-  allocationsCancelled ProblemAllocation[]         @relation("AllocationCancelledBy")
-  roomsClosed          ResolutionRoom[]            @relation("RoomClosedBy")
-  roomMessages         ResolutionMessage[]
-  roomMentions         ResolutionMessageMention[]
-  roomAttachments      ResolutionAttachment[]
-  roomEvents           ResolutionRoomEvent[]
-  roomReads            ResolutionRoomRead[]
-  projectsCreated      ResolutionProject[]         @relation("ProjectCreatedBy")
-  tasksCreated         ResolutionTask[]            @relation("TaskCreatedBy")
-  tasksAssigned        ResolutionTask[]            @relation("TaskAssignee")
-  tasksCompleted       ResolutionTask[]            @relation("TaskCompletedBy")
-  milestonesCreated    ResolutionMilestone[]       @relation("MilestoneCreatedBy")
-  milestonesCompleted  ResolutionMilestone[]       @relation("MilestoneCompletedBy")
-  coordinatorRefreshes ProjectAIInsight[]
-  coordinatorAnswers   CoordinatorQuestion[]       @relation("QuestionAnsweredBy")
-  coordinatorDismissed CoordinatorQuestion[]       @relation("QuestionDismissedBy")
-  knowledgeSources     KnowledgeSource[]
-  knowledgeAnswers     KnowledgeAnswer[]
-  projectUpdates       ProjectUpdate[]
-  notifications        Notification[]
+  sessions              Session[]
+  organizationMembers   OrganizationMember[]
+  expertiseAdded        OrganizationExpertise[]         @relation("ExpertiseAddedBy")
+  reportedProblems      Problem[]                       @relation("ProblemReporter")
+  votes                 ProblemVote[]
+  follows               ProblemFollow[]
+  comments              ProblemComment[]
+  suggestions           ProblemSuggestion[]
+  reviewedSuggestions   ProblemSuggestion[]             @relation("SuggestionReviewer")
+  duplicateReviews      ProblemDuplicateCandidate[]     @relation("DuplicateReviewer")
+  auditEvents           AuditLog[]
+  internalNotes         ProblemInternalNote[]           @relation("InternalNoteAuthor")
+  allocationsMade       ProblemAllocation[]             @relation("AllocationAllocatedBy")
+  allocationResponses   ProblemAllocation[]             @relation("AllocationRespondedBy")
+  allocationsCancelled  ProblemAllocation[]             @relation("AllocationCancelledBy")
+  roomsClosed           ResolutionRoom[]                @relation("RoomClosedBy")
+  roomMessages          ResolutionMessage[]
+  roomMentions          ResolutionMessageMention[]
+  roomAttachments       ResolutionAttachment[]
+  roomEvents            ResolutionRoomEvent[]
+  roomReads             ResolutionRoomRead[]
+  projectsCreated       ResolutionProject[]             @relation("ProjectCreatedBy")
+  tasksCreated          ResolutionTask[]                @relation("TaskCreatedBy")
+  tasksAssigned         ResolutionTask[]                @relation("TaskAssignee")
+  tasksCompleted        ResolutionTask[]                @relation("TaskCompletedBy")
+  milestonesCreated     ResolutionMilestone[]           @relation("MilestoneCreatedBy")
+  milestonesCompleted   ResolutionMilestone[]           @relation("MilestoneCompletedBy")
+  coordinatorRefreshes  ProjectAIInsight[]
+  coordinatorAnswers    CoordinatorQuestion[]           @relation("QuestionAnsweredBy")
+  coordinatorDismissed  CoordinatorQuestion[]           @relation("QuestionDismissedBy")
+  knowledgeSources      KnowledgeSource[]
+  knowledgeAnswers      KnowledgeAnswer[]
+  priorityOverrides     ProblemPriorityOverride[]
+  evidenceSubmitted     ResolutionEvidence[]            @relation("EvidenceSubmittedBy")
+  verificationRequests  ResolutionVerificationRequest[] @relation("VerificationRequestedBy")
+  verificationDecisions ResolutionVerificationRequest[] @relation("VerificationDecidedBy")
+  impactLedger          ImpactPointTransaction[]        @relation("ImpactLedger")
+  impactStats           UserImpactStats?                @relation("ImpactStats")
+  badges                UserBadge[]                     @relation("UserBadges")
+  projectUpdates        ProjectUpdate[]
+  notifications         Notification[]
 
   createdAt DateTime  @default(now()) @db.Timestamptz(3)
   updatedAt DateTime  @updatedAt @db.Timestamptz(3)
@@ -297,6 +304,7 @@ model Organization {
   projectsAsGovernment ResolutionProject[]        @relation("ProjectGovernment")
   projectsAsAssigned   ResolutionProject[]        @relation("ProjectOrganization")
   knowledgeSources     KnowledgeSource[]
+  priorityOverrides    ProblemPriorityOverride[]
   projectUpdates       ProjectUpdate[]
   expertise            OrganizationExpertise[]
   embeddings           OrganizationEmbedding[]
@@ -512,6 +520,13 @@ model Problem {
   /// later milestone; 0 until then. Constrained non-negative in the database.
   priorityScore Decimal @default(0) @db.Decimal(6, 2)
 
+  /// The latest AI priority assessment, denormalised for sorting and
+  /// filtering the review queue (Prompt 21). Null until first assessed;
+  /// `priorityScore` is 0 until then. A government override never changes
+  /// these — it lives in `problem_priority_overrides`.
+  priorityTier       PriorityTier?
+  priorityAssessedAt DateTime?     @db.Timestamptz(3)
+
   // --- Location -----------------------------------------------------------
   address    String?
   city       String?
@@ -573,12 +588,14 @@ model Problem {
   submittedAt DateTime? @db.Timestamptz(3)
   resolvedAt  DateTime? @db.Timestamptz(3)
 
-  createdAt          DateTime            @default(now()) @db.Timestamptz(3)
-  updatedAt          DateTime            @updatedAt @db.Timestamptz(3)
-  deletedAt          DateTime?           @db.Timestamptz(3)
-  problemAllocations ProblemAllocation[]
-  resolutionRooms    ResolutionRoom[]
-  resolutionProjects ResolutionProject[]
+  createdAt           DateTime                    @default(now()) @db.Timestamptz(3)
+  updatedAt           DateTime                    @updatedAt @db.Timestamptz(3)
+  deletedAt           DateTime?                   @db.Timestamptz(3)
+  problemAllocations  ProblemAllocation[]
+  resolutionRooms     ResolutionRoom[]
+  resolutionProjects  ResolutionProject[]
+  priorityAssessments ProblemPriorityAssessment[]
+  priorityOverride    ProblemPriorityOverride?
 
   /// The default feed: newest active problems first.
   @@index([status, createdAt])
@@ -586,6 +603,7 @@ model Problem {
   @@index([category, status])
   /// Government triage queue ordering.
   @@index([status, priorityScore])
+  @@index([status, priorityTier, priorityScore])
   /// "My problems".
   @@index([reporterId, createdAt])
   /// Regional dashboards and analytics.
@@ -1147,6 +1165,20 @@ enum NotificationType {
   PROJECT_COORDINATOR_ALERT
   /// New coordinator questions for the team.
   PROJECT_COORDINATOR_QUESTION
+  // --- Priority engine (Prompt 21) ------------------------------------------
+  /// A problem in the office's area was newly assessed CRITICAL.
+  PRIORITY_ESCALATED
+  // --- Resolution verification (Prompt 22) ----------------------------------
+  RESOLUTION_EVIDENCE_SUBMITTED
+  RESOLUTION_EVIDENCE_REVIEWED
+  RESOLUTION_VERIFICATION_REQUESTED
+  RESOLUTION_MORE_EVIDENCE_REQUESTED
+  RESOLUTION_APPROVED
+  RESOLUTION_REJECTED
+  // --- Impact points (Prompt 23) --------------------------------------------
+  IMPACT_POINTS_AWARDED
+  BADGE_EARNED
+  REPUTATION_TIER_REACHED
 }
 
 /// The kind of record a notification points at.
@@ -1635,12 +1667,14 @@ model ResolutionProject {
   createdAt DateTime @default(now()) @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @db.Timestamptz(3)
 
-  tasks      ResolutionTask[]
-  milestones ResolutionMilestone[]
-  insights   ProjectAIInsight[]
-  questions  CoordinatorQuestion[]
-  updates    ProjectUpdate[]
-  knowledge  KnowledgeSource[]
+  evidence             ResolutionEvidence[]
+  verificationRequests ResolutionVerificationRequest[]
+  tasks                ResolutionTask[]
+  milestones           ResolutionMilestone[]
+  insights             ProjectAIInsight[]
+  questions            CoordinatorQuestion[]
+  updates              ProjectUpdate[]
+  knowledge            KnowledgeSource[]
 
   @@index([governmentOrganizationId, status])
   @@index([assignedOrganizationId, status])
@@ -2086,4 +2120,475 @@ model KnowledgeAnswer {
   @@index([userId, createdAt])
   @@index([createdAt])
   @@map("knowledge_answers")
+}
+
+// ===========================================================================
+// AI PRIORITY ENGINE (Prompt 21)
+// ===========================================================================
+
+/// Advisory civic priority. Thresholds are configurable (PRIORITY_TIER_*).
+enum PriorityTier {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+/// One priority assessment of one problem. Append-only history: a new row is
+/// written only when the outcome materially changed (score, tier, a
+/// component, or a version); otherwise the latest row's `confirmedAt` moves.
+/// Never edited by a government override.
+model ProblemPriorityAssessment {
+  id String @id @default(uuid()) @db.Uuid
+
+  problemId String  @db.Uuid
+  problem   Problem @relation(fields: [problemId], references: [id], onDelete: Cascade)
+
+  priorityScore Decimal      @db.Decimal(5, 2)
+  priorityTier  PriorityTier
+
+  /// Component scores, 0–1. Null when the feature was unavailable.
+  severityScore           Decimal? @db.Decimal(5, 4)
+  urgencyScore            Decimal? @db.Decimal(5, 4)
+  communityImpactScore    Decimal? @db.Decimal(5, 4)
+  safetyRiskScore         Decimal? @db.Decimal(5, 4)
+  geographicImpactScore   Decimal? @db.Decimal(5, 4)
+  recencyScore            Decimal? @db.Decimal(5, 4)
+  affectedPopulationScore Decimal? @db.Decimal(5, 4)
+  evidenceScore           Decimal? @db.Decimal(5, 4)
+
+  /// Weighted mean confidence of the features used, 0–1.
+  confidence       Decimal @db.Decimal(5, 4)
+  /// Share of the configured weight whose feature was available, 0–1.
+  dataCompleteness Decimal @db.Decimal(5, 4)
+
+  /// The model that produced the AI-assisted features (null when none ran).
+  modelName      String?
+  modelVersion   String?
+  promptVersion  String?
+  /// COMPLETED · UNAVAILABLE (no model ran) · FAILED · REUSED
+  aiStatus       String
+  scoringModel   String
+  scoringVersion String
+  featureVersion String
+
+  /// Human-readable reasons: [{ kind, feature, text }].
+  explanation     Json  @db.JsonB
+  /// Every feature: value, confidence, available, source, evidence.
+  featureMetadata Json  @db.JsonB
+  /// Supporting civic guidance from the knowledge base — context only, never
+  /// an input to the score.
+  guidance        Json? @db.JsonB
+  /// What changed since the previous assessment, in words.
+  changes         Json? @db.JsonB
+
+  /// Fingerprints: the outcome (for history de-duplication) and the inputs
+  /// sent to the AI service (to reuse its features while they are unchanged).
+  outcomeHash  String
+  aiInputsHash String?
+
+  trigger String
+
+  calculatedAt DateTime @default(now()) @db.Timestamptz(3)
+  /// Last time a recalculation produced this same outcome.
+  confirmedAt  DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt    DateTime @updatedAt @db.Timestamptz(3)
+
+  @@index([problemId, calculatedAt(sort: Desc)])
+  @@index([calculatedAt])
+  @@map("problem_priority_assessments")
+}
+
+/// A government official's priority decision, which takes precedence over
+/// the AI tier while it exists. One per problem; its history is the audit log
+/// (PRIORITY_OVERRIDE_CREATED / _UPDATED / _REMOVED). The reason is visible
+/// to government offices covering the problem only.
+model ProblemPriorityOverride {
+  id String @id @default(uuid()) @db.Uuid
+
+  problemId String  @unique @db.Uuid
+  problem   Problem @relation(fields: [problemId], references: [id], onDelete: Cascade)
+
+  priorityTier PriorityTier
+  reason       String
+
+  organizationId String       @db.Uuid
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  overriddenById String @db.Uuid
+  overriddenBy   User   @relation(fields: [overriddenById], references: [id], onDelete: Restrict)
+
+  /// The AI assessment in force when the decision was made — training-label
+  /// context, not ground truth.
+  aiTier       PriorityTier?
+  aiScore      Decimal?      @db.Decimal(5, 2)
+  assessmentId String?       @db.Uuid
+
+  overriddenAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt    DateTime @updatedAt @db.Timestamptz(3)
+
+  @@index([organizationId])
+  @@map("problem_priority_overrides")
+}
+
+// ===========================================================================
+// RESOLUTION VERIFICATION (Prompt 22)
+// ===========================================================================
+
+enum EvidenceType {
+  BEFORE_AFTER_IMAGE
+  AFTER_IMAGE
+  VIDEO
+  DOCUMENT
+  LOCATION_PROOF
+  PROGRESS_UPDATE
+  OTHER
+}
+
+/// Transitions are enforced by the API (`EVIDENCE_TRANSITIONS`); never set from a client.
+enum EvidenceStatus {
+  DRAFT
+  SUBMITTED
+  PROCESSING
+  AI_REVIEWED
+  NEEDS_MORE_EVIDENCE
+  UNDER_GOVERNMENT_REVIEW
+  APPROVED
+  REJECTED
+  WITHDRAWN
+}
+
+enum EvidenceFileRole {
+  BEFORE
+  AFTER
+  DOCUMENT
+  OTHER
+}
+
+/// Advisory only. There is deliberately no RESOLVED value.
+enum VerificationRecommendation {
+  INSUFFICIENT_EVIDENCE
+  POSSIBLY_RESOLVED
+  LIKELY_RESOLVED
+  LIKELY_NOT_RESOLVED
+}
+
+enum VerificationRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  MORE_EVIDENCE_REQUESTED
+}
+
+/// One submission of completion evidence by the assigned organisation. Its
+/// project, problem, room, allocation and organisation are copied from the
+/// project server-side — never from the client. Never deleted once submitted;
+/// a replacement is a new version linked to the one it replaces.
+model ResolutionEvidence {
+  id String @id @default(uuid()) @db.Uuid
+
+  projectId String            @db.Uuid
+  project   ResolutionProject @relation(fields: [projectId], references: [id], onDelete: Restrict)
+
+  problemId      String @db.Uuid
+  roomId         String @db.Uuid
+  allocationId   String @db.Uuid
+  organizationId String @db.Uuid
+
+  submittedById String @db.Uuid
+  submittedBy   User   @relation("EvidenceSubmittedBy", fields: [submittedById], references: [id], onDelete: Restrict)
+
+  evidenceType EvidenceType
+  title        String
+  description  String?
+  status       EvidenceStatus @default(DRAFT)
+
+  version            Int                 @default(1)
+  replacesEvidenceId String?             @unique @db.Uuid
+  replaces           ResolutionEvidence? @relation("EvidenceVersions", fields: [replacesEvidenceId], references: [id], onDelete: Restrict)
+  replacedBy         ResolutionEvidence? @relation("EvidenceVersions")
+
+  verificationRequestId String?                        @db.Uuid
+  verificationRequest   ResolutionVerificationRequest? @relation(fields: [verificationRequestId], references: [id], onDelete: SetNull)
+
+  /// AI review state: PENDING · PROCESSING · COMPLETED · FAILED · UNAVAILABLE
+  aiStatus   String?
+  aiAttempts Int     @default(0)
+
+  /// The government decision on this evidence, shown to the organisation.
+  decisionReason String?
+
+  submittedAt DateTime? @db.Timestamptz(3)
+  withdrawnAt DateTime? @db.Timestamptz(3)
+  decidedAt   DateTime? @db.Timestamptz(3)
+  createdAt   DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime  @updatedAt @db.Timestamptz(3)
+
+  files       ResolutionEvidenceFile[]
+  assessments ResolutionVerificationAssessment[]
+
+  @@index([projectId, createdAt])
+  @@index([status, updatedAt])
+  @@index([problemId])
+  @@map("resolution_evidence")
+}
+
+/// A stored evidence file. The bytes live in object storage under
+/// `evidence/…`, served only through the API after an access check. Images
+/// are re-encoded without EXIF before storage; the capture time and GPS read
+/// from the original are kept here (GPS never shown raw).
+model ResolutionEvidenceFile {
+  id String @id @default(uuid()) @db.Uuid
+
+  evidenceId String             @db.Uuid
+  evidence   ResolutionEvidence @relation(fields: [evidenceId], references: [id], onDelete: Restrict)
+
+  role             EvidenceFileRole
+  storageKey       String           @unique
+  originalFileName String
+  mimeType         String
+  fileSize         Int
+
+  /// SHA-256 of the bytes as uploaded — identity, not authenticity.
+  checksum       String
+  /// SHA-256 of the bytes as stored (after EXIF stripping).
+  storedChecksum String
+  /// 64-bit difference hash of an image, for near-duplicate detection.
+  perceptualHash BigInt?
+
+  width  Int?
+  height Int?
+
+  /// From EXIF, which anyone can edit: a signal, never proof.
+  capturedAt        DateTime? @db.Timestamptz(3)
+  gpsLatitude       Decimal?  @db.Decimal(9, 6)
+  gpsLongitude      Decimal?  @db.Decimal(9, 6)
+  /// Distance from the problem's reported location, computed with PostGIS.
+  locationDistanceM Int?
+
+  metadata Json? @db.JsonB
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([evidenceId])
+  @@index([checksum])
+  @@map("resolution_evidence_files")
+}
+
+/// The AI-assisted review of one evidence item. Advisory; versions recorded.
+model ResolutionVerificationAssessment {
+  id String @id @default(uuid()) @db.Uuid
+
+  evidenceId String             @db.Uuid
+  evidence   ResolutionEvidence @relation(fields: [evidenceId], references: [id], onDelete: Restrict)
+  projectId  String             @db.Uuid
+  problemId  String             @db.Uuid
+
+  /// COMPLETED · UNAVAILABLE (no model ran) · FAILED
+  status String
+
+  relevanceScore           Decimal? @db.Decimal(5, 4)
+  visualConsistencyScore   Decimal? @db.Decimal(5, 4)
+  completionSignalScore    Decimal? @db.Decimal(5, 4)
+  locationConsistencyScore Decimal? @db.Decimal(5, 4)
+  documentationScore       Decimal? @db.Decimal(5, 4)
+  temporalConsistencyScore Decimal? @db.Decimal(5, 4)
+  completenessScore        Decimal? @db.Decimal(5, 4)
+  imageQualityScore        Decimal? @db.Decimal(5, 4)
+
+  /// 0–100. Never the decision.
+  evidenceQuality Decimal? @db.Decimal(5, 2)
+  confidence      Decimal? @db.Decimal(5, 4)
+
+  /// What the model said, and what it became after the documented guard rules.
+  aiRecommendation VerificationRecommendation?
+  recommendation   VerificationRecommendation?
+
+  explanation        Json  @db.JsonB
+  evidenceReferences Json? @db.JsonB
+  concerns           Json? @db.JsonB
+  missingEvidence    Json? @db.JsonB
+  guidance           Json? @db.JsonB
+
+  modelName           String?
+  modelVersion        String?
+  promptVersion       String?
+  /// The embedding model used to retrieve guidance (no image embeddings exist).
+  embeddingModel      String?
+  embeddingVersion    String?
+  verificationVersion String
+  processingMs        Int?
+  failureMessage      String?
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  @@index([evidenceId, createdAt(sort: Desc)])
+  @@index([projectId])
+  @@map("resolution_verification_assessments")
+}
+
+/// An organisation's request that the allocating office verify the
+/// resolution, and that office's decision. At most one PENDING per project
+/// (partial unique index in post-migrate.sql).
+model ResolutionVerificationRequest {
+  id String @id @default(uuid()) @db.Uuid
+
+  projectId String            @db.Uuid
+  project   ResolutionProject @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  problemId String            @db.Uuid
+
+  requestedById String  @db.Uuid
+  requestedBy   User    @relation("VerificationRequestedBy", fields: [requestedById], references: [id], onDelete: Restrict)
+  note          String?
+
+  status VerificationRequestStatus @default(PENDING)
+
+  governmentOrganizationId String    @db.Uuid
+  decidedById              String?   @db.Uuid
+  decidedBy                User?     @relation("VerificationDecidedBy", fields: [decidedById], references: [id], onDelete: Restrict)
+  decidedAt                DateTime? @db.Timestamptz(3)
+  /// Required for REJECTED and MORE_EVIDENCE_REQUESTED; shared with the organisation.
+  decisionReason           String?
+  /// Optional verification note on approval; shared with the organisation.
+  decisionNote             String?
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  evidence ResolutionEvidence[]
+
+  @@index([projectId, createdAt])
+  @@index([status])
+  @@map("resolution_verification_requests")
+}
+
+// ===========================================================================
+// IMPACT POINTS, REPUTATION & BADGES (Prompt 23)
+// ===========================================================================
+
+/// Why points were awarded. Extensible; each value maps to a versioned rule.
+enum ImpactTransactionType {
+  PROBLEM_REPORTED
+  PROBLEM_VERIFIED
+  DUPLICATE_IDENTIFIED
+  USEFUL_COMMENT
+  PROBLEM_SUPPORTED
+  PROJECT_CONTRIBUTION
+  TASK_COMPLETED
+  MILESTONE_COMPLETED
+  RESOLUTION_EVIDENCE_SUBMITTED
+  PROBLEM_RESOLVED
+  QUALITY_BONUS
+  PENALTY
+  ADMIN_ADJUSTMENT
+}
+
+/// Contributor tiers. Thresholds are configurable and not validated.
+enum ReputationTier {
+  NEW_CONTRIBUTOR
+  ACTIVE_CONTRIBUTOR
+  TRUSTED_CONTRIBUTOR
+  CIVIC_CHAMPION
+  CIVIC_LEADER
+}
+
+/// The impact ledger: append-only (database trigger). A correction is a new
+/// row, never an edit. `idempotencyKey` is unique, so a replayed or
+/// concurrent event can never award the same thing twice.
+model ImpactPointTransaction {
+  id String @id @default(uuid()) @db.Uuid
+
+  userId String @db.Uuid
+  user   User   @relation("ImpactLedger", fields: [userId], references: [id], onDelete: Restrict)
+
+  amount Int
+  type   ImpactTransactionType
+  reason String
+
+  entityType String?
+  entityId   String? @db.Uuid
+  /// The civic problem behind it, for leaderboard filters. Not a foreign key:
+  /// the ledger outlives what it describes.
+  problemId  String? @db.Uuid
+
+  /// The point rules in force when it was awarded (e.g. POINT_RULES_V1).
+  ruleVersion    String
+  /// `type:entity:user[:role]` — one award per user per event.
+  idempotencyKey String @unique
+
+  /// For ADMIN_ADJUSTMENT: the administrator.
+  actorUserId String? @db.Uuid
+
+  metadata Json? @db.JsonB
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([type, createdAt])
+  @@index([entityId])
+  @@index([problemId])
+  @@index([createdAt])
+  @@map("impact_point_transactions")
+}
+
+/// Aggregates maintained in the same transaction as each ledger insert. The
+/// ledger is the source of truth; this is an optimisation, and can be rebuilt
+/// from it (see docs/IMPACT_POINTS.md).
+model UserImpactStats {
+  userId String @id @db.Uuid
+  user   User   @relation("ImpactStats", fields: [userId], references: [id], onDelete: Cascade)
+
+  impactPoints          Int            @default(0)
+  /// Distinct resolved problems the user is credited for.
+  resolvedContributions Int            @default(0)
+  reputationScore       Decimal        @default(50) @db.Decimal(5, 2)
+  reputationTier        ReputationTier @default(NEW_CONTRIBUTOR)
+  reputationVersion     String?
+  reputationUpdatedAt   DateTime?      @db.Timestamptz(3)
+
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  @@index([impactPoints(sort: Desc)])
+  @@index([reputationScore(sort: Desc)])
+  @@map("user_impact_stats")
+}
+
+/// A badge and the rule that earns it. Definitions live in code
+/// (`BADGES`) and are upserted on start-up; nobody can create one through the API.
+model BadgeDefinition {
+  key         String  @id
+  name        String
+  description String
+  /// The condition, in words, as shown to users.
+  criteria    String
+  sortOrder   Int     @default(0)
+  active      Boolean @default(true)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  awards UserBadge[]
+
+  @@map("badge_definitions")
+}
+
+/// A badge a user earned. Awarded only by the evaluation service; unique per
+/// user and badge, so awarding is idempotent.
+model UserBadge {
+  id String @id @default(uuid()) @db.Uuid
+
+  userId   String          @db.Uuid
+  user     User            @relation("UserBadges", fields: [userId], references: [id], onDelete: Restrict)
+  badgeKey String
+  badge    BadgeDefinition @relation(fields: [badgeKey], references: [key], onDelete: Restrict)
+
+  /// What satisfied the condition at the time.
+  evidence Json? @db.JsonB
+
+  awardedAt DateTime @default(now()) @db.Timestamptz(3)
+
+  @@unique([userId, badgeKey])
+  @@index([badgeKey])
+  @@map("user_badges")
 }

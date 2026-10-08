@@ -73,10 +73,12 @@ export function MyProblemsList({
   const [loading, setLoading] = useState(false);
 
   /** Raises the skeleton at the point of the interaction that causes a refetch. */
-  const onFilterChange = <T,>(set: (value: T) => void) => (value: T) => {
-    setLoading(true);
-    set(value);
-  };
+  const onFilterChange =
+    <T,>(set: (value: T) => void) =>
+    (value: T) => {
+      setLoading(true);
+      set(value);
+    };
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(
     initial === null ? 'Samadhaan could not reach the server. Please try again.' : null,
@@ -170,11 +172,17 @@ export function MyProblemsList({
 
   return (
     <div className={cn('space-y-5', className)}>
-      <div role="group" aria-label="Filter your reports" className="grid gap-3 sm:grid-cols-3">
+      <div
+        role="group"
+        aria-label="Filter your reports"
+        className="grid gap-3 sm:grid-cols-3"
+      >
         <Field label="Status">
           <Select
             value={status}
-            onValueChange={(value) => onFilterChange(setStatus)(value as ProblemStatus | 'ALL')}
+            onValueChange={(value) =>
+              onFilterChange(setStatus)(value as ProblemStatus | 'ALL')
+            }
           >
             <SelectTrigger>
               <SelectValue />
@@ -193,7 +201,9 @@ export function MyProblemsList({
         <Field label="Category">
           <Select
             value={category}
-            onValueChange={(value) => onFilterChange(setCategory)(value as ProblemCategory | 'ALL')}
+            onValueChange={(value) =>
+              onFilterChange(setCategory)(value as ProblemCategory | 'ALL')
+            }
           >
             <SelectTrigger>
               <SelectValue />
@@ -212,7 +222,9 @@ export function MyProblemsList({
         <Field label="Sort">
           <Select
             value={sort}
-            onValueChange={(value) => onFilterChange(setSort)(value as (typeof SORTS)[number]['value'])}
+            onValueChange={(value) =>
+              onFilterChange(setSort)(value as (typeof SORTS)[number]['value'])
+            }
           >
             <SelectTrigger>
               <SelectValue />
@@ -297,14 +309,22 @@ export function MyProblemsList({
           <ul className="grid gap-3 md:grid-cols-2">
             {page.items.map((problem) => (
               <li key={problem.publicId} className="flex">
-                <ProblemListCard problem={problem} showDistance={false} className="w-full" />
+                <ProblemListCard
+                  problem={problem}
+                  showDistance={false}
+                  className="w-full"
+                />
               </li>
             ))}
           </ul>
 
           {page.nextCursor && (
             <div className="flex justify-center">
-              <Button variant="secondary" loading={loadingMore} onClick={() => void loadMore()}>
+              <Button
+                variant="secondary"
+                loading={loadingMore}
+                onClick={() => void loadMore()}
+              >
                 Load more
               </Button>
             </div>

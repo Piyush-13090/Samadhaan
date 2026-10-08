@@ -735,7 +735,27 @@ export class AllocationsService {
         logoUrl: row.organization.logoUrl,
       },
       assignedAt: row.acceptedAt.toISOString(),
+      progress: await this.publicProgress(problemId),
     };
+  }
+
+  /** Share of the live project's tasks completed — a public fact, nothing else from the plan. */
+  private async publicProgress(problemId: string): Promise<number | null> {
+    const project = await this.prisma.resolutionProject.findFirst({
+      where: { problemId, status: { in: ['PLANNED', 'ACTIVE', 'PAUSED', 'COMPLETED'] } },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true, status: true },
+    });
+    if (!project) return null;
+    if (project.status === 'COMPLETED') return 100;
+    const tasks = await this.prisma.resolutionTask.groupBy({
+      by: ['status'],
+      where: { projectId: project.id },
+      _count: { _all: true },
+    });
+    const count = (s: string) => tasks.find((t) => t.status === s)?._count._all ?? 0;
+    const total = tasks.reduce((sum, t) => sum + t._count._all, 0) - count('CANCELLED');
+    return total > 0 ? Math.round((count('COMPLETED') / total) * 100) : null;
   }
 
   // ============================================================== events

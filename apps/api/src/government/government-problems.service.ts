@@ -14,6 +14,9 @@ import {
   type GovernmentQueueItem,
   type GovernmentSort,
   type GovernmentStatusFilter,
+  type PriorityFilter,
+  type PriorityReason,
+  type PriorityTier,
   type ProblemCategory,
   type ProblemImageKind,
   type ProblemSeverity,
@@ -27,6 +30,7 @@ import { PrismaService } from '../database/prisma.service.js';
 import { DomainEventBus } from '../events/domain-event-bus.js';
 import { Prisma } from '../generated/prisma/client.js';
 import { AllocationsService } from '../allocations/allocations.service.js';
+import { AppConfig } from '../config/app.config.js';
 import { escapeLike } from '../organizations/workspace/organization-problems.service.js';
 import { coarseArea } from '../problems/services/problem-discovery.service.js';
 import { StorageService } from '../storage/storage.types.js';
@@ -45,6 +49,7 @@ export interface GovernmentProblemFilters {
   duplicate?: DuplicateFilter;
   aiStatus?: AiStatusFilter;
   q?: string;
+  priority?: PriorityFilter;
   sort: GovernmentSort;
 }
 
@@ -57,7 +62,28 @@ const ACTIVITY_ACTIONS = [
   'ALLOCATION_ACCEPTED',
   'ALLOCATION_DECLINED',
   'ALLOCATION_CANCELLED',
+  'PRIORITY_OVERRIDE_CREATED',
+  'PRIORITY_OVERRIDE_UPDATED',
+  'PRIORITY_OVERRIDE_REMOVED',
 ] as const;
+
+const PRIORITY_KINDS = new Set([
+  'PRIORITY_OVERRIDE_CREATED',
+  'PRIORITY_OVERRIDE_UPDATED',
+  'PRIORITY_OVERRIDE_REMOVED',
+]);
+
+/**
+ * The effective priority tier of `p`: a government override when one exists,
+ * else the latest AI tier. A correlated lookup on a unique index, so every
+ * query that uses it stays self-contained.
+ */
+const EFFECTIVE_TIER = Prisma.sql`COALESCE(
+  (SELECT o."priorityTier" FROM problem_priority_overrides o WHERE o."problemId" = p.id),
+  p."priorityTier"
+)`;
+const TIER_RANK = Prisma.sql`CASE ${EFFECTIVE_TIER}
+  WHEN 'CRITICAL' THEN 4 WHEN 'HIGH' THEN 3 WHEN 'MEDIUM' THEN 2 WHEN 'LOW' THEN 1 ELSE 0 END`;
 
 const ALLOCATION_KINDS = new Set([
   'ALLOCATION_CREATED',
@@ -88,6 +114,17 @@ interface QueueRow {
   aiConfidence: Prisma.Decimal | string | null;
   possibleDuplicates: number;
   duplicateOfPublicId: string | null;
+  priorityScore: Prisma.Decimal | string | null;
+  aiTier: PriorityTier | null;
+  effectiveTier: PriorityTier | null;
+  assessedAt: Date | null;
+}
+
+interface AssessmentSummary {
+  problemId: string;
+  confidence: Prisma.Decimal;
+  dataCompleteness: Prisma.Decimal;
+  explanation: unknown;
 }
 
 interface AuditRow {
@@ -119,6 +156,7 @@ export class GovernmentProblemsService {
     private readonly storage: StorageService,
     private readonly events: DomainEventBus,
     private readonly allocations: AllocationsService,
+    private readonly config: AppConfig,
   ) {}
 
   // ----------------------------------------------------------------- list
@@ -164,7 +202,11 @@ export class GovernmentProblemsService {
           )                             AS "possibleDuplicates",
           (
             SELECT o."publicId" FROM problems o WHERE o.id = p."duplicateOfId"
-          )                             AS "duplicateOfPublicId"
+          )                             AS "duplicateOfPublicId",
+          p."priorityScore"             AS "priorityScore",
+          p."priorityTier"::text        AS "aiTier",
+          ${EFFECTIVE_TIER}::text       AS "effectiveTier",
+          p."priorityAssessedAt"        AS "assessedAt"
         FROM problems p
         ${this.latestAnalysisJoin()}
         WHERE ${where}
@@ -180,8 +222,21 @@ export class GovernmentProblemsService {
     ]);
 
     const totalCount = countRows[0]?.count ?? 0;
+    // The latest assessment of each problem on this page — one query, not N.
+    const assessments = rows.length
+      ? await this.prisma.$queryRaw<AssessmentSummary[]>(Prisma.sql`
+          SELECT DISTINCT ON (a."problemId") a."problemId", a.confidence,
+                 a."dataCompleteness", a.explanation
+          FROM problem_priority_assessments a
+          WHERE a."problemId" = ANY (${rows.map((r) => r.id)}::uuid[])
+          ORDER BY a."problemId", a."calculatedAt" DESC
+        `)
+      : [];
+    const byProblem = new Map(assessments.map((a) => [a.problemId, a]));
     return {
-      items: await Promise.all(rows.map((row) => this.toQueueItem(row))),
+      items: await Promise.all(
+        rows.map((row) => this.toQueueItem(row, byProblem.get(row.id) ?? null)),
+      ),
       page,
       limit,
       totalCount,
@@ -221,6 +276,13 @@ export class GovernmentProblemsService {
     }
     if (filters.severity) {
       conditions.push(Prisma.sql`p."severity" = ${filters.severity}::"ProblemSeverity"`);
+    }
+    if (filters.priority === 'UNASSESSED') {
+      conditions.push(Prisma.sql`${EFFECTIVE_TIER} IS NULL`);
+    } else if (filters.priority) {
+      conditions.push(
+        Prisma.sql`${EFFECTIVE_TIER} = ${filters.priority}::"PriorityTier"`,
+      );
     }
     if (filters.category) {
       conditions.push(Prisma.sql`p."category" = ${filters.category}::"ProblemCategory"`);
@@ -298,6 +360,14 @@ export class GovernmentProblemsService {
         return Prisma.sql`${severity} DESC, p."createdAt" DESC, p."publicId" ASC`;
       case 'supported':
         return Prisma.sql`p."voteCount" DESC, p."createdAt" DESC, p."publicId" ASC`;
+      case 'urgency':
+        return Prisma.sql`CASE p."urgency"
+          WHEN 'CRITICAL' THEN 4 WHEN 'HIGH' THEN 3 WHEN 'MEDIUM' THEN 2 ELSE 1 END DESC,
+          p."createdAt" ASC, p."publicId" ASC`;
+      case 'priority':
+        // Effective tier (an override wins), then the AI score, then the one
+        // that has waited longest. Unassessed problems follow, never hidden.
+        return Prisma.sql`${TIER_RANK} DESC, p."priorityScore" DESC, p."createdAt" ASC, p."publicId" ASC`;
       default:
         // The review queue: most severe first, and within a band the one that
         // has waited longest.
@@ -305,7 +375,15 @@ export class GovernmentProblemsService {
     }
   }
 
-  private async toQueueItem(row: QueueRow): Promise<GovernmentQueueItem> {
+  private async toQueueItem(
+    row: QueueRow,
+    assessment: AssessmentSummary | null,
+  ): Promise<GovernmentQueueItem> {
+    const confidence = assessment ? Number(assessment.confidence) : null;
+    const completeness = assessment ? Number(assessment.dataCompleteness) : null;
+    const reasons = (
+      Array.isArray(assessment?.explanation) ? assessment.explanation : []
+    ) as PriorityReason[];
     return {
       publicId: row.publicId,
       title: row.title,
@@ -332,6 +410,23 @@ export class GovernmentProblemsService {
       duplicates: {
         possible: row.possibleDuplicates,
         confirmedOf: row.duplicateOfPublicId,
+      },
+      priority: {
+        tier: row.effectiveTier,
+        aiTier: row.aiTier,
+        score: row.assessedAt ? Number(row.priorityScore) : null,
+        overridden: row.effectiveTier !== null && row.effectiveTier !== row.aiTier,
+        confidence,
+        dataCompleteness: completeness,
+        provisional:
+          confidence !== null &&
+          completeness !== null &&
+          (confidence < this.config.priority.provisional.confidence ||
+            completeness < this.config.priority.provisional.completeness),
+        summary: reasons
+          .filter((r) => r.kind === 'driver')
+          .slice(0, 2)
+          .map((r) => r.text),
       },
     };
   }
@@ -753,13 +848,14 @@ export class GovernmentProblemsService {
         : {};
     const ours = meta.organizationId === scope.organization.id;
 
-    const kind: GovernmentActivityEntry['kind'] = ALLOCATION_KINDS.has(row.action)
-      ? (row.action as GovernmentActivityEntry['kind'])
-      : row.action === 'PROBLEM_NOTE_ADDED'
-        ? 'NOTE_ADDED'
-        : row.action === 'PROBLEM_DUPLICATE_CONFIRMED'
-          ? 'DUPLICATE_CONFIRMED'
-          : 'STATUS_CHANGED';
+    const kind: GovernmentActivityEntry['kind'] =
+      ALLOCATION_KINDS.has(row.action) || PRIORITY_KINDS.has(row.action)
+        ? (row.action as GovernmentActivityEntry['kind'])
+        : row.action === 'PROBLEM_NOTE_ADDED'
+          ? 'NOTE_ADDED'
+          : row.action === 'PROBLEM_DUPLICATE_CONFIRMED'
+            ? 'DUPLICATE_CONFIRMED'
+            : 'STATUS_CHANGED';
     const organizationName =
       typeof meta.organizationName === 'string' ? meta.organizationName : null;
     // An organisation's response is attributed to the organisation by name —
@@ -784,6 +880,8 @@ export class GovernmentProblemsService {
 
     const status = (value: unknown) =>
       typeof value === 'string' ? (value as ProblemStatus) : null;
+    const tier = (value: unknown) =>
+      typeof value === 'string' ? (value as PriorityTier) : null;
 
     return {
       id: row.id,
@@ -798,6 +896,9 @@ export class GovernmentProblemsService {
           : kind === 'DUPLICATE_CONFIRMED'
             ? 'DUPLICATE'
             : null,
+      ...(PRIORITY_KINDS.has(row.action)
+        ? { fromPriority: tier(meta.fromTier), toPriority: tier(meta.toTier) }
+        : {}),
       actor,
       // A review note belongs to the office that wrote it.
       note: ours && typeof meta.note === 'string' ? meta.note : null,

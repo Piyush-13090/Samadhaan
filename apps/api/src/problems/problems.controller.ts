@@ -29,6 +29,7 @@ import {
 } from '@samadhaan/shared';
 import type { AuthenticatedRequest, RequestUser } from '../auth/auth.types.js';
 import { CurrentUser } from '../auth/decorators/current-user.decorator.js';
+import { UserRateLimit } from '../auth/guards/user-rate-limit.guard.js';
 import { Public } from '../auth/decorators/public.decorator.js';
 import { Roles } from '../auth/decorators/roles.decorator.js';
 import { AppException } from '../common/app.exception.js';
@@ -75,6 +76,7 @@ export class ProblemsController {
   @Roles('CITIZEN', 'ADMIN')
   @Post('images')
   @HttpCode(HttpStatus.CREATED)
+  @UserRateLimit({ bucket: 'problem-images', max: 100, windowSeconds: 3600 })
   @UseInterceptors(FileInterceptor('file'))
   async uploadImage(
     @UploadedFile() file: UploadedFileLike | undefined,
@@ -101,6 +103,9 @@ export class ProblemsController {
   @Roles('CITIZEN', 'ADMIN')
   @Post()
   @HttpCode(HttpStatus.CREATED)
+  // Prompt 23: rewards hang on verification, and are capped — but filing is
+  // limited too, so the point system cannot become an incentive to flood.
+  @UserRateLimit({ bucket: 'problem-report', max: 20, windowSeconds: 3600 })
   create(
     @Body() dto: CreateProblemDto,
     @CurrentUser() user: RequestUser,
@@ -282,6 +287,7 @@ export class ProblemsController {
    * and it is checked against this problem before anything is written.
    */
   @Post(':publicId/duplicates/:candidateId/confirm')
+  @UserRateLimit({ bucket: 'duplicate-decision', max: 30, windowSeconds: 600 })
   async confirmDuplicate(
     @Param('publicId') publicId: string,
     @Param('candidateId') candidateId: string,
@@ -295,6 +301,7 @@ export class ProblemsController {
 
   /** Records that this report is a different issue from the suggested one. */
   @Post(':publicId/duplicates/:candidateId/reject')
+  @UserRateLimit({ bucket: 'duplicate-decision', max: 30, windowSeconds: 600 })
   async rejectDuplicate(
     @Param('publicId') publicId: string,
     @Param('candidateId') candidateId: string,

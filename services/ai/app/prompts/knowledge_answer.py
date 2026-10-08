@@ -42,7 +42,11 @@ organisations or change any project.
 List the refs you actually cited in `evidence_refs`.
 """
 
-_TAG = re.compile(r"</?\s*(evidence|context|question|system)\b[^>]*>", re.IGNORECASE)
+_TAG = re.compile(
+    r"</?\s*(evidence|context|question|system|report|analysis|problem|project|document"
+    r"|guidance|earlier_evidence|facts|source)\b[^>]*>",
+    re.IGNORECASE,
+)
 
 
 def neutralise(text: str) -> str:

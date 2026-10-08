@@ -1,9 +1,5 @@
-import type {
-  PriorityLevel,
-  ProblemCategory,
-  ProblemStatus,
-  SeverityLevel,
-} from '@/types/domain';
+import type { ProblemCategory, ProblemStatus, SeverityLevel } from '@/types/domain';
+import type { PriorityTier } from '@samadhaan/shared';
 import type { Tone } from '@/types/ui';
 
 /**
@@ -127,11 +123,19 @@ interface PriorityPresentation {
   description: string;
 }
 
-export const PRIORITY_DISPLAY: Record<PriorityLevel, PriorityPresentation> = {
-  P1: { label: 'P1', tone: 'danger', description: 'Immediate — safety risk' },
-  P2: { label: 'P2', tone: 'warning', description: 'High — act this week' },
-  P3: { label: 'P3', tone: 'info', description: 'Normal — scheduled' },
-  P4: { label: 'P4', tone: 'neutral', description: 'Low — when capacity allows' },
+/**
+ * Advisory priority tiers from the priority engine (Prompt 21). The words
+ * describe what the engine estimates, not a decision — officials decide.
+ */
+export const PRIORITY_TIER_DISPLAY: Record<PriorityTier, PriorityPresentation> = {
+  CRITICAL: {
+    label: 'Critical',
+    tone: 'danger',
+    description: 'Strongest signals of harm, urgency and reach. Review first.',
+  },
+  HIGH: { label: 'High', tone: 'warning', description: 'Strong signals. Review soon.' },
+  MEDIUM: { label: 'Medium', tone: 'info', description: 'Moderate signals.' },
+  LOW: { label: 'Low', tone: 'neutral', description: 'Weak signals so far.' },
 };
 
 /**

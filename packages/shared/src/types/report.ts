@@ -1,3 +1,4 @@
+import type { PublicResolution } from './verification.js';
 import type { ProblemAssignment } from './allocation.js';
 import type { ProblemCategory, ProblemStatus, ProblemSeverity } from './problem.js';
 
@@ -124,6 +125,8 @@ export interface ProblemView {
    * (Prompt 16). Public facts only. Null when unassigned.
    */
   assignment: ProblemAssignment | null;
+  /** Set once a government office has verified the resolution (Prompt 22). */
+  resolution?: PublicResolution | null;
 }
 
 // ---------------------------------------------------------------------------

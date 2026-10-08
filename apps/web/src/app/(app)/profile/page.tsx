@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { cookies } from 'next/headers';
 import { Suspense } from 'react';
+import { ImpactOverview } from '@/components/impact/impact-overview';
 import { ActivitySummary } from '@/components/profile/activity-summary';
 import { OrganizationMemberships } from '@/components/profile/organization-memberships';
 import { ProfileHeader } from '@/components/profile/profile-header';
@@ -72,6 +73,13 @@ async function ProfileContent() {
           Impact summary
         </h2>
         <ActivitySummary activity={activity} />
+      </section>
+
+      <section aria-labelledby="reputation-heading">
+        <h2 id="reputation-heading" className="sr-only">
+          Impact and reputation
+        </h2>
+        <ImpactOverview compact />
       </section>
 
       <OrganizationMemberships memberships={profile.organizations} />

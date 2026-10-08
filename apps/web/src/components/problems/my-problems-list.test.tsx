@@ -111,9 +111,7 @@ describe('MyProblemsList', () => {
       page({ items: [item({ publicId: 'SAM-2000', title: 'A second report' })] }),
     );
 
-    render(
-      <MyProblemsList initial={page({ nextCursor: 'cursor-1', totalCount: 2 })} />,
-    );
+    render(<MyProblemsList initial={page({ nextCursor: 'cursor-1', totalCount: 2 })} />);
 
     await user.click(screen.getByRole('button', { name: /Load more/i }));
 
@@ -156,9 +154,7 @@ describe('MyProblemsList', () => {
     const user = userEvent.setup();
     render(<MyProblemsList initial={null} />);
 
-    expect(
-      screen.getByText(/Samadhaan could not reach the server/),
-    ).toBeInTheDocument();
+    expect(screen.getByText(/Samadhaan could not reach the server/)).toBeInTheDocument();
 
     fetchMyProblems.mockResolvedValue(page());
     await user.click(screen.getByRole('button', { name: /Try again/i }));
@@ -169,6 +165,8 @@ describe('MyProblemsList', () => {
   it('labels the filter group for assistive technology', () => {
     render(<MyProblemsList initial={page()} />);
 
-    expect(screen.getByRole('group', { name: 'Filter your reports' })).toBeInTheDocument();
+    expect(
+      screen.getByRole('group', { name: 'Filter your reports' }),
+    ).toBeInTheDocument();
   });
 });

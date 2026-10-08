@@ -140,8 +140,8 @@ export class UsersRepository {
    * Civic activity counts for a profile.
    *
    * Every number is counted from the database — nothing is estimated or
-   * invented. `impactPoints` is `null` because the ledger does not exist yet,
-   * and returning 0 would misrepresent an unbuilt feature as a measured score.
+   * invented. `impactPoints` comes from the impact ledger's maintained
+   * aggregate (Prompt 23); 0 is a real total once the ledger exists.
    *
    * The counts run as one batch so a profile page costs a single round trip
    * rather than six.
@@ -154,6 +154,7 @@ export class UsersRepository {
       commentsPosted,
       suggestionsMade,
       problemsResolved,
+      stats,
     ] = await this.prisma.$transaction([
       this.prisma.problem.count({ where: { reporterId: userId, deletedAt: null } }),
       this.prisma.problemVote.count({ where: { userId } }),
@@ -176,6 +177,7 @@ export class UsersRepository {
           ],
         },
       }),
+      this.prisma.userImpactStats.findUnique({ where: { userId } }),
     ]);
 
     return {
@@ -185,7 +187,7 @@ export class UsersRepository {
       commentsPosted,
       suggestionsMade,
       problemsResolved,
-      impactPoints: null,
+      impactPoints: stats?.impactPoints ?? 0,
     };
   }
 

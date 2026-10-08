@@ -37,6 +37,7 @@ const PROTECTED_PREFIXES = [
   '/notifications',
   '/settings',
   '/profile',
+  '/impact',
   '/report',
   // The problem detail *page* lives in the authenticated shell, so the proxy
   // short-circuits a signed-out visit here rather than letting the layout do

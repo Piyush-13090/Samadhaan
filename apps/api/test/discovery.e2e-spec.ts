@@ -624,7 +624,7 @@ describe('Discovery and dashboard (e2e)', () => {
      * A zero here would read as a measured score of nothing. The ledger does
      * not exist, so the honest answer is null and the UI says "coming soon".
      */
-    it('reports impact points as null rather than zero', async () => {
+    it('reports impact points from the ledger', async () => {
       const cookies = await loginAs('citizen@samadhaan.dev');
 
       const response = await request(server)
@@ -632,7 +632,14 @@ describe('Discovery and dashboard (e2e)', () => {
         .set('Cookie', cookies)
         .expect(200);
 
-      expect(response.body.data.activity.impactPoints).toBeNull();
+      // Prompt 23: a real total from the impact ledger's aggregate.
+      const citizen = await prisma.user.findUniqueOrThrow({
+        where: { email: 'citizen@samadhaan.dev' },
+      });
+      const stats = await prisma.userImpactStats.findUnique({
+        where: { userId: citizen.id },
+      });
+      expect(response.body.data.activity.impactPoints).toBe(stats?.impactPoints ?? 0);
     });
 
     it('scopes every figure to the caller', async () => {

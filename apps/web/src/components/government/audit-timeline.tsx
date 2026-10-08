@@ -1,4 +1,4 @@
-import { ArrowRight, Copy, NotebookPen, Send } from 'lucide-react';
+import { ArrowRight, Copy, Gavel, NotebookPen, Send } from 'lucide-react';
 import type { GovernmentActivityEntry, GovernmentAuditEntry } from '@samadhaan/shared';
 import { ProblemStatusBadge } from '@/components/problems/problem-status-badge';
 import { formatDateTime, formatRelativeTime } from '@/lib/format';
@@ -26,7 +26,9 @@ export function AuditTimeline({
               ? Copy
               : entry.kind.startsWith('ALLOCATION_')
                 ? Send
-                : ArrowRight;
+                : entry.kind.startsWith('PRIORITY_')
+                  ? Gavel
+                  : ArrowRight;
         const note = 'note' in entry ? entry.note : null;
 
         return (

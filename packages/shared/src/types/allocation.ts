@@ -207,5 +207,7 @@ export interface ProblemAssignment {
     logoUrl: string | null;
   };
   assignedAt: string;
+  /** Share of the project's tasks completed, 0–100 (Prompt 22). Null before any task. */
+  progress?: number | null;
 }
 

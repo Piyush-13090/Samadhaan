@@ -340,6 +340,120 @@ export const envSchema = z.object({
   RAG_QUERY_CACHE_SECONDS: z.coerce.number().int().min(0).max(604800).default(86400),
   /** Passages the AI Project Coordinator receives (0 disables). */
   RAG_COORDINATOR_TOP_K: z.coerce.number().int().min(0).max(10).default(3),
+
+  // --- AI Priority Engine (Prompt 21) -------------------------------------
+  // See docs/AI_PRIORITY_ENGINE.md. Weights and tier thresholds are a
+  // documented starting baseline, not validated values.
+  PRIORITY_ENABLED: z
+    .enum(['true', 'false'])
+    .default('true')
+    .transform((value) => value === 'true'),
+  /** The scoring model. Only the heuristic baseline exists today. */
+  PRIORITY_MODEL: z.enum(['heuristic']).default('heuristic'),
+  /** Ask the AI service for safety/urgency/impact signals. */
+  PRIORITY_AI_FEATURES_ENABLED: z
+    .enum(['true', 'false'])
+    .default('true')
+    .transform((value) => value === 'true'),
+  PRIORITY_WEIGHT_SEVERITY: z.coerce.number().min(0).max(1).default(0.2),
+  PRIORITY_WEIGHT_URGENCY: z.coerce.number().min(0).max(1).default(0.15),
+  PRIORITY_WEIGHT_COMMUNITY: z.coerce.number().min(0).max(1).default(0.2),
+  PRIORITY_WEIGHT_SAFETY: z.coerce.number().min(0).max(1).default(0.15),
+  PRIORITY_WEIGHT_GEOGRAPHIC: z.coerce.number().min(0).max(1).default(0.1),
+  PRIORITY_WEIGHT_RECENCY: z.coerce.number().min(0).max(1).default(0.05),
+  PRIORITY_WEIGHT_POPULATION: z.coerce.number().min(0).max(1).default(0.1),
+  PRIORITY_WEIGHT_EVIDENCE: z.coerce.number().min(0).max(1).default(0.05),
+  /** Lower bounds (inclusive) of each tier, on the 0–100 score. */
+  PRIORITY_TIER_CRITICAL: z.coerce.number().min(1).max(100).default(80),
+  PRIORITY_TIER_HIGH: z.coerce.number().min(1).max(100).default(60),
+  PRIORITY_TIER_MEDIUM: z.coerce.number().min(1).max(100).default(35),
+  /** Below either, an assessment is shown as provisional. */
+  PRIORITY_PROVISIONAL_CONFIDENCE: z.coerce.number().min(0).max(1).default(0.5),
+  PRIORITY_PROVISIONAL_COMPLETENESS: z.coerce.number().min(0).max(1).default(0.6),
+  /** Engagement events for one problem are coalesced over this window. */
+  PRIORITY_DEBOUNCE_SECONDS: z.coerce.number().int().min(0).max(3600).default(30),
+  /** Background refresh (recency decays): every N minutes, 0 disables. */
+  PRIORITY_SCHEDULE_MINUTES: z.coerce.number().int().min(0).max(10080).default(360),
+  /** Assessments older than this are refreshed by the background check. */
+  PRIORITY_REFRESH_HOURS: z.coerce.number().int().min(1).max(720).default(24),
+  PRIORITY_BATCH_SIZE: z.coerce.number().int().min(0).max(2000).default(200),
+  PRIORITY_SWEEP_ON_STARTUP: z
+    .enum(['true', 'false'])
+    .default('true')
+    .transform((value) => value === 'true'),
+  /** AI features are reused while their inputs are unchanged, up to this age. */
+  PRIORITY_AI_REUSE_DAYS: z.coerce.number().int().min(1).max(365).default(30),
+  PRIORITY_RECENCY_HALF_LIFE_DAYS: z.coerce.number().min(1).max(365).default(14),
+  /** Radius for the density of distinct nearby open problems. */
+  PRIORITY_NEARBY_RADIUS_M: z.coerce.number().int().min(50).max(5000).default(500),
+  /** Radius of the local engagement baseline that community impact is relative to. */
+  PRIORITY_BASELINE_RADIUS_M: z.coerce.number().int().min(500).max(50000).default(5000),
+  /** Supporting guidance passages attached to an assessment (0 disables). */
+  PRIORITY_GUIDANCE_TOP_K: z.coerce.number().int().min(0).max(5).default(2),
+
+  // --- Resolution verification (Prompt 22) ----------------------------------
+  // See docs/RESOLUTION_VERIFICATION.md. AI review is advisory; only a
+  // government official resolves a problem.
+  VERIFICATION_AI_ENABLED: z
+    .enum(['true', 'false'])
+    .default('true')
+    .transform((value) => value === 'true'),
+  /** Attempts per AI review before it is recorded as failed. */
+  VERIFICATION_MAX_ATTEMPTS: z.coerce.number().int().min(1).max(10).default(3),
+  VERIFICATION_RETRY_SECONDS: z.coerce.number().int().min(1).max(3600).default(60),
+  VERIFICATION_SWEEP_ON_STARTUP: z
+    .enum(['true', 'false'])
+    .default('true')
+    .transform((value) => value === 'true'),
+  /** Guidance passages (PUBLIC + this project's) given to the AI review. */
+  VERIFICATION_GUIDANCE_TOP_K: z.coerce.number().int().min(0).max(3).default(3),
+  /** Photo GPS within this distance of the report is fully consistent. */
+  VERIFICATION_LOCATION_NEAR_M: z.coerce.number().int().min(10).max(1000).default(100),
+  /** …and beyond this, a potential concern. */
+  VERIFICATION_LOCATION_FAR_M: z.coerce.number().int().min(100).max(20000).default(1000),
+  /** Images sent to the AI are resized to fit this box. */
+  VERIFICATION_IMAGE_MAX_PX: z.coerce.number().int().min(256).max(2048).default(1024),
+
+  // --- Impact points (Prompt 23) --------------------------------------------
+  // Point values and tier thresholds are versioned in code (impact-rules.ts),
+  // so a change is a new rule version, never a silent recalculation.
+  IMPACT_ENABLED: z
+    .enum(['true', 'false'])
+    .default('true')
+    .transform((value) => value === 'true'),
+  /** Reconcile awards for verified/resolved problems: on start-up and every N minutes (0 disables). */
+  IMPACT_RECONCILE_MINUTES: z.coerce.number().int().min(0).max(1440).default(60),
+  IMPACT_RECONCILE_BATCH: z.coerce.number().int().min(1).max(5000).default(200),
+  IMPACT_RECONCILE_ON_STARTUP: z
+    .enum(['true', 'false'])
+    .default('true')
+    .transform((value) => value === 'true'),
+  /** Public leaderboard pages are cached this long (they hold no private data). */
+  LEADERBOARD_CACHE_SECONDS: z.coerce.number().int().min(0).max(3600).default(60),
+
+  // --- Civic analytics (Prompt 24) ------------------------------------------
+  /** IANA time zone dates are grouped in when a request names none. */
+  ANALYTICS_TIMEZONE: z
+    .string()
+    .default('Asia/Kolkata')
+    .refine((zone) => {
+      try {
+        new Intl.DateTimeFormat('en-US', { timeZone: zone });
+        return true;
+      } catch {
+        return false;
+      }
+    }, 'ANALYTICS_TIMEZONE must be an IANA time zone'),
+  /** Aggregates are cached this long, per office, jurisdiction, filters and range. */
+  ANALYTICS_CACHE_SECONDS: z.coerce.number().int().min(0).max(3600).default(120),
+  ANALYTICS_INSIGHTS_ENABLED: z
+    .enum(['true', 'false'])
+    .default('true')
+    .transform((value) => value === 'true'),
+  /** A generated insight is kept (and reused) this long. */
+  ANALYTICS_INSIGHT_CACHE_HOURS: z.coerce.number().int().min(1).max(72).default(6),
+  /** The most problem rows one export may contain. */
+  ANALYTICS_EXPORT_MAX_ROWS: z.coerce.number().int().min(100).max(50000).default(5000),
 });
 
 export type Env = z.infer<typeof envSchema>;
