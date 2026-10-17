@@ -1,3 +1,4 @@
+import { AuthModule } from '../auth/auth.module.js';
 import { Module } from '@nestjs/common';
 import { MulterModule } from '@nestjs/platform-express';
 import { RESOLUTION_ATTACHMENT_MAX_BYTES } from '@samadhaan/shared';
@@ -17,6 +18,7 @@ import { ResolutionRoomsService } from './resolution-rooms.service.js';
  */
 @Module({
   imports: [
+    AuthModule,
     MulterModule.register({
       limits: { fileSize: RESOLUTION_ATTACHMENT_MAX_BYTES, files: 1, fields: 5 },
     }),

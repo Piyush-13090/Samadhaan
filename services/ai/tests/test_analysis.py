@@ -202,7 +202,13 @@ class TestProviderFactory:
     # The guard that keeps a keyword stub away from real civic reports.
     def test_refuses_the_development_provider_in_production(self) -> None:
         with pytest.raises(ProviderError) as raised:
-            build_provider(Settings(NODE_ENV="production", LLM_PROVIDER="development"))
+            build_provider(
+                Settings(
+                    NODE_ENV="production",
+                    LLM_PROVIDER="development",
+                    AI_INTERNAL_TOKEN="t" * 40,
+                )
+            )
 
         assert raised.value.code == "PROVIDER_UNAVAILABLE"
         assert raised.value.retryable is False

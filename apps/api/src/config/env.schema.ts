@@ -20,6 +20,24 @@ export const envSchema = z.object({
     .default('info'),
 
   DATABASE_URL: z.string().url(),
+  /**
+   * Connections in the API's PostgreSQL pool (Prompt 27). node-postgres
+   * defaults to 10. Size it with the database's max_connections in mind:
+   * every API replica holds up to this many, plus migrations and psql.
+   */
+  DATABASE_POOL_MAX: z.coerce.number().int().min(1).max(200).default(10),
+  /**
+   * How long a query may wait for a free pooled connection before failing.
+   * node-postgres waits forever by default, which turns a saturated pool into
+   * hung requests; a bounded wait returns an error the client can retry.
+   */
+  DATABASE_POOL_ACQUIRE_TIMEOUT_MS: z.coerce.number().int().min(0).default(10_000),
+  /**
+   * Server-side statement_timeout for API connections, in ms. 0 = off (the
+   * default, so long-running maintenance paths keep working); set it in
+   * production as a backstop against runaway queries.
+   */
+  DATABASE_STATEMENT_TIMEOUT_MS: z.coerce.number().int().min(0).default(0),
 
   REDIS_URL: z.string().url(),
 
@@ -454,7 +472,65 @@ export const envSchema = z.object({
   ANALYTICS_INSIGHT_CACHE_HOURS: z.coerce.number().int().min(1).max(72).default(6),
   /** The most problem rows one export may contain. */
   ANALYTICS_EXPORT_MAX_ROWS: z.coerce.number().int().min(100).max(50000).default(5000),
+
+  // --- Search and discovery (Prompt 25) -------------------------------------
+  // Hybrid ranking weights — initial heuristics, renormalised over the signals
+  // available for a query. See docs/SEARCH_RANKING.md.
+  SEARCH_WEIGHT_KEYWORD: z.coerce.number().min(0).max(1).default(0.35),
+  SEARCH_WEIGHT_SEMANTIC: z.coerce.number().min(0).max(1).default(0.35),
+  SEARCH_WEIGHT_GEOGRAPHIC: z.coerce.number().min(0).max(1).default(0.15),
+  SEARCH_WEIGHT_RECENCY: z.coerce.number().min(0).max(1).default(0.1),
+  SEARCH_WEIGHT_COMMUNITY: z.coerce.number().min(0).max(1).default(0.05),
+  SEARCH_SEMANTIC_ENABLED: z
+    .enum(['true', 'false'])
+    .default('true')
+    .transform((value) => value === 'true'),
+  /** Semantic candidates below this cosine similarity are dropped. */
+  SEARCH_SEMANTIC_MIN_SIMILARITY: z.coerce.number().min(0).max(1).default(0.3),
+  /** Most candidates one retrieval channel may return (bounds every query). */
+  SEARCH_CANDIDATE_LIMIT: z.coerce.number().int().min(20).max(1000).default(200),
+  SEARCH_RECENCY_HALF_LIFE_DAYS: z.coerce.number().min(1).max(365).default(30),
+  /** AI query understanding, only for ambiguous natural-language queries. */
+  SEARCH_AI_PARSE_ENABLED: z
+    .enum(['true', 'false'])
+    .default('true')
+    .transform((value) => value === 'true'),
+  SEARCH_AI_PARSE_PER_HOUR: z.coerce.number().int().min(0).max(1000).default(30),
+  /** Ranked public result lists are cached this long (pagination reads them). */
+  SEARCH_CACHE_SECONDS: z.coerce.number().int().min(0).max(3600).default(120),
+  SEARCH_RECENT_MAX: z.coerce.number().int().min(0).max(50).default(10),
+  SEARCH_RECENT_DAYS: z.coerce.number().int().min(1).max(365).default(30),
 });
+
+/**
+ * Production must not inherit development conveniences (Prompt 26). These are
+ * checked at startup so a misconfigured deployment refuses to boot instead of
+ * running insecurely.
+ */
+export function productionIssues(env: z.infer<typeof envSchema>): string[] {
+  if (env.NODE_ENV !== 'production') return [];
+  const issues: string[] = [];
+  const secret = env.JWT_ACCESS_SECRET;
+  if (
+    /replace|change|example|placeholder|secret|samadhaan/i.test(secret) ||
+    new Set(secret).size < 16
+  ) {
+    issues.push('JWT_ACCESS_SECRET looks like a placeholder or low-entropy value');
+  }
+  if (!env.AUTH_COOKIE_SECURE) issues.push('AUTH_COOKIE_SECURE must be true');
+  if (!env.AI_SERVICE_TOKEN || env.AI_SERVICE_TOKEN.length < 32) {
+    issues.push('AI_SERVICE_TOKEN must be set (32+ characters)');
+  }
+  if (env.ALLOW_DEV_SEED) issues.push('ALLOW_DEV_SEED must be false');
+  for (const origin of env.CORS_ORIGINS.split(',')
+    .map((o) => o.trim())
+    .filter(Boolean)) {
+    if (origin === '*' || !/^https:\/\/[^/*]+$/.test(origin)) {
+      issues.push(`CORS_ORIGINS entry "${origin}" must be an explicit https origin`);
+    }
+  }
+  return issues;
+}
 
 export type Env = z.infer<typeof envSchema>;
 
@@ -470,6 +546,13 @@ export function validateEnv(raw: Record<string, unknown>): Env {
       .map((issue) => `  - ${issue.path.join('.') || '(root)'}: ${issue.message}`)
       .join('\n');
     throw new Error(`Invalid environment configuration:\n${issues}`);
+  }
+
+  const production = productionIssues(result.data);
+  if (production.length > 0) {
+    throw new Error(
+      `Unsafe production configuration:\n${production.map((i) => `  - ${i}`).join('\n')}`,
+    );
   }
 
   return result.data;

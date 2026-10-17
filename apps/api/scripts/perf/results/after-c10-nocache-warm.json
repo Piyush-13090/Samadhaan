@@ -1,0 +1,66 @@
+{
+  "base": "http://localhost:4100",
+  "at": "2026-10-17T07:31:48.335Z",
+  "results": [
+    {
+      "scenario": "search-problems-keyword",
+      "concurrency": 10,
+      "durationS": 20.2,
+      "requests": 889,
+      "rps": 44.1,
+      "p50": 180.1,
+      "p95": 478.8,
+      "p99": 540.3,
+      "max": 598.4,
+      "errorRate": 0,
+      "statuses": {
+        "200": 889
+      }
+    },
+    {
+      "scenario": "search-unified",
+      "concurrency": 10,
+      "durationS": 20.1,
+      "requests": 775,
+      "rps": 38.5,
+      "p50": 219,
+      "p95": 488.8,
+      "p99": 1697.2,
+      "max": 2449.9,
+      "errorRate": 0,
+      "statuses": {
+        "200": 775
+      }
+    },
+    {
+      "scenario": "knowledge-search",
+      "concurrency": 10,
+      "durationS": 20.2,
+      "requests": 547,
+      "rps": 27.1,
+      "p50": 375.3,
+      "p95": 412.8,
+      "p99": 485.4,
+      "max": 487.9,
+      "errorRate": 0,
+      "statuses": {
+        "200": 547
+      }
+    },
+    {
+      "scenario": "gov-dashboard",
+      "concurrency": 10,
+      "durationS": 20.1,
+      "requests": 849,
+      "rps": 42.1,
+      "p50": 228.9,
+      "p95": 346.3,
+      "p99": 404.1,
+      "max": 453.5,
+      "errorRate": 0,
+      "statuses": {
+        "200": 849
+      }
+    }
+  ]
+}

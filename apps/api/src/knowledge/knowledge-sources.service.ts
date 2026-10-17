@@ -1,3 +1,4 @@
+import { cleanFileName } from '../common/file-name.js';
 import { randomBytes } from 'node:crypto';
 import { Injectable } from '@nestjs/common';
 import {
@@ -138,10 +139,7 @@ export class KnowledgeSourcesService {
       where: { id: source.id },
       data: {
         storageKey: key,
-        fileName: (file.originalname ?? `document.${ext}`)
-          .split(/[\\/]/)
-          .pop()!
-          .slice(0, 200),
+        fileName: cleanFileName(file.originalname, `document.${ext}`, 200),
         mimeType,
         sizeBytes: file.buffer.length,
         status: 'PENDING',

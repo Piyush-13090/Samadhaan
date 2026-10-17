@@ -14,9 +14,72 @@ loadEnv({ path: '.env', quiet: true });
 loadEnv({ path: '../../.env', quiet: true });
 
 const API_ORIGIN = process.env.API_INTERNAL_URL ?? 'http://localhost:4000';
+const isProduction = process.env.NODE_ENV === 'production';
+
+const originOf = (value: string | undefined): string | null => {
+  try {
+    return value ? new URL(value).origin : null;
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * Content-Security-Policy (Prompt 26), built from what the app actually loads:
+ * Next's inline bootstrap scripts (hence 'unsafe-inline'; 'unsafe-eval' only in
+ * development for React refresh), the API (same origin through the rewrite, or
+ * NEXT_PUBLIC_API_URL), the map style host and its blob workers, and https
+ * images (organisation logos and avatars are external URLs). Frames are denied
+ * outright. Tighten with nonces once inline scripts are removed.
+ */
+function contentSecurityPolicy(): string {
+  const api = originOf(process.env.NEXT_PUBLIC_API_URL);
+  const mapStyle = originOf(
+    process.env.NEXT_PUBLIC_MAP_STYLE_URL ||
+      'https://tiles.openfreemap.org/styles/liberty',
+  );
+  const connect = ["'self'", api, mapStyle, isProduction ? null : 'ws:'].filter(Boolean);
+  return [
+    "default-src 'self'",
+    `script-src 'self' 'unsafe-inline'${isProduction ? '' : " 'unsafe-eval'"}`,
+    "style-src 'self' 'unsafe-inline'",
+    `img-src 'self' data: blob: https:${api && !api.startsWith('https:') ? ` ${api}` : ''}`,
+    "font-src 'self' data:",
+    `connect-src ${connect.join(' ')}`,
+    "worker-src 'self' blob:",
+    "child-src 'self' blob:",
+    "frame-ancestors 'none'",
+    "object-src 'none'",
+    "base-uri 'self'",
+    "form-action 'self'",
+    ...(isProduction ? ['upgrade-insecure-requests'] : []),
+  ].join('; ');
+}
+
+const SECURITY_HEADERS = [
+  { key: 'Content-Security-Policy', value: contentSecurityPolicy() },
+  { key: 'X-Frame-Options', value: 'DENY' },
+  { key: 'X-Content-Type-Options', value: 'nosniff' },
+  { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
+  // Geolocation stays available to the app itself ("Near me").
+  {
+    key: 'Permissions-Policy',
+    value: 'camera=(self), microphone=(), geolocation=(self), payment=()',
+  },
+  { key: 'Cross-Origin-Opener-Policy', value: 'same-origin' },
+  ...(isProduction
+    ? [{ key: 'Strict-Transport-Security', value: 'max-age=31536000; includeSubDomains' }]
+    : []),
+];
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
+  // No framework fingerprint in responses (Prompt 26).
+  poweredByHeader: false,
+
+  async headers() {
+    return [{ source: '/:path*', headers: SECURITY_HEADERS }];
+  },
 
   /**
    * Proxy API traffic through Next.js so the browser only ever talks to one

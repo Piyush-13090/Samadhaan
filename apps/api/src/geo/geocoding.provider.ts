@@ -97,6 +97,9 @@ export class NominatimGeocodingProvider extends GeocodingProvider {
       response = await this.fetchImpl(`${this.config.baseUrl}${path}`, {
         headers,
         signal: AbortSignal.timeout(this.config.timeoutMs),
+        // The geocoder is a fixed, configured host; a redirect elsewhere (with
+        // the API key) is refused (Prompt 26).
+        redirect: 'error',
       });
     } catch {
       throw new GeocodingUnavailableError('The geocoder could not be reached.');

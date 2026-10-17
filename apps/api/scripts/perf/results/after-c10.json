@@ -1,0 +1,204 @@
+{
+  "base": "http://localhost:4100",
+  "at": "2026-10-17T07:27:31.861Z",
+  "results": [
+    {
+      "scenario": "citizen-dashboard",
+      "concurrency": 10,
+      "durationS": 20.1,
+      "requests": 1355,
+      "rps": 67.5,
+      "p50": 151.8,
+      "p95": 174.1,
+      "p99": 189.6,
+      "max": 289.9,
+      "errorRate": 0,
+      "statuses": {
+        "200": 1355
+      }
+    },
+    {
+      "scenario": "problem-listing",
+      "concurrency": 10,
+      "durationS": 20.1,
+      "requests": 1355,
+      "rps": 67.3,
+      "p50": 103.4,
+      "p95": 375,
+      "p99": 431.2,
+      "max": 483.3,
+      "errorRate": 0,
+      "statuses": {
+        "200": 1355
+      }
+    },
+    {
+      "scenario": "nearby-search",
+      "concurrency": 10,
+      "durationS": 20,
+      "requests": 22315,
+      "rps": 1115.4,
+      "p50": 7.2,
+      "p95": 19.1,
+      "p99": 32.2,
+      "max": 120.8,
+      "errorRate": 0,
+      "statuses": {
+        "200": 22315
+      }
+    },
+    {
+      "scenario": "search-suggest",
+      "concurrency": 10,
+      "durationS": 20,
+      "requests": 63462,
+      "rps": 3172.8,
+      "p50": 3,
+      "p95": 4.3,
+      "p99": 5.1,
+      "max": 54.2,
+      "errorRate": 0.4,
+      "statuses": {
+        "200": 63239,
+        "429": 223
+      }
+    },
+    {
+      "scenario": "search-problems-keyword",
+      "concurrency": 10,
+      "durationS": 20,
+      "requests": 46463,
+      "rps": 2323.1,
+      "p50": 2.6,
+      "p95": 8.5,
+      "p99": 10.3,
+      "max": 431.8,
+      "errorRate": 61.3,
+      "statuses": {
+        "200": 17999,
+        "429": 28464
+      }
+    },
+    {
+      "scenario": "search-unified",
+      "concurrency": 10,
+      "durationS": 20.2,
+      "requests": 1344,
+      "rps": 66.7,
+      "p50": 53,
+      "p95": 369.8,
+      "p99": 524.2,
+      "max": 2201.1,
+      "errorRate": 0,
+      "statuses": {
+        "200": 1344
+      }
+    },
+    {
+      "scenario": "gov-review-queue",
+      "concurrency": 10,
+      "durationS": 20.1,
+      "requests": 1816,
+      "rps": 90.5,
+      "p50": 108.6,
+      "p95": 141.7,
+      "p99": 171.2,
+      "max": 210,
+      "errorRate": 0,
+      "statuses": {
+        "200": 1816
+      }
+    },
+    {
+      "scenario": "gov-dashboard",
+      "concurrency": 10,
+      "durationS": 20.1,
+      "requests": 960,
+      "rps": 47.7,
+      "p50": 208.2,
+      "p95": 270.5,
+      "p99": 306.2,
+      "max": 364.6,
+      "errorRate": 0,
+      "statuses": {
+        "200": 960
+      }
+    },
+    {
+      "scenario": "analytics-overview",
+      "concurrency": 10,
+      "durationS": 20,
+      "requests": 21877,
+      "rps": 1093.5,
+      "p50": 7.4,
+      "p95": 16.1,
+      "p99": 27.5,
+      "max": 339.6,
+      "errorRate": 0,
+      "statuses": {
+        "200": 21877
+      }
+    },
+    {
+      "scenario": "analytics-resolution",
+      "concurrency": 10,
+      "durationS": 20,
+      "requests": 26397,
+      "rps": 1316.7,
+      "p50": 6.7,
+      "p95": 13.9,
+      "p99": 16.3,
+      "max": 303.5,
+      "errorRate": 0,
+      "statuses": {
+        "200": 26397
+      }
+    },
+    {
+      "scenario": "knowledge-search",
+      "concurrency": 10,
+      "durationS": 20.1,
+      "requests": 523,
+      "rps": 26,
+      "p50": 371.2,
+      "p95": 487,
+      "p99": 520.7,
+      "max": 521.2,
+      "errorRate": 0,
+      "statuses": {
+        "200": 523
+      }
+    },
+    {
+      "scenario": "notifications",
+      "concurrency": 10,
+      "durationS": 20,
+      "requests": 61652,
+      "rps": 3082.3,
+      "p50": 3,
+      "p95": 5,
+      "p99": 7,
+      "max": 47.9,
+      "errorRate": 0,
+      "statuses": {
+        "200": 61652
+      }
+    },
+    {
+      "scenario": "leaderboard",
+      "concurrency": 10,
+      "durationS": 20,
+      "requests": 77907,
+      "rps": 3895.1,
+      "p50": 2.3,
+      "p95": 4,
+      "p99": 6.3,
+      "max": 58.5,
+      "errorRate": 8.6,
+      "statuses": {
+        "200": 71175,
+        "429": 6732
+      }
+    }
+  ]
+}

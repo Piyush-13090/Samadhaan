@@ -11,7 +11,9 @@ CREATE TYPE "JurisdictionType" AS ENUM ('MUNICIPAL_CORPORATION', 'MUNICIPALITY',
 CREATE TYPE "NoteVisibility" AS ENUM ('INTERNAL');
 
 -- DropIndex
-DROP INDEX "problem_embeddings_vector_hnsw";
+-- IF EXISTS (Prompt 27): on a fresh database the HNSW index is only created
+-- by post-migrate.sql after all migrations, so a bare DROP failed here.
+DROP INDEX IF EXISTS "problem_embeddings_vector_hnsw";
 
 -- AlterTable
 ALTER TABLE "organizations" ADD COLUMN     "jurisdictionBoundary" geography(MultiPolygon, 4326),

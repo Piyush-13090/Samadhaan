@@ -236,6 +236,21 @@ export class GovernmentVerificationService {
     });
     if (!request)
       throw AppException.conflict('There is no pending verification request.');
+    // Separation of duties (Prompt 26): nobody decides on work their own
+    // organisation did, even if they are also an official of this office.
+    const conflict = await this.prisma.organizationMember.findFirst({
+      where: {
+        organizationId: project.assignedOrganizationId,
+        userId: user.id,
+        status: 'ACTIVE',
+      },
+      select: { id: true },
+    });
+    if (conflict) {
+      throw AppException.forbidden(
+        'You are a member of the organisation that did this work, so another official must decide.',
+      );
+    }
     // The approving official's own project context (government side).
     const context = await this.projects.resolve(project.id, user);
     const now = new Date();

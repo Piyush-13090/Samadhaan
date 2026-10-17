@@ -91,7 +91,9 @@ FROM (vec ∪ kw) JOIN chunks JOIN sources WHERE <access predicate>
   again in the final join. Nothing outside the caller's scope is read. See
   `RAG_SECURITY.md` §1.
 - **Indexes:** HNSW `knowledge_chunks_embedding_hnsw` (`vector_cosine_ops`)
-  and GIN `knowledge_chunks_content_fts` on `to_tsvector('english', content)`.
+  and GIN `knowledge_chunks_content_vector_gin` on the stored generated column
+  `contentVector` = `to_tsvector('english', content)` (Prompt 27; previously an
+  expression index, which made ranking re-parse every matching chunk).
   Chunks are never loaded into Node to compute similarity.
 - **The query embedding** is cached in Redis under `rag:qemb:v1:{sha256(text)}`
   for `RAG_QUERY_CACHE_SECONDS`. Results and answers are never cached.

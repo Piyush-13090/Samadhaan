@@ -34,6 +34,7 @@ const STATUS_TO_CODE: Partial<Record<number, ErrorCode>> = {
   [HttpStatus.NOT_FOUND]: ERROR_CODES.NOT_FOUND,
   [HttpStatus.CONFLICT]: ERROR_CODES.CONFLICT,
   [HttpStatus.TOO_MANY_REQUESTS]: ERROR_CODES.RATE_LIMITED,
+  [HttpStatus.PAYLOAD_TOO_LARGE]: ERROR_CODES.PAYLOAD_TOO_LARGE,
   [HttpStatus.SERVICE_UNAVAILABLE]: ERROR_CODES.UPSTREAM_UNAVAILABLE,
 };
 
@@ -97,6 +98,33 @@ export class AllExceptionsFilter implements ExceptionFilter {
       }
 
       return { status, code, message: exception.message };
+    }
+
+    // Body-parser and multer failures are client errors, not 500s (Prompt
+    // 26): an oversized or malformed body must not look like a server fault.
+    const parserError = exception as {
+      type?: unknown;
+      status?: unknown;
+      expose?: unknown;
+    };
+    if (parserError?.type === 'entity.too.large' || parserError?.status === 413) {
+      return {
+        status: HttpStatus.PAYLOAD_TOO_LARGE,
+        code: ERROR_CODES.PAYLOAD_TOO_LARGE,
+        message: 'The request is too large.',
+      };
+    }
+    if (
+      parserError?.expose === true &&
+      typeof parserError.status === 'number' &&
+      parserError.status >= 400 &&
+      parserError.status < 500
+    ) {
+      return {
+        status: parserError.status,
+        code: STATUS_TO_CODE[parserError.status] ?? ERROR_CODES.VALIDATION_FAILED,
+        message: 'The request could not be read.',
+      };
     }
 
     // Unknown failure: log the detail, return an opaque message.

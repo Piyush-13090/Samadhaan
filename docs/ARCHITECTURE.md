@@ -833,6 +833,25 @@ POST insights ─▶ facts ─▶ AI service /analytics/insights (validated: cit
 - **Exports are audited.** Insights and exports never carry coordinates or
   personal data.
 
+## Search and discovery
+
+Detail: [`SEARCH_ARCHITECTURE.md`](./SEARCH_ARCHITECTURE.md),
+[`SEARCH_RANKING.md`](./SEARCH_RANKING.md),
+[`SEARCH_SECURITY.md`](./SEARCH_SECURITY.md).
+
+```
+GlobalSearch (combobox, debounced suggest) / /search (URL state)
+  └▶ /api/v1/search* ─▶ SearchQueryUnderstanding (rules → AI fallback, validated)
+       └▶ per entity, SearchAuthorizationService policy in SQL:
+            full text (GIN expression indexes) + pgvector (HNSW) + filters + PostGIS
+            └▶ SearchRankingService (weighted, renormalised, explained)
+                 └▶ ranked list cached per scope ─▶ cursor pages
+```
+
+- **PostgreSQL only;** no external search engine.
+- **Suggestions never embed or call AI.**
+- **Telemetry is anonymous** counters.
+
 ## Resolution verification
 
 Detail: [`RESOLUTION_VERIFICATION.md`](./RESOLUTION_VERIFICATION.md),

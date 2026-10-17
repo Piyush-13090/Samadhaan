@@ -135,6 +135,17 @@ export class AllocationsService {
             : 'That organisation cannot receive allocations.',
         );
       }
+      // Separation of duties (Prompt 26): an official who is also a member of
+      // the receiving organisation may not allocate work to it.
+      const conflict = await tx.organizationMember.findFirst({
+        where: { organizationId: target.id, userId: user.id, status: 'ACTIVE' },
+        select: { id: true },
+      });
+      if (conflict) {
+        throw AppException.forbidden(
+          'You are a member of that organisation, so another official must make this allocation.',
+        );
+      }
 
       const active = await tx.problemAllocation.findFirst({
         where: { problemId: problem.id, status: { in: ['PENDING', 'ACCEPTED'] } },

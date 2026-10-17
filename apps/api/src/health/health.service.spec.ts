@@ -81,7 +81,9 @@ describe('HealthService', () => {
 
       expect(report.status).toBe('down');
       expect(dependency(report, 'database').status).toBe('down');
-      expect(dependency(report, 'database').message).toContain('db unreachable');
+      // The public report names the dependency, never the raw error (Prompt 26).
+      expect(dependency(report, 'database').message).toBe('database is unavailable');
+      expect(JSON.stringify(report)).not.toContain('db unreachable');
     });
 
     it('is only degraded when Redis is unreachable — reads still work', async () => {
@@ -95,7 +97,7 @@ describe('HealthService', () => {
       const report = await createService({ ai: null }).getReadiness();
 
       expect(report.status).toBe('degraded');
-      expect(dependency(report, 'aiService').message).toContain('unreachable');
+      expect(dependency(report, 'aiService').message).toBe('aiService is unavailable');
     });
 
     it("passes the AI service's own degraded verdict through, rather than flattening it to down", async () => {

@@ -5,9 +5,18 @@ node_modules/
 
 # Environment — never commit real secrets
 .env
-.env.local
-.env.*.local
+.env.*
 !.env.example
+
+# Keys and certificates
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Uploaded files (local storage driver) — user content, never committed
+.storage/
+**/.storage/
 
 # Build output
 dist/

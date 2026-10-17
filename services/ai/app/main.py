@@ -9,6 +9,7 @@ Run standalone:
 
 from __future__ import annotations
 
+import re
 import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
@@ -65,10 +66,15 @@ if settings.cors_origins:
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
+        # The service never uses cookies; credentials are never needed.
+        allow_credentials=False,
+        allow_methods=["GET", "POST"],
+        allow_headers=["content-type", "x-request-id", "x-internal-token"],
     )
+
+
+_SAFE_REQUEST_ID = re.compile(r"[A-Za-z0-9._-]{1,64}")
+MAX_REQUEST_BYTES = 64 * 1024 * 1024
 
 
 @app.middleware("http")
@@ -78,7 +84,22 @@ async def request_context(
 ) -> Response:
     """Binds the correlation id sent by the API to every log line in this
     request, and echoes it back so the trace stays joinable."""
-    request_id = request.headers.get(REQUEST_ID_HEADER) or str(uuid.uuid4())
+    # Only a short, plain id is accepted from the caller; anything else could
+    # forge log lines, so it is replaced.
+    incoming = request.headers.get(REQUEST_ID_HEADER, "")
+    request_id = incoming if _SAFE_REQUEST_ID.fullmatch(incoming) else str(uuid.uuid4())
+
+    # Bound the body before it is read: the largest legitimate request is four
+    # base64 photos for analysis.
+    declared = request.headers.get("content-length")
+    if declared is not None and (not declared.isdigit() or int(declared) > MAX_REQUEST_BYTES):
+        return JSONResponse(
+            status_code=413,
+            content=ErrorResponse(
+                code="PAYLOAD_TOO_LARGE", message="Request body too large"
+            ).model_dump(),
+            headers={REQUEST_ID_HEADER: request_id},
+        )
 
     structlog.contextvars.clear_contextvars()
     structlog.contextvars.bind_contextvars(request_id=request_id)
@@ -95,7 +116,9 @@ async def validation_error_handler(_: Request, exc: RequestValidationError) -> J
         content=ErrorResponse(
             code="VALIDATION_FAILED",
             message="Request validation failed",
-            detail=str(exc.errors()),
+            # Location and type only: Pydantic errors echo the offending input,
+            # which may be user text or image bytes.
+            detail=str([{"loc": e.get("loc"), "type": e.get("type")} for e in exc.errors()]),
         ).model_dump(),
     )
 

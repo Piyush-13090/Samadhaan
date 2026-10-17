@@ -17,12 +17,9 @@ async function bootstrap(): Promise<void> {
 
   const config = app.get(AppConfig);
 
+  // CORS, headers and CSRF checks are applied in configureApp, so the e2e
+  // suite tests exactly what production runs (Prompt 26).
   configureApp(app);
-
-  app.enableCors({
-    origin: config.corsOrigins,
-    credentials: true,
-  });
 
   // Closes Prisma and Redis connections on SIGTERM before the process exits.
   app.enableShutdownHooks();

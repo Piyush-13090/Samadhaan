@@ -139,6 +139,7 @@ export class UpdateKnowledgeSourceDto {
   @Transform(trimOrNull)
   @ValidateIf((_, v) => v !== null)
   @IsUrl({ protocols: ['https', 'http'], require_protocol: true })
+  @MaxLength(2000)
   externalUrl?: string | null;
 
   /** Replacing the text re-indexes the source. */

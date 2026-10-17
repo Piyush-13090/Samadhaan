@@ -26,8 +26,9 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-samadhaan}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-samadhaan_dev_password}
       POSTGRES_DB: ${POSTGRES_DB:-samadhaan}
+    # Bound to localhost only (Prompt 26): never reachable from the network.
     ports:
-      - '${POSTGRES_PORT:-5432}:5432'
+      - '127.0.0.1:${POSTGRES_PORT:-5432}:5432'
     volumes:
       - postgres-data:/var/lib/postgresql/data
       # Runs once, on an empty data directory, to create the extensions.
@@ -48,13 +49,18 @@ services:
     container_name: samadhaan-redis
     restart: unless-stopped
     # appendonly keeps queued jobs across a restart once BullMQ is introduced.
-    command: redis-server --appendonly yes
+    # Set REDIS_PASSWORD (and put it in REDIS_URL) to require authentication;
+    # production must. Bound to localhost only (Prompt 26).
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+    # Expanded by the container's shell ($$), so the password is optional.
+    command: sh -c 'exec redis-server --appendonly yes $${REDIS_PASSWORD:+--requirepass "$$REDIS_PASSWORD"}'
     ports:
-      - '${REDIS_PORT:-6379}:6379'
+      - '127.0.0.1:${REDIS_PORT:-6379}:6379'
     volumes:
       - redis-data:/data
     healthcheck:
-      test: ['CMD', 'redis-cli', 'ping']
+      test: ['CMD-SHELL', 'redis-cli $${REDIS_PASSWORD:+-a "$$REDIS_PASSWORD"} --no-auth-warning ping | grep PONG']
       interval: 10s
       timeout: 5s
       retries: 5

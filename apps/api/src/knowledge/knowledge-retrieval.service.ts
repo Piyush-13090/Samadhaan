@@ -132,8 +132,8 @@ export class KnowledgeRetrievalService {
           WHERE s."status" = 'COMPLETED'
             AND c."embeddingModel" = ${query.model}
             AND ${predicate}
-            AND to_tsvector('english', c."content") @@ q.tsq
-          ORDER BY ts_rank_cd(to_tsvector('english', c."content"), q.tsq, 32) DESC
+            AND c."contentVector" @@ q.tsq
+          ORDER BY ts_rank_cd(c."contentVector", q.tsq, 32) DESC
           LIMIT ${keywordLimit}
         ),
         ids AS (SELECT id FROM vec UNION SELECT id FROM kw)
@@ -144,7 +144,7 @@ export class KnowledgeRetrievalService {
                -- Keyword signal: the share of the query's terms the passage contains.
                CASE WHEN cardinality(q.terms) = 0 THEN 0 ELSE (
                  SELECT count(*) FROM unnest(q.terms) t
-                 WHERE to_tsvector('english', c."content") @@ plainto_tsquery('simple', t)
+                 WHERE c."contentVector" @@ plainto_tsquery('simple', t)
                )::float8 / cardinality(q.terms) END AS "keyword",
                c."embedding"::text AS "embedding"
         FROM ids
@@ -210,7 +210,7 @@ export class KnowledgeRetrievalService {
    * are derived from the text alone and carry nothing about who asked, so a
    * shared cache cannot leak across users. Results are never cached.
    */
-  private async embedQuery(
+  async embedQuery(
     text: string,
   ): Promise<{ vector: number[]; model: string; version: string; cached: boolean }> {
     const ttl = this.config.rag.queryCacheSeconds;

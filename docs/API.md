@@ -1653,6 +1653,47 @@ across their reports, and impact points.
 - **Statements are dropped** when they cite unknown facts, use numbers not in
   the facts, or state causes.
 
+## Search and discovery (Prompt 25)
+
+Detail: [`SEARCH_ARCHITECTURE.md`](./SEARCH_ARCHITECTURE.md),
+[`SEARCH_RANKING.md`](./SEARCH_RANKING.md),
+[`SEARCH_SECURITY.md`](./SEARCH_SECURITY.md).
+
+All endpoints require sign-in. Every result passes the entity's access
+policy inside the query.
+
+**Result shape:** `{ type, id, title, subtitle, href, score, highlights[{field,
+segments[{text,match}]}], explanation[], metadata }`.
+
+**Page shape:** `{ items, nextCursor, total, match: exact|related|none,
+understanding, signals }`.
+
+**`understanding`:** `{ intent, entityType, applied[{filter,value,label}],
+text, needsLocation, source: none|rules|ai, confidence }`.
+
+| Endpoint | Parameters | Notes |
+| --- | --- | --- |
+| `GET /search` | `q` (2–200) and the problem filters below, `organizationType` | Problems, organisations and knowledge, plus the caller's projects (`null` for citizens), 5 each. 30/min |
+| `GET /search/problems` | `q`, `category`, `subcategory`, `severity`, `urgency`, `priority`, `status` (not DRAFT), `verified`, `resolved`, `city`, `state`, `postalCode`, `from`, `to`, `lat`+`lng`+`radiusKm` (0.5–50), `bbox` (w,s,e,n; ≤5°), `organization` (slug), `office` (slug; officials), `sort` (relevance, newest, oldest, priority, severity, supported, nearest), `cursor`, `limit` (≤50), `interpret`, `timezone` | Hybrid keyword, semantic, geographic, recency and community. Keyset paging without `q`. 30/min |
+| `GET /search/organizations` | `q`, `organizationType`, `verified`, `expertise`, `city`, `state`, `cursor`, `limit` | Public profiles only. 30/min |
+| `GET /search/knowledge` | `q`, `category`, `projectId` (participants only, else 404), `limit` | Passages with document, section, excerpt and relevance. 30/min |
+| `GET /search/projects` | `q`, `status`, `cursor`, `limit` | Participants only. 60/min |
+| `GET /search/suggest` | `q` (≤100) | Recent searches, categories, problems, organisations, knowledge titles and places. No embeddings or AI. 120/min |
+| `GET /search/recent` / `DELETE /search/recent` | — | The caller's bounded history |
+| `GET /search/metrics` | — | Administrators: anonymous daily counters |
+
+**Errors:** 400 for invalid input, unknown parameters, a cursor from
+another search, or `sort=nearest` without a location. 403/404 for
+`office` or `projectId` the caller may not use. 429 when rate-limited.
+
+### AI service: `POST /search/understand` (internal)
+
+- **Request:** `{ query }` (≤200).
+- **Returns:** `intent`, `entity_type`, `filters{category, severity,
+  status, city, organization_type, time_range}` (enums), `semantic_query`,
+  `confidence`, `ai_ran`, `provider`, `model_name` and `prompt_version`.
+- **Development provider:** returns confidence 0.
+
 ## Resolution verification (Prompt 22)
 
 Completion evidence and the government's verification decision. Design:

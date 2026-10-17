@@ -26,6 +26,10 @@ import {
   type AiVerification,
 } from './dto/verification.dto.js';
 import {
+  parseSearchUnderstanding,
+  type AiSearchUnderstanding,
+} from './dto/search.dto.js';
+import {
   parseInsight,
   toInsightRequest,
   type AiInsight,
@@ -107,6 +111,17 @@ export type EmbeddingOutcome =
  * evidence verification are added in later prompts as typed methods here —
  * deliberately not stubbed with fabricated responses.
  */
+/** User-facing text for AI failures, by code. Never the upstream message. */
+const SAFE_FAILURE_MESSAGES: Record<string, string> = {
+  PROVIDER_UNAVAILABLE: 'The AI service is not available right now.',
+  TIMEOUT: 'The AI service took too long to respond.',
+  RATE_LIMITED: 'The AI service is busy. Try again shortly.',
+  INVALID_MODEL_OUTPUT: 'The AI response could not be understood.',
+  INVALID_INPUT: 'The request could not be analysed.',
+  VALIDATION_FAILED: 'The request could not be analysed.',
+  PROVIDER_ERROR: 'The AI service returned an error.',
+};
+
 @Injectable()
 export class AiService {
   private readonly logger = new Logger(AiService.name);
@@ -508,11 +523,43 @@ export class AiService {
     return { ok: true, insight: parsed };
   }
 
+  /**
+   * Structured reading of an ambiguous search query (Prompt 25). The query is
+   * untrusted text; the response is enum-bounded filters, re-validated here.
+   * Short timeout: search falls back to plain keyword matching on any failure.
+   */
+  async understandSearch(
+    query: string,
+    requestId?: string,
+  ): Promise<AiSearchUnderstanding | null> {
+    const result = await this.client.post<unknown>(
+      '/search/understand',
+      { query: query.slice(0, 200) },
+      { requestId, timeoutMs: 8_000 },
+    );
+    if (!result.ok) return null;
+    return parseSearchUnderstanding(result.value);
+  }
+
   /** Maps a transport or HTTP failure onto the structured failure shape. */
   private toFailure(error: Error): AiAnalysisFailure {
     if (error instanceof AiRequestError) {
       const structured = parseAnalysisFailure(error.body);
-      if (structured) return structured;
+      if (structured) {
+        // The AI service's own text never reaches a user (Prompt 26): it can
+        // carry provider or exception detail. Keep it in the logs; show a
+        // fixed message chosen by code.
+        this.logger.warn(
+          `AI service failure ${structured.code}: ${structured.message.slice(0, 200)}`,
+        );
+        return {
+          code: structured.code,
+          message:
+            SAFE_FAILURE_MESSAGES[structured.code] ??
+            'The AI service could not complete this request.',
+          retryable: structured.retryable,
+        };
+      }
 
       return {
         code: 'PROVIDER_ERROR',

@@ -237,6 +237,8 @@ export class ProblemsController {
    */
   @Post(':publicId/analyze')
   @HttpCode(HttpStatus.ACCEPTED)
+  // Each retry is a paid model call (Prompt 26).
+  @UserRateLimit({ bucket: 'problem-reanalyze', max: 10, windowSeconds: 3600 })
   async reanalyze(
     @Param('publicId') publicId: string,
     @CurrentUser() user: RequestUser,

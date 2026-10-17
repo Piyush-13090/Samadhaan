@@ -161,18 +161,32 @@ export class KnowledgeAccessService {
   }
 
   /**
-   * Who may edit, re-ingest or delete: the uploader; OWNER/ADMIN of the owning
-   * organisation or office; a platform administrator for unowned PUBLIC sources.
+   * Who may edit, re-ingest or delete:
+   *
+   *  - for a source owned by an organisation or office: its OWNER/ADMIN, or the
+   *    uploader **while they still hold the right to publish there** — an
+   *    active official of the owning office (public/government guidance), or
+   *    any active member of that side (project notes). Someone who left or was demoted can no longer rewrite
+   *    guidance that feeds RAG answers (Prompt 26);
+   *  - for an unowned source: its uploader (private and project notes), or a
+   *    platform administrator for unowned PUBLIC sources.
    */
   async canManage(source: KnowledgeSource, user: RequestUser): Promise<boolean> {
-    if (source.uploadedById === user.id) return true;
     if (source.organizationId) {
       const m = await this.memberships(user);
-      return [...m.offices, ...m.organizations].some(
-        (o) =>
-          o.id === source.organizationId && (o.role === 'OWNER' || o.role === 'ADMIN'),
+      const office = m.offices.find((o) => o.id === source.organizationId);
+      const organization = m.organizations.find((o) => o.id === source.organizationId);
+      const manager = [office, organization].some(
+        (o) => o !== undefined && (o.role === 'OWNER' || o.role === 'ADMIN'),
       );
+      if (manager) return true;
+      if (source.uploadedById !== user.id) return false;
+      // The uploader keeps rights only while they could still publish here.
+      if (source.visibility === 'PROJECT')
+        return office !== undefined || organization !== undefined;
+      return office !== undefined; // PUBLIC / GOVERNMENT: any official of the office
     }
+    if (source.uploadedById === user.id) return true;
     return user.role === 'ADMIN' && source.visibility === 'PUBLIC';
   }
 

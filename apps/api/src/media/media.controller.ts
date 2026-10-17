@@ -3,11 +3,11 @@ import type { Response } from 'express';
 import { API_VERSION } from '@samadhaan/shared';
 import { Public } from '../auth/decorators/public.decorator.js';
 import { AppException } from '../common/app.exception.js';
-import { RESOLUTION_STORAGE_PREFIX } from '../resolution/resolution-attachments.service.js';
-import { KNOWLEDGE_STORAGE_PREFIX } from '../knowledge/knowledge-sources.service.js';
-import { EVIDENCE_STORAGE_PREFIX } from '../verification/evidence-files.js';
 import { isSafeStorageKey } from '../storage/storage-key.js';
 import { StorageService } from '../storage/storage.types.js';
+
+/** The only keys this public route serves: generated problem-photo keys. */
+const PUBLIC_MEDIA_KEY = /^problems\/\d{4}\/\d{2}\/[0-9a-f]{32}\.(jpg|png|webp)$/;
 
 /**
  * Serves stored objects in development.
@@ -46,14 +46,12 @@ export class MediaController {
   ): Promise<void> {
     const key = Array.isArray(path) ? path.join('/') : path;
 
-    if (!isSafeStorageKey(key)) throw AppException.notFound('File');
-    // Resolution-room files are private; they are served only through the
-    // room's authorised endpoint, never from this public route.
-    if (
-      key.startsWith(RESOLUTION_STORAGE_PREFIX) ||
-      key.startsWith(KNOWLEDGE_STORAGE_PREFIX) ||
-      key.startsWith(EVIDENCE_STORAGE_PREFIX)
-    ) {
+    // An allowlist, not a denylist (Prompt 26): only problem photos are public.
+    // Room attachments, evidence and knowledge files are served solely through
+    // their authorised endpoints, and any storage prefix added later is private
+    // by default. The pattern is exact and lowercase, so a case-insensitive
+    // filesystem cannot be used to reach another prefix.
+    if (!isSafeStorageKey(key) || !PUBLIC_MEDIA_KEY.test(key)) {
       throw AppException.notFound('File');
     }
 

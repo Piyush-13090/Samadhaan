@@ -108,6 +108,43 @@ export class ImageValidationService {
   }
 
   /**
+   * Re-encodes a validated image before it is stored (Prompt 26).
+   *
+   * Problem photos are public, and a phone photo carries EXIF: GPS position
+   * (often the reporter's home, not the problem), capture time and device
+   * serials. sharp writes no metadata unless asked, so re-encoding strips it;
+   * `rotate()` first applies the EXIF orientation so the picture still looks
+   * right. Re-encoding also drops anything appended after the image data, so
+   * a polyglot file cannot survive into storage.
+   */
+  async sanitize(
+    buffer: Buffer,
+    contentType: string,
+  ): Promise<{ buffer: Buffer; width: number; height: number; sizeBytes: number }> {
+    try {
+      const pipeline = sharp(buffer, {
+        limitInputPixels: MAX_PIXELS,
+        failOn: 'error',
+      }).rotate();
+      const encoded =
+        contentType === 'image/png'
+          ? pipeline.png({ compressionLevel: 9 })
+          : contentType === 'image/webp'
+            ? pipeline.webp({ quality: 88 })
+            : pipeline.jpeg({ quality: 88, mozjpeg: true });
+      const { data, info } = await encoded.toBuffer({ resolveWithObject: true });
+      return {
+        buffer: data,
+        width: info.width,
+        height: info.height,
+        sizeBytes: data.byteLength,
+      };
+    } catch {
+      throw this.reject('That image could not be processed. Try another photo.');
+    }
+  }
+
+  /**
    * A 400 with a message safe to show a citizen.
    *
    * Deliberately never includes the parser's own error text: it describes our

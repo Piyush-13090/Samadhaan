@@ -62,23 +62,20 @@ export class JwtAuthGuard implements CanActivate {
     if (!claims) throw this.sessionExpired();
 
     const session = await this.sessions.findActive(claims.sid);
-    if (!session || session.userId !== claims.sub) throw this.sessionExpired();
-
-    // A suspended account keeps a valid token until it expires; refuse here so
-    // suspension takes effect immediately rather than up to 15 minutes later.
-    if (claims.status === 'SUSPENDED') {
-      throw new AppException(
-        ERROR_CODES.ACCOUNT_INACTIVE,
-        'This account has been suspended',
-        HttpStatus.FORBIDDEN,
-      );
+    if (!session || session.userId !== claims.sub) {
+      // Distinguish a suspended account so the client can explain it; the
+      // database, not the token, decides (Prompt 26).
+      if (claims.status === 'SUSPENDED') throw this.suspended();
+      throw this.sessionExpired();
     }
 
+    // Role and status come from the database row read with the session, so a
+    // role change or suspension applies on the next request.
     request.user = {
       id: claims.sub,
       email: claims.email,
-      role: claims.role,
-      status: claims.status,
+      role: session.user.role,
+      status: session.user.status,
       sessionId: claims.sid,
     };
 
@@ -106,10 +103,18 @@ export class JwtAuthGuard implements CanActivate {
     request.user = {
       id: claims.sub,
       email: claims.email,
-      role: claims.role,
-      status: claims.status,
+      role: session.user.role,
+      status: session.user.status,
       sessionId: claims.sid,
     };
+  }
+
+  private suspended(): AppException {
+    return new AppException(
+      ERROR_CODES.ACCOUNT_INACTIVE,
+      'This account has been suspended',
+      HttpStatus.FORBIDDEN,
+    );
   }
 
   /**

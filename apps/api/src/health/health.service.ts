@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import type { DependencyHealth, HealthReport, HealthStatus } from '@samadhaan/shared';
 import { AiService } from '../ai/ai.service.js';
 import { AppConfig } from '../config/app.config.js';
@@ -29,6 +29,8 @@ const MAX_IMPACT: Record<string, HealthStatus> = {
 
 @Injectable()
 export class HealthService {
+  private readonly logger = new Logger(HealthService.name);
+
   constructor(
     private readonly config: AppConfig,
     private readonly prisma: PrismaService,
@@ -111,14 +113,20 @@ export class HealthService {
       const outcome = await check();
       const latencyMs = Math.round(performance.now() - startedAt);
 
-      return outcome instanceof Error
-        ? { name, status: 'down', latencyMs, message: outcome.message }
-        : {
-            name,
-            status: outcome.status,
-            latencyMs,
-            ...(outcome.message ? { message: outcome.message } : {}),
-          };
+      // The endpoint is public: dependency error text (hosts, ports, auth
+      // failures) is logged, never returned (Prompt 26).
+      if (outcome instanceof Error) {
+        this.logger.warn(`${name} health check failed: ${outcome.message}`);
+        return { name, status: 'down', latencyMs, message: `${name} is unavailable` };
+      }
+      // Non-error outcomes carry messages this service composed itself (the
+      // AI service's failing dependency names), which are safe to show.
+      return {
+        name,
+        status: outcome.status,
+        latencyMs,
+        ...(outcome.message ? { message: outcome.message } : {}),
+      };
     } catch (error) {
       return {
         name,

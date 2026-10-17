@@ -1,7 +1,6 @@
-import { randomUUID } from 'node:crypto';
 import type { Params } from 'nestjs-pino';
-import { REQUEST_ID_HEADER } from '@samadhaan/shared';
 import type { AppConfig } from '../../config/app.config.js';
+import { resolveRequestId } from '../request-context.js';
 
 /** Headers that must never reach the logs. */
 const REDACTED = [
@@ -9,7 +8,20 @@ const REDACTED = [
   'req.headers.cookie',
   'req.headers["x-internal-token"]',
   'res.headers["set-cookie"]',
+  'req.body.password',
+  'req.body.currentPassword',
+  'req.body.newPassword',
 ];
+
+/**
+ * The request as logged: method and path only. Query strings carry search text
+ * and filters people typed (private content, and unbounded cardinality for
+ * anyone aggregating on `url`), so they are dropped (Prompt 27). Per-request
+ * latency is pino-http's `responseTime`, in ms, on the completion line.
+ */
+export function serializeRequest(req: { id?: unknown; method?: string; url?: string }) {
+  return { id: req.id, method: req.method, url: (req.url ?? '').split('?')[0] };
+}
 
 /**
  * Structured logging configuration.
@@ -23,12 +35,9 @@ export function createLoggerConfig(config: AppConfig): Params {
     pinoHttp: {
       level: config.logLevel,
       redact: { paths: REDACTED, remove: true },
-      genReqId: (req, res) => {
-        const existing = req.headers[REQUEST_ID_HEADER];
-        const id = (Array.isArray(existing) ? existing[0] : existing) || randomUUID();
-        res.setHeader(REQUEST_ID_HEADER, id);
-        return id;
-      },
+      serializers: { req: serializeRequest },
+      // Decided once and stored on the request, so log lines and responses agree.
+      genReqId: (req, res) => resolveRequestId(req, res),
       // Health probes run constantly; logging each one buries real traffic.
       autoLogging: {
         ignore: (req) => req.url?.startsWith('/api/v1/health') ?? false,

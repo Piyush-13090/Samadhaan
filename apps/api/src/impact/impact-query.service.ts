@@ -329,6 +329,18 @@ export class ImpactQueryService {
     });
     if (!target || target.deletedAt) throw AppException.notFound('User');
     const adjustmentId = randomUUID();
+    // Audit first (Prompt 26): an adjustment is never applied without its
+    // record. If the award then fails, the audited attempt has no ledger row,
+    // which is visible and harmless; the reverse would be an unaudited change.
+    await this.prisma.auditLog.create({
+      data: {
+        actorUserId: admin.id,
+        action: 'IMPACT_POINTS_ADJUSTED',
+        entityType: 'User',
+        entityId: targetUserId,
+        metadata: { amount, reason, adjustmentId },
+      },
+    });
     await this.ledger.award([
       {
         userId: targetUserId,
@@ -343,15 +355,6 @@ export class ImpactQueryService {
         metadata: { adjustmentId },
       },
     ]);
-    await this.prisma.auditLog.create({
-      data: {
-        actorUserId: admin.id,
-        action: 'IMPACT_POINTS_ADJUSTED',
-        entityType: 'User',
-        entityId: targetUserId,
-        metadata: { amount, reason, adjustmentId },
-      },
-    });
     this.logger.log(
       `Impact adjustment ${amount} for ${targetUserId} by admin ${admin.id}`,
     );

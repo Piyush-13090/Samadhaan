@@ -1,3 +1,4 @@
+import { cleanFileName } from '../common/file-name.js';
 import { randomBytes } from 'node:crypto';
 import { Injectable, Logger } from '@nestjs/common';
 import sharp from 'sharp';
@@ -70,13 +71,7 @@ export function sanitizeFileName(
   raw: string | undefined,
   type: ResolutionAttachmentType,
 ): string {
-  const base = (raw ?? '').split(/[\\/]/).pop() ?? '';
-  const clean = base
-    // eslint-disable-next-line no-control-regex
-    .replace(/[\u0000-\u001F\u007F<>:"|?*]/g, '')
-    .trim()
-    .slice(0, 120);
-  return clean.length > 0 ? clean : `attachment.${STORED_EXTENSION[type]}`;
+  return cleanFileName(raw, `attachment.${STORED_EXTENSION[type]}`);
 }
 
 interface UploadedFile {

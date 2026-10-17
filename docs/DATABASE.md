@@ -1018,7 +1018,7 @@ Migration `20261013090000_knowledge_rag`. Detail:
 | --- | --- | --- |
 | `knowledge_sources` | A guideline, policy or document: type, visibility, owner, file or text, categories, city, ingestion status and versions | CHECK `knowledge_sources_scope_consistent`; `(visibility, status)`, `(organizationId, visibility)` |
 | `knowledge_documents` | Extracted, cleaned text of one ingestion | Cascades from source |
-| `knowledge_chunks` | Retrievable passage with `embedding vector(384)`, section, page, content hash, embedding model/version | **HNSW** `knowledge_chunks_embedding_hnsw`; **GIN** `knowledge_chunks_content_fts`; UNIQUE `(documentId, chunkIndex)` |
+| `knowledge_chunks` | Retrievable passage with `embedding vector(384)`, section, page, content hash, embedding model/version | **HNSW** `knowledge_chunks_embedding_hnsw`; **GIN** `knowledge_chunks_content_vector_gin` (stored `contentVector`, Prompt 27); UNIQUE `(documentId, chunkIndex)` |
 | `knowledge_answers` | One row per question: answer, status, model/prompt/embedding/retrieval versions, retrieved chunk ids, scores, timings | `(userId, createdAt)` |
 
 - **New enums:** `KnowledgeSourceType`, `KnowledgeVisibility`,

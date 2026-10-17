@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import type { Session } from '../../generated/prisma/client.js';
+import type { Session, User } from '../../generated/prisma/client.js';
 import { AppConfig } from '../../config/app.config.js';
 import { PrismaService } from '../../database/prisma.service.js';
 import { TokenService } from './token.service.js';
@@ -107,11 +107,22 @@ export class SessionService {
     return { session, refreshToken: token };
   }
 
-  /** Finds a live session by id. Used by the guard to confirm it still exists. */
-  async findActive(sessionId: string): Promise<Session | null> {
-    const session = await this.prisma.session.findUnique({ where: { id: sessionId } });
+  /**
+   * Finds a live session by id, with its user's *current* state. Used by the
+   * guard on every request: the same indexed lookup also reads the user row,
+   * so a suspension, deletion or role change takes effect on the next request
+   * rather than when the access token expires (Prompt 26).
+   */
+  async findActive(
+    sessionId: string,
+  ): Promise<(Session & { user: Pick<User, 'status' | 'role' | 'deletedAt'> }) | null> {
+    const session = await this.prisma.session.findUnique({
+      where: { id: sessionId },
+      include: { user: { select: { status: true, role: true, deletedAt: true } } },
+    });
 
     if (!session || session.revokedAt || session.expiresAt <= new Date()) return null;
+    if (session.user.deletedAt || session.user.status !== 'ACTIVE') return null;
 
     return session;
   }

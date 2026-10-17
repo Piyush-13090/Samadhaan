@@ -1,3 +1,4 @@
+import { cleanFileName } from '../common/file-name.js';
 import { HttpStatus, Injectable, Logger } from '@nestjs/common';
 import {
   ERROR_CODES,
@@ -74,19 +75,24 @@ export class ProblemsService {
     file: { buffer: Buffer; originalname?: string; mimetype?: string },
     user: RequestUser,
   ): Promise<UploadedImage> {
-    const validated = await this.images.validate(file.buffer, file.originalname);
+    const checked = await this.images.validate(file.buffer, file.originalname);
+    // Store a re-encoded copy: no EXIF/GPS, no trailing bytes (Prompt 26).
+    const clean = await this.images.sanitize(file.buffer, checked.contentType);
+    const validated = { ...checked, ...clean };
 
     const storageKey = buildProblemImageKey(validated.contentType);
 
     await this.storage.put({
       key: storageKey,
-      body: file.buffer,
+      body: clean.buffer,
       contentType: validated.contentType,
       cacheSeconds: 31_536_000,
     });
 
     // The original name is kept for display only. It is never a path.
-    const originalFileName = file.originalname?.slice(0, 255) ?? null;
+    const originalFileName = file.originalname
+      ? cleanFileName(file.originalname, 'photo', 255)
+      : null;
 
     await this.pending.record({
       storageKey,
@@ -301,7 +307,11 @@ export class ProblemsService {
       // Who is on it, once a government office's allocation was accepted.
       // Public facts only — see AllocationsService.publicAssignment.
       assignment: await this.allocations.publicAssignment(problem.id),
-      resolution: await this.publicResolution(problem.id, problem.status, problem.resolvedAt),
+      resolution: await this.publicResolution(
+        problem.id,
+        problem.status,
+        problem.resolvedAt,
+      ),
     });
   }
 
@@ -325,7 +335,10 @@ export class ProblemsService {
       where: { id: approved.governmentOrganizationId },
       select: { name: true },
     });
-    return { resolvedAt: resolvedAt.toISOString(), verifiedBy: office?.name ?? 'Government authority' };
+    return {
+      resolvedAt: resolvedAt.toISOString(),
+      verifiedBy: office?.name ?? 'Government authority',
+    };
   }
 
   /**

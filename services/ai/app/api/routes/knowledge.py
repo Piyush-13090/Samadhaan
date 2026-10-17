@@ -7,6 +7,7 @@ access: it cannot retrieve, and so cannot leak, anything it was not given.
 
 from __future__ import annotations
 
+import anyio
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.api.deps import SettingsDep
@@ -47,10 +48,18 @@ def _error(error: ProviderError) -> HTTPException:
     )
 
 
+# Document extraction and chunking are CPU-bound (pypdf is pure Python). Run
+# on the event loop they stalled every concurrent request — a 400-page PDF held
+# /health for ~0.94 s (Prompt 27, docs/PERFORMANCE_AUDIT.md). They now run on a
+# worker thread, at most two at a time, so ingestion cannot starve search
+# embeddings or analysis.
+_EXTRACTION_LIMITER = anyio.CapacityLimiter(2)
+
+
 @router.post("/chunk", response_model=ChunkResponse)
 async def chunk(request: ChunkRequest) -> ChunkResponse:
     try:
-        return chunk_document(request)
+        return await anyio.to_thread.run_sync(chunk_document, request, limiter=_EXTRACTION_LIMITER)
     except ProviderError as error:
         logger.warning("knowledge_chunk_failed", code=error.code)
         raise _error(error) from error

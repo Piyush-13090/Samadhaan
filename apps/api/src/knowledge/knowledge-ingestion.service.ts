@@ -34,6 +34,11 @@ const EMBED_BATCH = 64;
  * upload returns at once and a large PDF never holds a request open. On boot,
  * sources left PENDING or PROCESSING (a restart mid-ingest) are queued again.
  */
+/** Automatic (startup) retries per source. Manual re-ingest is always allowed. */
+const MAX_AUTO_ATTEMPTS = 5;
+/** A source PROCESSING longer than this is presumed abandoned. */
+const PROCESSING_LEASE_MS = 15 * 60_000;
+
 @Injectable()
 export class KnowledgeIngestionService implements OnApplicationBootstrap {
   private readonly logger = new Logger(KnowledgeIngestionService.name);
@@ -52,7 +57,12 @@ export class KnowledgeIngestionService implements OnApplicationBootstrap {
     if (!this.config.rag.sweepOnStartup) return;
     const pending = await this.prisma.knowledgeSource
       .findMany({
-        where: { status: { in: ['PENDING', 'PROCESSING'] } },
+        // Automatic retries stop after a few attempts, so a document that
+        // crashes ingestion is not retried on every restart (Prompt 26).
+        where: {
+          status: { in: ['PENDING', 'PROCESSING'] },
+          attempts: { lt: MAX_AUTO_ATTEMPTS },
+        },
         select: { id: true },
         take: 200,
       })
@@ -91,9 +101,17 @@ export class KnowledgeIngestionService implements OnApplicationBootstrap {
   async ingest(sourceId: string): Promise<void> {
     const started = Date.now();
     const claimed = await this.prisma.knowledgeSource.updateMany({
+      // Exclusive: a source another worker is processing is not claimed again
+      // unless its lease has gone stale (Prompt 26).
       where: {
         id: sourceId,
-        status: { in: ['PENDING', 'PROCESSING', 'FAILED', 'COMPLETED'] },
+        OR: [
+          { status: { in: ['PENDING', 'FAILED', 'COMPLETED'] } },
+          {
+            status: 'PROCESSING',
+            updatedAt: { lt: new Date(Date.now() - PROCESSING_LEASE_MS) },
+          },
+        ],
       },
       data: {
         status: 'PROCESSING',

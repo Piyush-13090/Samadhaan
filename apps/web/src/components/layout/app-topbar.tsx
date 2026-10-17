@@ -11,6 +11,7 @@ import { isActivePath, type NavSection } from '@/lib/navigation';
 import { ROLE_LABEL } from '@/lib/role-display';
 import { Logo } from '@/components/brand/logo';
 import { NotificationBell } from '@/components/notifications/notification-bell';
+import { GlobalSearch } from '@/components/search/global-search';
 import { useNotifications } from '@/components/notifications/notifications-provider';
 import { Avatar } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
@@ -123,37 +124,16 @@ export function AppTopbar({
         <Logo variant="mark" size="sm" />
       </Link>
 
-      {/* Search. Presentational in this milestone — no query runs yet. */}
+      {/* Global search (Prompt 25): Ctrl/⌘ + K, suggestions, recent searches. */}
       <div className="ml-auto flex min-w-0 flex-1 justify-end lg:ml-0 lg:justify-start">
-        <label className="relative hidden w-full max-w-sm items-center sm:flex">
-          <span className="sr-only">Search problems</span>
-          <Search
-            className="pointer-events-none absolute left-3 size-4 text-ink-subtle"
-            aria-hidden="true"
-          />
-          <input
-            type="search"
-            placeholder="Search problems, areas, references…"
-            className={cn(
-              'h-9 w-full rounded-control border border-border bg-subtle/60 pr-3 pl-9',
-              'type-body-sm text-ink placeholder:text-ink-subtle',
-              'transition-colors duration-fast',
-              'hover:bg-subtle focus:border-primary focus:bg-surface focus:outline-none',
-              'focus:ring-2 focus:ring-primary/20',
-            )}
-          />
-        </label>
+        <GlobalSearch className="hidden sm:block" />
       </div>
 
       <div className="flex shrink-0 items-center gap-1">
-        <Button
-          variant="ghost"
-          size="sm"
-          iconOnly
-          className="sm:hidden"
-          aria-label="Search"
-        >
-          <Search />
+        <Button variant="ghost" size="sm" iconOnly className="sm:hidden" asChild>
+          <Link href="/search" aria-label="Search">
+            <Search />
+          </Link>
         </Button>
 
         <NotificationBell />

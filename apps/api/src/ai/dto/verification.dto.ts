@@ -44,7 +44,9 @@ const isObject = (value: unknown): value is Json =>
 const str = (value: unknown, max: number): string | null =>
   typeof value === 'string' && value.trim().length > 0 ? value.slice(0, max) : null;
 const unit = (value: unknown): number | null =>
-  typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 1 ? value : null;
+  typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 1
+    ? value
+    : null;
 
 function signal(value: unknown): AiSignal | null {
   if (!isObject(value)) return null;
@@ -62,7 +64,9 @@ function observations(value: unknown, known: ReadonlySet<string>): AiObservation
     .map((item) => ({
       text: str(item.text, 240),
       refs: Array.isArray(item.refs)
-        ? item.refs.filter((r): r is string => typeof r === 'string' && known.has(r)).slice(0, 4)
+        ? item.refs
+            .filter((r): r is string => typeof r === 'string' && known.has(r))
+            .slice(0, 4)
         : [],
     }))
     .filter((o): o is AiObservation => o.text !== null && o.refs.length > 0)

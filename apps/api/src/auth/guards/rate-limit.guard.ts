@@ -30,6 +30,12 @@ export interface RateLimitOptions {
    * pattern that actually matters.
    */
   keyField?: string;
+  /**
+   * Requests allowed per window from one IP across *all* identities (Prompt
+   * 26). Without it one address could try ten passwords against every email
+   * in a list; with it, credential stuffing from one source is bounded too.
+   */
+  ipMax?: number;
 }
 
 /** Applies rate limiting to a route. See `RateLimitGuard` for semantics. */
@@ -74,6 +80,24 @@ export class RateLimitGuard implements CanActivate {
     const key = this.buildKey(request, options.keyField);
 
     try {
+      if (options.ipMax) {
+        const ipKey = `ratelimit:${request.method}:${request.path}:${request.ip ?? 'unknown'}:*`;
+        const ipCount = await this.redis.connection.incr(ipKey);
+        if (ipCount === 1) await this.redis.connection.expire(ipKey, windowSeconds);
+        if (ipCount > options.ipMax) {
+          const retryAfter = await this.redis.connection.ttl(ipKey);
+          http.getResponse<Response>().setHeader('retry-after', Math.max(retryAfter, 1));
+          this.logger.warn(
+            `IP-wide rate limit reached on ${request.method} ${request.path}`,
+          );
+          throw new AppException(
+            ERROR_CODES.RATE_LIMITED,
+            'Too many attempts. Please wait a few minutes and try again.',
+            HttpStatus.TOO_MANY_REQUESTS,
+          );
+        }
+      }
+
       const count = await this.redis.connection.incr(key);
 
       // Only the first hit sets the TTL, which is what makes the window fixed.

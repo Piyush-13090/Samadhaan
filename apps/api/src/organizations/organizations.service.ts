@@ -343,6 +343,11 @@ export class OrganizationsService {
         'No active Samadhaan account uses that email address. Ask them to register first.',
       );
     }
+    // Nobody — a platform administrator included — can invite themselves into
+    // an organisation they manage from outside it (Prompt 26).
+    if (invitee.id === user.id) {
+      throw AppException.forbidden('You cannot invite yourself.');
+    }
 
     const membership = await this.prisma.$transaction(async (tx) => {
       const existing = await tx.organizationMember.findUnique({

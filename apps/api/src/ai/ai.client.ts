@@ -86,6 +86,9 @@ export class AiClient {
       const response = await fetch(url, {
         method,
         signal: controller.signal,
+        // Never follow a redirect: it would carry x-internal-token to whatever
+        // host the response names (Prompt 26).
+        redirect: 'error',
         headers: this.buildHeaders(options.requestId, body !== undefined),
         // Omit the key entirely rather than passing `undefined`: fetch rejects
         // a body on GET even when it is undefined.

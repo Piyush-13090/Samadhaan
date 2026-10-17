@@ -1,0 +1,81 @@
+{
+  "base": "http://localhost:4100",
+  "at": "2026-10-17T06:51:07.177Z",
+  "results": [
+    {
+      "scenario": "search-problems-keyword",
+      "concurrency": 10,
+      "durationS": 22,
+      "requests": 187,
+      "rps": 8.5,
+      "p50": 568.5,
+      "p95": 3464.6,
+      "p99": 3625.8,
+      "max": 3812.4,
+      "errorRate": 0,
+      "statuses": {
+        "200": 187
+      }
+    },
+    {
+      "scenario": "search-unified",
+      "concurrency": 10,
+      "durationS": 20.5,
+      "requests": 436,
+      "rps": 21.2,
+      "p50": 436.6,
+      "p95": 903.5,
+      "p99": 985,
+      "max": 1068.3,
+      "errorRate": 0,
+      "statuses": {
+        "200": 436
+      }
+    },
+    {
+      "scenario": "analytics-overview",
+      "concurrency": 10,
+      "durationS": 20,
+      "requests": 4238,
+      "rps": 211.5,
+      "p50": 45.3,
+      "p95": 64.9,
+      "p99": 85.7,
+      "max": 194.1,
+      "errorRate": 0,
+      "statuses": {
+        "200": 4238
+      }
+    },
+    {
+      "scenario": "analytics-resolution",
+      "concurrency": 10,
+      "durationS": 20,
+      "requests": 3918,
+      "rps": 195.5,
+      "p50": 49.2,
+      "p95": 70.3,
+      "p99": 89.1,
+      "max": 179.7,
+      "errorRate": 0,
+      "statuses": {
+        "200": 3918
+      }
+    },
+    {
+      "scenario": "knowledge-search",
+      "concurrency": 10,
+      "durationS": 20.3,
+      "requests": 454,
+      "rps": 22.3,
+      "p50": 439.2,
+      "p95": 527.5,
+      "p99": 558.4,
+      "max": 617,
+      "errorRate": 0,
+      "statuses": {
+        "200": 454
+      }
+    }
+  ]
+}

@@ -51,6 +51,19 @@ export class AppConfig {
     return this.get('DATABASE_URL');
   }
 
+  /** PostgreSQL pool sizing and limits (Prompt 27). */
+  get databasePool(): {
+    max: number;
+    acquireTimeoutMs: number;
+    statementTimeoutMs: number;
+  } {
+    return {
+      max: this.get('DATABASE_POOL_MAX'),
+      acquireTimeoutMs: this.get('DATABASE_POOL_ACQUIRE_TIMEOUT_MS'),
+      statementTimeoutMs: this.get('DATABASE_STATEMENT_TIMEOUT_MS'),
+    };
+  }
+
   get redisUrl(): string {
     return this.get('REDIS_URL');
   }
@@ -268,6 +281,29 @@ export class AppConfig {
     };
   }
 
+  get search(): SearchConfig {
+    const test = this.nodeEnv === 'test';
+    return {
+      weights: {
+        keyword: this.get('SEARCH_WEIGHT_KEYWORD'),
+        semantic: this.get('SEARCH_WEIGHT_SEMANTIC'),
+        geographic: this.get('SEARCH_WEIGHT_GEOGRAPHIC'),
+        recency: this.get('SEARCH_WEIGHT_RECENCY'),
+        community: this.get('SEARCH_WEIGHT_COMMUNITY'),
+      },
+      semanticEnabled: this.get('SEARCH_SEMANTIC_ENABLED'),
+      semanticMinSimilarity: this.get('SEARCH_SEMANTIC_MIN_SIMILARITY'),
+      candidateLimit: this.get('SEARCH_CANDIDATE_LIMIT'),
+      recencyHalfLifeDays: this.get('SEARCH_RECENCY_HALF_LIFE_DAYS'),
+      aiParseEnabled: this.get('SEARCH_AI_PARSE_ENABLED'),
+      aiParsePerHour: this.get('SEARCH_AI_PARSE_PER_HOUR'),
+      // Short under test, so a suite's later requests see its own writes.
+      cacheSeconds: test ? 5 : this.get('SEARCH_CACHE_SECONDS'),
+      recentMax: this.get('SEARCH_RECENT_MAX'),
+      recentDays: this.get('SEARCH_RECENT_DAYS'),
+    };
+  }
+
   get verification(): VerificationConfig {
     const test = this.nodeEnv === 'test';
     return {
@@ -402,6 +438,25 @@ export interface RagConfig {
   queryCacheSeconds: number;
   coordinatorTopK: number;
   sweepOnStartup: boolean;
+}
+
+export interface SearchConfig {
+  weights: {
+    keyword: number;
+    semantic: number;
+    geographic: number;
+    recency: number;
+    community: number;
+  };
+  semanticEnabled: boolean;
+  semanticMinSimilarity: number;
+  candidateLimit: number;
+  recencyHalfLifeDays: number;
+  aiParseEnabled: boolean;
+  aiParsePerHour: number;
+  cacheSeconds: number;
+  recentMax: number;
+  recentDays: number;
 }
 
 export interface AnalyticsConfig {

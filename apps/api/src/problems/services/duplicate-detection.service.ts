@@ -55,6 +55,12 @@ interface CandidateRow {
  * `LIKELY_DUPLICATE`, which is a prompt for a person. Confirmation is a human
  * action, in `confirm()` below.
  */
+/** Statuses from which a reporter may confirm their report as a duplicate. */
+const DUPLICATE_CONFIRMABLE_STATUSES: readonly ProblemStatus[] = [
+  'SUBMITTED',
+  'UNDER_REVIEW',
+];
+
 @Injectable()
 export class DuplicateDetectionService {
   private readonly logger = new Logger(DuplicateDetectionService.name);
@@ -505,6 +511,15 @@ export class DuplicateDetectionService {
       select: { status: true, publicId: true, reporterId: true },
     });
 
+    // Only a report still awaiting a government decision may be merged away
+    // (Prompt 26): once verified, allocated, resolved or rejected, a reporter
+    // must not be able to take it out of the government workflow.
+    if (!DUPLICATE_CONFIRMABLE_STATUSES.includes(before.status)) {
+      throw AppException.conflict(
+        'This report has already been reviewed by the government office, so it can no longer be marked as a duplicate.',
+      );
+    }
+
     const changeId = await this.prisma.$transaction(async (tx) => {
       await tx.problemDuplicateCandidate.update({
         where: { id: candidate.id },
@@ -515,10 +530,14 @@ export class DuplicateDetectionService {
         },
       });
 
-      await tx.problem.update({
-        where: { id: problemId },
+      // Conditional on the status read above, so a concurrent review wins.
+      const moved = await tx.problem.updateMany({
+        where: { id: problemId, status: { in: [...DUPLICATE_CONFIRMABLE_STATUSES] } },
         data: { duplicateOfId: candidate.candidateProblemId, status: 'DUPLICATE' },
       });
+      if (moved.count !== 1) {
+        throw AppException.conflict('This report changed while you were reviewing it.');
+      }
 
       const audit = await tx.auditLog.create({
         data: {

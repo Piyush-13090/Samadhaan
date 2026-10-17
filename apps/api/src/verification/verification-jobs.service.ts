@@ -21,6 +21,9 @@ import { VerificationAnalysisService } from './verification-analysis.service.js'
  * - **Observable:** every outcome is logged and visible as the evidence's
  *   `aiStatus`; on start-up, reviews left pending or interrupted are resumed.
  */
+/** A review untouched this long is assumed abandoned. */
+const STALE_PROCESSING_MS = 10 * 60_000;
+
 @Injectable()
 export class VerificationJobsService implements OnApplicationBootstrap, OnModuleDestroy {
   private readonly logger = new Logger(VerificationJobsService.name);
@@ -37,12 +40,21 @@ export class VerificationJobsService implements OnApplicationBootstrap, OnModule
 
   async onApplicationBootstrap(): Promise<void> {
     if (!this.config.verification.sweepOnStartup) return;
-    // An interrupted review (PROCESSING at shutdown) is pending again.
+    // An interrupted review (PROCESSING at shutdown) is pending again — but
+    // only once it is clearly stale, so restarting one instance never resets
+    // a review another instance is running right now (Prompt 26).
+    const stale = new Date(Date.now() - STALE_PROCESSING_MS);
     await this.prisma.resolutionEvidence
-      .updateMany({ where: { aiStatus: 'PROCESSING' }, data: { aiStatus: 'PENDING' } })
+      .updateMany({
+        where: { aiStatus: 'PROCESSING', updatedAt: { lt: stale } },
+        data: { aiStatus: 'PENDING' },
+      })
       .catch(() => undefined);
     await this.prisma.resolutionEvidence
-      .updateMany({ where: { status: 'PROCESSING' }, data: { status: 'SUBMITTED' } })
+      .updateMany({
+        where: { status: 'PROCESSING', updatedAt: { lt: stale } },
+        data: { status: 'SUBMITTED' },
+      })
       .catch(() => undefined);
     const pending = await this.prisma.resolutionEvidence
       .findMany({ where: { aiStatus: 'PENDING' }, select: { id: true }, take: 200 })

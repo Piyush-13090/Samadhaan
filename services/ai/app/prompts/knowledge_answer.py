@@ -44,7 +44,7 @@ List the refs you actually cited in `evidence_refs`.
 
 _TAG = re.compile(
     r"</?\s*(evidence|context|question|system|report|analysis|problem|project|document"
-    r"|guidance|earlier_evidence|facts|source)\b[^>]*>",
+    r"|guidance|earlier_evidence|facts|source|query|project_context|note)\b[^>]*>",
     re.IGNORECASE,
 )
 

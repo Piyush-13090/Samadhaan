@@ -21,6 +21,7 @@ import { PriorityModule } from './priority/priority.module.js';
 import { VerificationModule } from './verification/verification.module.js';
 import { ImpactModule } from './impact/impact.module.js';
 import { AnalyticsModule } from './analytics/analytics.module.js';
+import { SearchModule } from './search/search.module.js';
 import { HealthModule } from './health/health.module.js';
 import { MediaModule } from './media/media.module.js';
 import { NotificationsModule } from './notifications/notifications.module.js';
@@ -73,6 +74,7 @@ import { UsersModule } from './users/users.module.js';
     VerificationModule,
     ImpactModule,
     AnalyticsModule,
+    SearchModule,
     ProblemsModule,
     DashboardModule,
     OrganizationsModule,

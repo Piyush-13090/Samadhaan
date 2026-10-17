@@ -42,7 +42,7 @@ export class AuthController {
    * which addresses are registered, nor to mass-create accounts.
    */
   @Public()
-  @RateLimit({ max: 5, windowSeconds: 3600, keyField: 'email' })
+  @RateLimit({ max: 5, windowSeconds: 3600, keyField: 'email', ipMax: 20 })
   @Post('register')
   @HttpCode(HttpStatus.CREATED)
   async register(
@@ -57,7 +57,7 @@ export class AuthController {
 
   /** Verifies credentials and starts a session. */
   @Public()
-  @RateLimit({ keyField: 'email' })
+  @RateLimit({ keyField: 'email', ipMax: 50 })
   @Post('login')
   @HttpCode(HttpStatus.OK)
   async login(

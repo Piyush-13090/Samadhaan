@@ -548,6 +548,15 @@ model Problem {
   /// detection widens its match radius when accuracy is poor.
   locationAccuracyM Int?
 
+  /// Weighted full-text vector (title/subcategory A, description B, place C),
+  /// a STORED generated column — see migration 20261017090000_search_vector.
+  /// Prisma cannot express generated columns, so it is `Unsupported` (never
+  /// written by the client) with `dbgenerated()`, which stops `migrate dev`
+  /// from proposing to drop the generation expression. Search ranks on it directly instead of
+  /// re-computing to_tsvector per matching row (Prompt 27: ~12x on broad
+  /// queries).
+  searchVector Unsupported("tsvector")? @default(dbgenerated())
+
   // --- Denormalised counters ---------------------------------------------
   /// Maintained transactionally alongside the vote/comment rows. The feed sorts
   /// and filters on these, and counting rows per problem per request does not
@@ -619,6 +628,7 @@ model Problem {
   @@index([location], map: "problems_location_gist", type: Gist)
   /// Fuzzy title matching, complementing vector search during deduplication.
   @@index([title(ops: raw("gin_trgm_ops"))], map: "problems_title_trgm", type: Gin)
+  @@index([searchVector], map: "problems_search_vector_gin", type: Gin)
   @@map("problems")
 }
 
@@ -2069,8 +2079,14 @@ model KnowledgeChunk {
   pageNumber   Int?
   contentHash  String
 
-  /// pgvector column, written by raw SQL. The HNSW and full-text indexes live
-  /// in the migration and post-migrate.sql (Prisma cannot express them).
+  /// to_tsvector('english', content), a STORED generated column (Prompt 27,
+  /// migration 20261017091000_knowledge_content_vector): keyword retrieval
+  /// ranks on it instead of re-parsing every matching chunk. `Unsupported` +
+  /// `dbgenerated()` for the same reasons as `Problem.searchVector`.
+  contentVector Unsupported("tsvector")? @default(dbgenerated())
+
+  /// pgvector column, written by raw SQL. The HNSW index lives in the
+  /// migration and post-migrate.sql (Prisma cannot express it).
   embedding        Unsupported("vector(384)")?
   embeddingModel   String
   embeddingVersion String
@@ -2084,6 +2100,7 @@ model KnowledgeChunk {
   @@unique([documentId, chunkIndex])
   @@index([sourceId])
   @@index([contentHash, embeddingModel])
+  @@index([contentVector], map: "knowledge_chunks_content_vector_gin", type: Gin)
   @@map("knowledge_chunks")
 }
 

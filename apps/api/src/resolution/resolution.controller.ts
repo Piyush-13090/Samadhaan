@@ -19,6 +19,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import type { Request, Response } from 'express';
 import {
   API_VERSION,
+  ERROR_CODES,
   type ResolutionActivityEntry,
   type ResolutionAttachmentView,
   type ResolutionMessagePage,
@@ -32,6 +33,7 @@ import type { RequestUser } from '../auth/auth.types.js';
 import { CurrentUser } from '../auth/decorators/current-user.decorator.js';
 import { UserRateLimit } from '../auth/guards/user-rate-limit.guard.js';
 import { AppException } from '../common/app.exception.js';
+import { SessionService } from '../auth/services/session.service.js';
 import { ResolutionAccessService } from './resolution-access.service.js';
 import { ResolutionAttachmentsService } from './resolution-attachments.service.js';
 import { ResolutionRealtimeService } from './resolution-realtime.service.js';
@@ -50,6 +52,10 @@ const STREAM_HEARTBEAT_MS = 25_000;
 /** Streams end after this; the browser reconnects with a fresh check. */
 const STREAM_MAX_MS = 15 * 60_000;
 
+/** Live streams currently open per user, on this instance. */
+const openStreams = new Map<string, number>();
+const MAX_STREAMS_PER_USER = 5;
+
 /**
  * `/api/v1/resolution-rooms` — private rooms for the allocating office and the
  * assigned organisation. Every `:id` route resolves the caller's access first
@@ -62,6 +68,7 @@ export class ResolutionController {
     private readonly rooms: ResolutionRoomsService,
     private readonly attachments: ResolutionAttachmentsService,
     private readonly realtime: ResolutionRealtimeService,
+    private readonly sessions: SessionService,
   ) {}
 
   @Get()
@@ -250,6 +257,18 @@ export class ResolutionController {
   ): Promise<void> {
     await this.access.resolve(id, user);
 
+    // At most a few live streams per person on this instance (Prompt 26): each
+    // holds a socket, timers and periodic queries.
+    const open = openStreams.get(user.id) ?? 0;
+    if (open >= MAX_STREAMS_PER_USER) {
+      throw new AppException(
+        ERROR_CODES.RATE_LIMITED,
+        'Too many open live connections. Close another tab and try again.',
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+    openStreams.set(user.id, open + 1);
+
     response.status(200).set({
       'Content-Type': 'text/event-stream; charset=utf-8',
       'Cache-Control': 'no-cache, no-transform',
@@ -269,14 +288,27 @@ export class ResolutionController {
       () => response.write(': ping\n\n'),
       STREAM_HEARTBEAT_MS,
     );
+    // Every minute: still a participant, and still signed in. Sign-out,
+    // "sign out everywhere" and suspension end the stream within a minute
+    // (Prompt 26), rather than when it would expire anyway.
     const recheck = setInterval(() => {
-      this.access.resolve(id, user).catch(() => end());
+      Promise.all([
+        this.access.resolve(id, user),
+        this.sessions.findActive(user.sessionId),
+      ])
+        .then(([, session]) => {
+          if (!session || session.userId !== user.id) end();
+        })
+        .catch(() => end());
     }, STREAM_RECHECK_MS);
     const lifetime = setTimeout(() => end(), STREAM_MAX_MS);
 
     function end() {
       if (closed) return;
       closed = true;
+      const remaining = (openStreams.get(user.id) ?? 1) - 1;
+      if (remaining > 0) openStreams.set(user.id, remaining);
+      else openStreams.delete(user.id);
       unsubscribe();
       clearInterval(heartbeat);
       clearInterval(recheck);

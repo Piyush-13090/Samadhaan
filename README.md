@@ -531,14 +531,46 @@ together.
   - Organisation delivery analytics (members only, no ranking) and a
     citizen `/impact` page.
   - See [`docs/ANALYTICS_ARCHITECTURE.md`](./docs/ANALYTICS_ARCHITECTURE.md).
+- **Search and discovery:**
+  - One search across problems, organisations, knowledge and the caller's
+    projects, combining PostgreSQL full text, pgvector semantic search,
+    structured filters and PostGIS.
+  - Ranking is heuristic and explainable, with configurable weights.
+  - Natural-language queries are read by rules first, with a validated AI
+    fallback.
+  - Access policies are enforced inside every query.
+  - A Ctrl/⌘+K combobox with suggestions and recent searches; a `/search`
+    page whose state lives in the URL, with cursors and mobile filters.
+  - See [`docs/SEARCH_ARCHITECTURE.md`](./docs/SEARCH_ARCHITECTURE.md).
+- **Security hardening:** an evidence-based audit and fixes covering:
+  - service authentication for the AI service;
+  - production configuration checks;
+  - CSRF origin checks and security headers (API and web);
+  - EXIF stripping and upload hygiene;
+  - prompt-injection defences;
+  - separation of duties;
+  - session and suspension enforcement;
+  - dependency updates.
+
+  See [`docs/SECURITY_AUDIT.md`](./docs/SECURITY_AUDIT.md).
+- **Performance:** a measured audit on a 100k-problem synthetic dataset, with
+  fixes verified by before/after load tests:
+  - stored full-text vectors for problem and knowledge search;
+  - an index for the government jurisdiction filter;
+  - inline knowledge embeddings;
+  - PDF extraction off the AI service event loop;
+  - a configurable connection pool with bounded waits.
+
+  The load-testing toolkit is in `apps/api/scripts/perf/`. See
+  [`docs/PERFORMANCE_AUDIT.md`](./docs/PERFORMANCE_AUDIT.md).
 - Monorepo with npm workspaces and a shared types package; health probes;
   Docker Compose for PostgreSQL (PostGIS, pgvector, pg_trgm) and Redis
-- Tests: 452 API unit, 679 API e2e, 464 web unit, 167 AI service
+- Tests: 485 API unit, 718 API e2e, 479 web unit, 189 AI service
 
 ### Not implemented
 
-Organisation applications, project budgets, advanced search, forecasting,
-financial analytics, organisation rankings.
+Organisation applications, project budgets, personalised recommendation
+feeds, forecasting, financial analytics, organisation rankings.
 
 Organisation and government accounts cannot self-register, and organisation
 verification has no workflow yet — it is displayed, and set by Samadhaan.
@@ -587,6 +619,17 @@ Details: [`docs/PRODUCT.md`](./docs/PRODUCT.md) and [`docs/ML_PLAN.md`](./docs/M
 | [`docs/ANALYTICS_ARCHITECTURE.md`](./docs/ANALYTICS_ARCHITECTURE.md) | Civic analytics: pipeline, time zones, scope, caching, insights, exports |
 | [`docs/ANALYTICS_METRICS.md`](./docs/ANALYTICS_METRICS.md) | Every metric's definition, formula and threshold |
 | [`docs/CIVIC_HOTSPOTS.md`](./docs/CIVIC_HOTSPOTS.md) | Hotspot scoring and recurring-problem detection |
+| [`docs/SEARCH_ARCHITECTURE.md`](./docs/SEARCH_ARCHITECTURE.md) | Search: pipeline, full text, pgvector, query understanding, paging, caching, telemetry |
+| [`docs/SEARCH_RANKING.md`](./docs/SEARCH_RANKING.md) | Hybrid ranking signals, weights, explanation |
+| [`docs/SEARCH_SECURITY.md`](./docs/SEARCH_SECURITY.md) | Search access policies, input handling, AI safety, abuse limits, privacy |
+| [`docs/SECURITY_AUDIT.md`](./docs/SECURITY_AUDIT.md) | Security audit: findings, severities, fixes, baseline, accepted risks |
+| [`docs/THREAT_MODEL.md`](./docs/THREAT_MODEL.md) | Assets, actors, trust boundaries, threats and controls |
+| [`docs/SECURITY_GUIDELINES.md`](./docs/SECURITY_GUIDELINES.md) | Secure development: APIs, authorisation, files, AI, secrets, logging, retention |
+| [`docs/INCIDENT_RESPONSE.md`](./docs/INCIDENT_RESPONSE.md) | Severity policy and incident process |
+| [`docs/PERFORMANCE_AUDIT.md`](./docs/PERFORMANCE_AUDIT.md) | Performance audit: measured bottlenecks, fixes, risks, before/after |
+| [`docs/PERFORMANCE_BENCHMARKS.md`](./docs/PERFORMANCE_BENCHMARKS.md) | Load-test method, environment, dataset, results, vector benchmark, bundle |
+| [`docs/CACHING_STRATEGY.md`](./docs/CACHING_STRATEGY.md) | Every cache: keys, TTLs, isolation, invalidation, rules |
+| [`docs/SCALABILITY_GUIDE.md`](./docs/SCALABILITY_GUIDE.md) | Scaling levers in order, thresholds for architectural changes |
 | [`docs/RESOLUTION_VERIFICATION.md`](./docs/RESOLUTION_VERIFICATION.md) | Resolution verification: evidence lifecycle, AI review, scoring, guard rules, government decision, audit |
 | [`docs/EVIDENCE_SECURITY.md`](./docs/EVIDENCE_SECURITY.md) | Evidence authorisation, upload validation, EXIF handling, integrity, injection, leakage |
 | [`docs/AI_PRIORITY_ENGINE.md`](./docs/AI_PRIORITY_ENGINE.md) | AI Priority Engine: features, scoring, tiers, confidence, missing data, fairness, override, recalculation |

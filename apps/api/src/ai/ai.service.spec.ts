@@ -130,7 +130,7 @@ describe('AiService.analyzeProblem', () => {
     expect(!outcome.ok && outcome.failure.code).toBe('INVALID_MODEL_OUTPUT');
   });
 
-  it('passes a structured provider failure through unchanged', async () => {
+  it("keeps a structured failure's code but never its upstream text", async () => {
     const post = vi.fn(async () =>
       err(
         new AiRequestError('AI service responded 503', 503, {
@@ -147,7 +147,7 @@ describe('AiService.analyzeProblem', () => {
 
     expect(!outcome.ok && outcome.failure).toEqual({
       code: 'PROVIDER_UNAVAILABLE',
-      message: 'AI analysis is not configured on this server.',
+      message: 'The AI service is not available right now.',
       retryable: false,
     });
   });

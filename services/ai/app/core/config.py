@@ -9,7 +9,7 @@ from __future__ import annotations
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # The repository root, four levels up from this file
@@ -86,6 +86,20 @@ class Settings(BaseSettings):
     matching_weight_geographic: float = Field(default=0.10, alias="MATCHING_WEIGHT_GEOGRAPHIC")
     matching_weight_capability: float = Field(default=0.05, alias="MATCHING_WEIGHT_CAPABILITY")
     matching_weight_activity: float = Field(default=0.05, alias="MATCHING_WEIGHT_ACTIVITY")
+
+    @model_validator(mode="after")
+    def _production_safety(self) -> Settings:
+        """Refuse to start in production with an unauthenticated or open service.
+
+        Development keeps its conveniences (no token, no CORS); production must
+        set a strong shared token, and may never allow every origin.
+        """
+        if self.is_production:
+            if not self.internal_token or len(self.internal_token) < 32:
+                raise ValueError("AI_INTERNAL_TOKEN must be set (32+ characters) in production")
+            if "*" in self.cors_origins:
+                raise ValueError("AI_CORS_ORIGINS may not contain '*' in production")
+        return self
 
     @property
     def is_production(self) -> bool:

@@ -120,7 +120,10 @@ export function parsePriorityFeatures(body: unknown): AiPriorityFeatures | null 
     stated.unit === 'people' || stated.unit === 'households' ? stated.unit : 'unknown';
 
   // A response claiming no model ran must not carry values.
-  if (!body.ai_ran && [safetyRisk, urgency, impactBreadth].some((s) => s.value !== null)) {
+  if (
+    !body.ai_ran &&
+    [safetyRisk, urgency, impactBreadth].some((s) => s.value !== null)
+  ) {
     return null;
   }
   return {

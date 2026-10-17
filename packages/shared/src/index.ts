@@ -25,3 +25,4 @@ export * from './types/priority.js';
 export * from './types/verification.js';
 export * from './types/impact.js';
 export * from './types/analytics.js';
+export * from './types/search.js';

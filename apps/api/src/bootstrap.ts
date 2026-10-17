@@ -5,6 +5,8 @@ import { API_GLOBAL_PREFIX, API_VERSION, ERROR_CODES } from '@samadhaan/shared';
 import { buildErrorResponse } from './common/api-response.js';
 import { getRequestId } from './common/request-context.js';
 import { createValidationPipe } from './common/validation.pipe.js';
+import { csrfOriginCheck, securityHeaders } from './common/security/http-security.js';
+import { AppConfig } from './config/app.config.js';
 
 /**
  * Applies every framework-level concern to a Nest application.
@@ -17,6 +19,20 @@ export function configureApp(app: INestApplication): void {
   // Authentication cookies arrive as a raw header; parse them before any guard
   // tries to read one.
   app.use(cookieParser());
+
+  // Security headers and the CSRF origin check (Prompt 26), before any route.
+  const config = app.get(AppConfig);
+  const express = app.getHttpAdapter().getInstance() as { disable: (name: string) => void };
+  express.disable('x-powered-by');
+  app.use(securityHeaders({ production: config.isProduction }));
+  app.use(csrfOriginCheck(config.corsOrigins));
+  // Only explicitly configured origins, with credentials (never `*`).
+  app.enableCors({
+    origin: config.corsOrigins,
+    credentials: true,
+    methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE'],
+    maxAge: 600,
+  });
 
   // The API sits behind the Next.js proxy in development and a load balancer in
   // production, so `req.ip` is the proxy's address unless X-Forwarded-For is

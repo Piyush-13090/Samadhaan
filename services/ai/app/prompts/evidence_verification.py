@@ -110,8 +110,8 @@ def build_user_message(request: VerifyEvidenceRequest, documents: dict[str, str]
 
     for g in request.guidance:
         lines.append(
-            f'<guidance ref="{g.ref}" title="{neutralise(g.title)}"'
-            + (f' section="{neutralise(g.section)}"' if g.section else "")
+            f'<guidance ref="{g.ref}" title="{neutralise(g.title).replace(chr(34), "")}"'
+            + (f' section="{neutralise(g.section).replace(chr(34), "")}"' if g.section else "")
             + f">\n{neutralise(g.excerpt)}\n</guidance>"
         )
     return "\n".join(lines)

@@ -1,3 +1,4 @@
+import { cleanFileName } from '../common/file-name.js';
 import { createHash } from 'node:crypto';
 import exifr from 'exifr';
 import sharp from 'sharp';
@@ -101,16 +102,7 @@ export function extensionMatches(type: EvidenceUploadType, fileName: string): bo
  * never uses it.
  */
 export function safeFileName(raw: string | undefined, fallbackExt: string): string {
-  const base = (raw ?? '').split(/[\\/]/).pop() ?? '';
-  const cleaned = base
-    .normalize('NFC')
-    // Control characters are exactly what this removes.
-    // eslint-disable-next-line no-control-regex
-    .replace(/[\u0000-\u001f\u007f<>:"|?*;]/g, '')
-    .replace(/^\.+/, '')
-    .trim()
-    .slice(0, 120);
-  return cleaned || `evidence.${fallbackExt}`;
+  return cleanFileName(raw, `evidence.${fallbackExt}`);
 }
 
 export const sha256 = (buffer: Buffer) =>
