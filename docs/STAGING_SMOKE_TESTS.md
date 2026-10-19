@@ -5,15 +5,97 @@ public API with synthetic records. **Staging status: NOT RUN.** No staging
 environment or credentials were available. The script itself was run against
 a local, production-built API on a dedicated synthetic database
 (`samadhaan_perf`) and passed all 26 checks across the 20 steps below
-(2026-10-19). That run shows the
-script works; it isn't staging verification.
+(2026-10-19). It passed 26/26 again later that day using accounts created by
+the fixture script below, on a throwaway database marked as staging. Those
+runs show the script and the fixtures work; they aren't staging verification.
 
 ## Prerequisites (staging)
 
-Create these once in staging. Never use production accounts or real people's
-details. These accounts and organisations can't yet be created through the
-application (`STAGING_PREFLIGHT.md`, blockers B1 and B4). Step 4 uses a
-pre-created account, so it doesn't cover self-registration.
+Never use production accounts or real people's details. The accounts and
+organisations below come from the staging fixture script. Organisation
+verification and office setup have no application workflow, so the script
+creates them, on a positively identified staging database only.
+
+### Creating the test accounts (`staging-fixtures`)
+
+`apps/api/src/database/staging-fixtures.ts`, built to
+`dist/database/staging-fixtures.js`. It's included in the API and
+`api-migrate` images.
+
+**It creates:**
+- `staging-smoke-citizen@samadhaan.test` (CITIZEN);
+- `staging-smoke-official@samadhaan.test`, OWNER of the office
+  `staging-smoke-office` (jurisdiction: city `SmokeTestCity`);
+- `staging-smoke-other-official@samadhaan.test`, OWNER of
+  `staging-smoke-other-office` (city `SmokeTestOtherCity`), for the isolation
+  check;
+- `staging-smoke-ngo-owner@samadhaan.test`, OWNER of the VERIFIED NGO
+  `staging-smoke-ngo`.
+
+The fictional cities keep the smoke offices' queues to smoke reports, and
+keep smoke reports out of every other office.
+
+**Safety guards.** Any failure refuses the run with exit code 2, before
+anything is written:
+1. `SAMADHAAN_DEPLOY_ENV` must be exactly `staging`. NODE_ENV isn't used,
+   since staging runs `NODE_ENV=production`.
+2. It connects only to `STAGING_DATABASE_URL`, never `DATABASE_URL`.
+3. `--confirm-database=<name>` must equal the connected `current_database()`.
+4. The database must carry the comment
+   `samadhaan:environment=staging`. Its owner sets this once, on the
+   staging database only:
+   `COMMENT ON DATABASE <staging database> IS 'samadhaan:environment=staging';`
+5. A name or comment containing "prod" is refused.
+6. It touches only rows it owns: `staging-smoke-*@samadhaan.test` emails
+   with the `[staging smoke]` name prefix, and `staging-smoke-*` slugs with
+   the fixture description. If a reserved email or slug is held by anything
+   else, it refuses, so no real organisation is ever verified.
+7. It never deletes or truncates.
+
+**Credentials.** Passwords are random. They are written only to
+`--credentials-out`: an absolute path outside any Git working tree, created
+with mode 0600. They are never printed; the output lists only emails and
+slugs. Move the file's values into the staging secret store, then delete the
+file. Re-running needs the same file, because it verifies the stored
+passwords against the database. Without the file, pass
+`--rotate-passwords`, which issues new passwords and revokes the fixtures'
+sessions.
+
+```bash
+# From apps/api on a host that can reach the staging database privately,
+# or: docker run --rm -e … samadhaan/api-migrate:<sha> node dist/database/staging-fixtures.js …
+SAMADHAAN_DEPLOY_ENV=staging STAGING_DATABASE_URL='postgresql://…/<staging db>' \
+  node dist/database/staging-fixtures.js \
+    --confirm-database=<staging db> --credentials-out=/secure/path/staging-smoke.env
+```
+
+The output file holds every `SMOKE_*` variable below except
+`SMOKE_WEB_URL`. Its values contain no spaces, so it works with both
+`source` and `docker --env-file`.
+
+**Clean-up (no deletes):**
+```bash
+SAMADHAAN_DEPLOY_ENV=staging STAGING_DATABASE_URL=… \
+  node dist/database/staging-fixtures.js --confirm-database=<staging db> --retire
+```
+This suspends the fixture accounts, revokes their sessions and deactivates
+the fixture organisations. Re-running without `--retire` restores them.
+Smoke reports stay, titled `[SMOKE TEST …]`.
+
+**Verified locally (2026-10-19):**
+- Refusals, each exiting 2 with nothing written: no environment, deploy env
+  `production`, only `DATABASE_URL` set, the unmarked development database,
+  a confirmation mismatch, a credentials path inside the repository, a
+  relative credentials path, and reserved email/slug held by a non-fixture
+  record (that record was left untouched).
+- On a throwaway database marked as staging: creation; an idempotent re-run
+  (same rows, same hashes); a refusal without the credentials file; rotation;
+  retire (all rows kept); and the smoke test at 26/26 with no password in
+  any output.
+- Staging: **NOT RUN.**
+
+Step 4 signs in with the fixture citizen. Self-registration has its own
+regression suite (`apps/api/test/registration.e2e-spec.ts`).
 
 | Variable | What |
 | --- | --- |

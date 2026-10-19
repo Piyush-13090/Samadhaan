@@ -8,18 +8,19 @@ Status key: **PASS** verified with the command shown · **FAIL** verified
 broken · **NOT RUN** not executed (the reason is given) · **DECISION** waits
 on the owner.
 
-**Overall: NO-GO for deploying staging.** One functional blocker (B1) and the
-unrun CI pipeline (B2) must be cleared first. The code otherwise passes every
-local gate.
+**Overall (updated 2026-10-19, after the B1/B4 fixes): GO to push the
+release candidate and open the pull request for CI. Staging deployment
+remains blocked** on CI (B2) and infrastructure (B3). B1 and B4 are resolved
+and verified locally.
 
 ## Blockers
 
 | # | Blocker | Evidence | Owner | To clear |
 | - | --- | --- | --- | --- |
-| B1 | **Self-registration is broken.** `POST /auth/register` creates the user as `PENDING_VERIFICATION`. Since Prompt 26 (`4973322`), the access-token guard (`SessionService.findActive`) accepts only `ACTIVE` users, and nothing can activate an account: there is no email verification, no endpoint and no admin action. A new citizen gets 201 on register and then 401 on every authenticated request. Tests and the smoke script miss it because they create ACTIVE users directly. | Development API, 2026-10-19: register 201, then `/auth/me` 401 and `/users/me` 401. `prisma/schema.prisma` `status @default(PENDING_VERIFICATION)`; `session.service.ts` `status !== 'ACTIVE'`. | Owner (product), then engineering | Decide: (a) create users ACTIVE until email verification exists; (b) let `PENDING_VERIFICATION` authenticate as `rotate()` already does, keeping a separate gate for privileged actions; or (c) build email verification (needs SMTP). Add an e2e test that registers and then uses the session, and a smoke step for it. |
+| ~~B1~~ | **Resolved.** Registration created `PENDING_VERIFICATION` accounts, which the access guard (`SessionService.findActive`) refuses, and nothing could activate them. Registration now creates an `ACTIVE` CITIZEN with `emailVerifiedAt` null (`auth.service.ts`, `users.repository.ts`). The guard is unchanged, so `PENDING_VERIFICATION`, `SUSPENDED` and deleted accounts stay refused. | `test/registration.e2e-spec.ts`: 15 tests; 6 failed before the fix and all pass after. | — | — |
 | B2 | **CI has never run.** It includes the Docker image builds, image checks, gitleaks and the compose validation, none of which have run anywhere. | No Docker or `gh` on the release machine. | Operator | Push the branch and open a PR to `main` (§ Push and CI). All five jobs green. |
 | B3 | **No staging environment.** No provider, region or budget chosen. | — | Owner | § Infrastructure decisions. |
-| B4 | **No staging fixture procedure.** The smoke test needs a government office with a jurisdiction, a VERIFIED organisation and ACTIVE accounts. None of these can be created through the application (organisation verification has no UI or endpoint, and B1 blocks accounts). | `STAGING_SMOKE_TESTS.md` § Prerequisites. | Engineering | A reviewed, staging-only fixture script that refuses `NODE_ENV=production` and writes only `@samadhaan.test` synthetic records. Not written yet. |
+| ~~B4~~ | **Resolved.** `staging-fixtures` creates the smoke-test accounts and organisations on a database marked as staging, refusing anything else (`STAGING_SMOKE_TESTS.md` § Creating the test accounts). | Refusal cases, idempotency, rotation, retire and a 26/26 smoke run, locally on a throwaway staging-marked database. Staging: NOT RUN. | — | — |
 
 ## Preflight checklist
 
@@ -28,7 +29,7 @@ local gate.
 | # | Check | Command | Expected | Status |
 | - | --- | --- | --- | --- |
 | A1 | Branch and clean tree | `git branch --show-current; git status --porcelain` | `release/staging-candidate`; no output | PASS |
-| A2 | Commits on top of `origin/main` | `git log --oneline origin/main..HEAD` | `6e9ceed`, `6397b1a`, `138f1cb` and the preflight-docs commit | PASS (`origin/main` = `4973322`, last fetched; not re-fetched) |
+| A2 | Commits on top of `origin/main` | `git log --oneline origin/main..HEAD` | `6e9ceed`, `6397b1a`, `138f1cb`, `3a95733` and the B1/B4 commit | PASS (`origin/main` = `4973322`, last fetched; not re-fetched) |
 | A3 | No env files, keys, dumps, model binaries or build output committed | `git diff --name-only origin/main..HEAD \| grep -E '(^\|/)\.env($\|\.)\|\.pem$\|\.key$\|\.dump$\|\.joblib\|\.pkl\|\.onnx\|\.pt$\|tsbuildinfo\|/dist/\|\.next/\|/generated/'` | only `.env.example`, `.env.production.example` | PASS |
 | A4 | No binary files | `git diff --numstat origin/main..HEAD \| awk '$1=="-"'` | no output | PASS |
 | A5 | Secret patterns in added lines (Anthropic, AWS, GitHub, Slack, Google, private keys, JWTs) | `git diff origin/main..HEAD \| grep '^+' \| grep -E 'sk-ant-\|AKIA\|BEGIN .*PRIVATE KEY\|ghp_\|xox[abp]-\|AIza\|eyJhbGciOi'` | no output | PASS. One literal (`zebracrossingsecretphrase`) is a log-leak canary in `test_ml_serving.py`, not a secret. |
@@ -37,26 +38,27 @@ local gate.
 | A8 | Formatting | `npm run format:check`; `cd services/ai && ruff format --check .` | clean | PASS |
 | A9 | Lint | `npm run lint --workspace @samadhaan/api`; `… @samadhaan/web`; `ruff check .` | exit 0 | PASS (oxlint: 3 warnings, none blocking) |
 | A10 | Types | `npm run typecheck` | exit 0 | PASS |
-| A11 | API unit / web / AI tests | `npm test` (api, web); `pytest -q` | 533 / 495 / 234 + 2 skipped | PASS |
-| A12 | API e2e | `npm run test:e2e --workspace @samadhaan/api` | 762 passed | PASS (one unexplained flake on 2026-10-19, not reproduced in 4 runs) |
+| A11 | API unit / web / AI tests | `npm test` (api, web); `pytest -q` | 548 / 495 / 234 + 2 skipped | PASS (2026-10-19, after B1/B4) |
+| A12 | API e2e | `npm run test:e2e --workspace @samadhaan/api` | 777 passed | PASS on rerun. The intermittent flake recurred once (6 tests in `projects.e2e`, unexpected 404 then 401) and passed in isolation and on a full rerun. It has failed in 2 of 6 full runs on 2026-10-19; cause unknown. See § Known issues. |
 | A13 | Builds | `npm run build` (root) | exit 0 | PASS |
 | A14 | Migrations on a clean database | `CHECK_DATABASE_URL=…/samadhaan_migration_check apps/api/scripts/ci/check-migrations.sh` | 22 migrations, idempotent, no drift | PASS (PostgreSQL 17 locally; 16 in CI is NOT RUN) |
 | A15 | Dependency audit | `npm audit --omit=dev --audit-level=high` | 0 vulnerabilities | PASS |
 | A16 | Secret scan, full history | `gitleaks detect --source . --redact` (CI `security` job) | exit 0 | NOT RUN (no Docker or gitleaks). History includes test fixtures and placeholders that gitleaks may flag; triage any finding instead of suppressing it blindly. |
-| A17 | Registration then authenticated use | `POST /auth/register`, then `GET /auth/me` with its cookies | 201, then 200 | **FAIL** (401). Blocker B1. |
+| A17 | Registration then authenticated use | `npx vitest run --config ./vitest.config.e2e.ts test/registration.e2e-spec.ts` | 15 passed | PASS (was FAIL before the B1 fix) |
+| A18 | Staging fixture guard | `npx vitest run src/database/staging-fixtures.guard.spec.ts`, plus the refusal runs in `STAGING_SMOKE_TESTS.md` | 15 passed; every unsafe target exits 2 with nothing written | PASS |
 
 ### B. Images (static review only)
 
 | # | Check | Command (operator, Docker host) | Expected | Status |
 | - | --- | --- | --- | --- |
-| B1 | API image builds | `docker build -f infrastructure/docker/api.Dockerfile -t samadhaan/api:$SHA .` | exit 0 | NOT RUN |
-| B2 | Migrate image builds | `docker build -f infrastructure/docker/api.Dockerfile --target migrate -t samadhaan/api-migrate:$SHA .` | exit 0 | NOT RUN |
-| B3 | Web image builds (per environment) | `docker build -f infrastructure/docker/web.Dockerfile --build-arg API_INTERNAL_URL=http://<api-internal>:4000 -t samadhaan/web:$SHA-staging .` | exit 0 | NOT RUN |
-| B4 | AI image builds | `docker build -f infrastructure/docker/ai.Dockerfile -t samadhaan/ai:$SHA services/ai` | exit 0 | NOT RUN |
-| B5 | Non-root, no `.env` inside | `docker run --rm --entrypoint sh <image> -c 'id -u; find / -name .env -not -path "/proc/*" 2>/dev/null'` | uid ≠ 0; no files | NOT RUN |
-| B6 | Health checks | `docker inspect --format '{{.State.Health.Status}}' <container>` | `healthy` | NOT RUN |
-| B7 | Graceful stop | `docker stop -t 30 <container>`; check the logs | exits within 30 s, no errors | NOT RUN |
-| B8 | Production compose valid | `docker compose -f docker-compose.prod.yml --env-file .env.production config --quiet` | exit 0 | NOT RUN |
+| I1 | API image builds | `docker build -f infrastructure/docker/api.Dockerfile -t samadhaan/api:$SHA .` | exit 0 | NOT RUN |
+| I2 | Migrate image builds | `docker build -f infrastructure/docker/api.Dockerfile --target migrate -t samadhaan/api-migrate:$SHA .` | exit 0 | NOT RUN |
+| I3 | Web image builds (per environment) | `docker build -f infrastructure/docker/web.Dockerfile --build-arg API_INTERNAL_URL=http://<api-internal>:4000 -t samadhaan/web:$SHA-staging .` | exit 0 | NOT RUN |
+| I4 | AI image builds | `docker build -f infrastructure/docker/ai.Dockerfile -t samadhaan/ai:$SHA services/ai` | exit 0 | NOT RUN |
+| I5 | Non-root, no `.env` inside | `docker run --rm --entrypoint sh <image> -c 'id -u; find / -name .env -not -path "/proc/*" 2>/dev/null'` | uid ≠ 0; no files | NOT RUN |
+| I6 | Health checks | `docker inspect --format '{{.State.Health.Status}}' <container>` | `healthy` | NOT RUN |
+| I7 | Graceful stop | `docker stop -t 30 <container>`; check the logs | exits within 30 s, no errors | NOT RUN |
+| I8 | Production compose valid | `docker compose -f docker-compose.prod.yml --env-file .env.production config --quiet` | exit 0 | NOT RUN |
 
 Static review results:
 - Every runtime image is non-root (API and web `node`, AI uid 10001), has a
@@ -168,7 +170,10 @@ five.
 6. Start the AI service; wait for `/health/live`.
 7. Start the API; wait for readiness 200 (D3, D4).
 8. Start the web app, then the proxy; check D5–D7.
-9. Load the staging-only synthetic fixtures (B4).
+9. Load the staging-only synthetic fixtures: mark the database
+   (`COMMENT ON DATABASE … IS 'samadhaan:environment=staging'`), run
+   `staging-fixtures`, and move the credentials file into the secret store
+   (`STAGING_SMOKE_TESTS.md`).
 10. Run D8–D15 in order and record each result in `LAUNCH_CHECKLIST.md`.
 
 Rollback: redeploy the previous image tags. The schema is forward-only, so if
@@ -195,7 +200,7 @@ the UI with synthetic records only.
 ## Declaring STAGING VERIFIED
 
 All of the following, with results recorded:
-- B1 fixed with a test, and B4 written.
+- B1 and B4: done (2026-10-19); keep their tests green.
 - CI green on the release commit, all five jobs.
 - Images built from that commit and deployed.
 - D1–D14 PASS.
@@ -205,6 +210,16 @@ All of the following, with results recorded:
 
 Production stays out of scope until a separate production checklist is
 signed off.
+
+## Known issues
+
+- **Intermittent e2e failures.** Seen in 2 of 6 full local runs on
+  2026-10-19: unexpected 404 and then 401 on authenticated requests partway
+  through one file (`notifications`/`ml` once, `projects` once). The file
+  passes alone, and the full suite passes on rerun. The development API was
+  down during the last occurrence, so it isn't interference from that
+  process. Cause unknown. In CI, keep `--reporter=verbose` output on failure
+  so the file order and the failing request are captured. Owner: engineering.
 
 ## Synthetic users in the local development database
 

@@ -16,15 +16,16 @@ capability, documented honestly).
 | B5 | **Backups never restored on production-like infrastructure.** A local drill passed on 2026-10-19. | `RECOVERY_RUNBOOK.md` § Drill record | Timed restore drill in staging, at real data size |
 | ~~B6~~ | **Resolved (post-Prompt 30).** Room-closure dead end. A room can no longer close while its work is active. The office withdraws accepted work instead, which returns the problem to VERIFIED for reallocation and also recovers problems already stuck. | `ALLOCATION.md` §9a; `test/room-lifecycle.e2e-spec.ts`; `scripts/ops/find-stuck-resolutions.sql` | Run the detection query in each environment after deploying (0 rows in development) |
 | B7 | **Real AI provider behaviour unverified**: latency, cost, 429 handling with a real key. | Tests use fakes and the development provider | Staging run with a key and a budget alert |
-| B8 | **Self-registration is broken.** New accounts are `PENDING_VERIFICATION`, the access guard admits only `ACTIVE`, and nothing activates an account. Register returns 201, then every authenticated request returns 401. | `STAGING_PREFLIGHT.md` B1 | Product decision, a fix and a register-then-use e2e test |
+| ~~B8~~ | **Resolved 2026-10-19.** Self-registration was broken: new accounts were `PENDING_VERIFICATION`, which the access guard refuses. Registration now creates an `ACTIVE` CITIZEN with `emailVerifiedAt` null. Email verification is still not implemented (see Gaps). | `apps/api/test/registration.e2e-spec.ts` | — |
 
 ## Risks (accepted, mitigated)
 
-- **Intermittent e2e 404s (seen once, 2026-10-19).** Three tests in
-  `notifications.e2e` and `ml.e2e` failed once with unexpected 404s, then
-  passed in 4 full runs. Cause unknown. Locally the suite shares its database
-  and Redis with the running development API; CI doesn't. Watch the first CI
-  runs (owner: QA).
+- **Intermittent e2e failures (2 of 6 full runs, 2026-10-19).** Mid-file
+  unexpected 404s, then 401s, on authenticated requests: `notifications` and
+  `ml` once, `projects` once. Each passes alone and on a full rerun. The
+  second occurrence happened with the development API stopped, so it isn't
+  that process. Cause unknown; see `STAGING_PREFLIGHT.md` § Known issues.
+  Owner: engineering.
 - **Session refresh in browsers without Web Locks** (very old browsers) is
   still unserialised. Tabs refreshing at the same moment there can trigger
   replay detection and sign the user out. Every current major browser
@@ -52,7 +53,9 @@ capability, documented honestly).
 
 ## Gaps (not implemented)
 
-- **Email delivery** (`SMTP_URL` is reserved; notifications are in-app only).
+- **Email delivery and email verification** (`SMTP_URL` is reserved;
+  notifications are in-app only). New accounts are ACTIVE with an unverified
+  email, and nothing verifies one yet.
 - **Admin user and organisation management UI.** The admin dashboard is a
   placeholder, and organisation verification is a database operation. The
   dead navigation links were removed in Prompt 30.

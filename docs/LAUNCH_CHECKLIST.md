@@ -13,10 +13,11 @@ See `KNOWN_LIMITATIONS.md` (B1–B5, B7, B8; B6 is resolved).
 
 ## Staging release record (2026-10-19)
 
-Status: **NO-GO for deploying staging** (updated by the preflight audit,
-`STAGING_PREFLIGHT.md`). Self-registration is broken (blocker B1 there), and CI
-has never run. Nothing has been deployed. The items below are what the
-staging pass actually established.
+Status (updated 2026-10-19): **GO to push the release candidate and run
+CI. Staging deployment is still blocked** on a green CI run and on
+infrastructure (`STAGING_PREFLIGHT.md`). The registration blocker (B1) and
+the staging fixtures (B4) are resolved and verified locally. Nothing has been
+deployed. The items below are what the staging pass actually established.
 
 | Item | Result |
 | --- | --- |
@@ -34,7 +35,9 @@ staging pass actually established.
 | Multi-tab sessions | **Reproduced and fixed.** Headless Chrome on the development stack: before the fix, 1 tab (development double mount) and 4 simultaneous tabs both ended with 0 active sessions (the user was signed out). After `6397b1a`, 1, 4 and 8 tabs all stay signed in with exactly 1 active session. Replay detection on the server is unchanged. A production-build browser run is still to do in staging. |
 | Backup restore | Local drill **PASS** (`RECOVERY_RUNBOOK.md` § Drill record). It found a runbook gap: client tools must match the server's major version. Staging-sized drill **NOT RUN.** |
 | Manual accessibility | **NOT RUN.** Needs a person with real devices and screen readers (§ 5). |
-| e2e flake (2026-10-19) | 3 tests in `notifications` and `ml` returned unexpected 404s once. Not reproduced in 4 later full runs (762/762), including one under the same concurrent build load. Cause unknown. Locally, e2e shares PostgreSQL and Redis with the running development API and its sweeps; CI uses dedicated services. Owner: QA, watch the first CI runs. |
+| e2e flake (2026-10-19) | Failed 2 of 6 full runs: unexpected 404, then 401, on authenticated requests partway through one file (`notifications`/`ml`, later `projects`). Passes alone and on rerun. The second occurrence happened with the development API stopped. Cause unknown. Owner: engineering; capture verbose output in CI. |
+| Registration (B1) | Fixed: new accounts are `ACTIVE` CITIZENs with an unverified email. `registration.e2e-spec.ts`: 15 tests, 6 of which failed before the fix; all pass now. Full e2e 777 passed. |
+| Staging fixtures (B4) | `staging-fixtures` script with an environment guard, a database marker and ownership checks. Locally: all refusal cases, idempotency, rotation, retire, and the smoke test 26/26 on fixture accounts. Staging: NOT RUN. |
 
 Legend: ☑ verified, with the evidence named · ☐ pending (who: Infra / Owner /
 QA).
@@ -47,8 +50,8 @@ QA).
 | ☑ | Formatting | `npm run format:check` | clean |
 | ☑ | Lint | `oxlint src/ test/` (API), `eslint` (web), `ruff check .` (AI) | exit 0 |
 | ☑ | Types | `tsc --noEmit` (API, web) | exit 0 |
-| ☑ | API unit | `npm test` (apps/api) | 533 passed |
-| ☑ | API integration and e2e | `npm run test:e2e` | 762 passed / 30 files (2026-10-19) |
+| ☑ | API unit | `npm test` (apps/api) | 548 passed (2026-10-19) |
+| ☑ | API integration and e2e | `npm run test:e2e` | 777 passed / 31 files (2026-10-19, rerun; see the e2e flake row) |
 | ☑ | Web | `npm test` (apps/web) | 495 passed (2026-10-19) |
 | ☑ | AI service | `pytest -q` | 234 passed, 2 skipped (opt-in real-model tests; they pass with the flag, Prompt 29) |
 | ☑ | Builds | `nest build`, `next build`, and the standalone `next build` | exit 0 |

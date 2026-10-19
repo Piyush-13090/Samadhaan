@@ -215,8 +215,16 @@ per IP + email.
 
 `201` → `{ user, expiresIn }`, plus both auth cookies.
 
-**Role cannot be chosen.** The DTO has no `role` field and validation rejects
-unknown properties, so `{"role": "ADMIN"}` returns `400 VALIDATION_FAILED`.
+The account is created `ACTIVE` with `emailVerifiedAt: null`, so the session
+works immediately. Email verification is a separate state, and nothing sets it
+yet. Before 2026-10-19 accounts were created `PENDING_VERIFICATION`, which the
+access guard refuses: registration "succeeded" but every later request
+returned 401 (release blocker B1). Accounts still in `PENDING_VERIFICATION`
+remain unable to authenticate.
+
+**Role and status cannot be chosen.** The DTO has no `role`, `status` or
+`emailVerifiedAt` field, and validation rejects unknown properties. So
+`{"role": "ADMIN"}` returns `400 VALIDATION_FAILED`.
 Organisation and government accounts are created through verification and
 invitation flows in later milestones.
 

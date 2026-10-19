@@ -136,7 +136,11 @@ the same-origin `/api` proxy. Never pass a secret as a build argument.
 5. **Start the API**; it refuses to boot with an unsafe production
    configuration. Wait for `GET /api/v1/health` to return 200.
 6. **Start the web app**, then the proxy.
-7. **Run the staging smoke test** (`STAGING_SMOKE_TESTS.md`).
+7. **Staging only: create the smoke-test fixtures** with
+   `dist/database/staging-fixtures.js`. It refuses any database not marked
+   `samadhaan:environment=staging`; see `STAGING_SMOKE_TESTS.md`. Never run it
+   for production.
+8. **Run the staging smoke test** (`STAGING_SMOKE_TESTS.md`).
 
 Never run `npm run db:seed` against staging or production. The seed refuses
 `NODE_ENV=production` and requires `ALLOW_DEV_SEED=true`, which production
