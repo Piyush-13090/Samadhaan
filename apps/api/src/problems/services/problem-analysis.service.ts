@@ -6,6 +6,7 @@ import { AppException } from '../../common/app.exception.js';
 import { PrismaService } from '../../database/prisma.service.js';
 import { DomainEventBus } from '../../events/domain-event-bus.js';
 import type { ProblemAiAnalysis } from '../../generated/prisma/client.js';
+import { ModelInferenceService } from '../../ml/model-inference.service.js';
 import { StorageService } from '../../storage/storage.types.js';
 
 /**
@@ -52,6 +53,7 @@ export class ProblemAnalysisService {
     private readonly ai: AiService,
     private readonly storage: StorageService,
     private readonly events: DomainEventBus,
+    private readonly mlInference: ModelInferenceService,
   ) {}
 
   /**
@@ -208,6 +210,19 @@ export class ProblemAnalysisService {
             `(${analysis.provider}/${analysis.modelName}, ${analysis.category}, ` +
             `${analysis.severity}, confidence ${analysis.confidence}, ` +
             `${analysis.processingMs}ms, attempt ${attempt})`,
+        );
+
+        // Advisory predictions from registry models (Prompt 28), when enabled
+        // and a version is ACTIVE. Stored alongside, never instead of, the
+        // result above; failures fall back silently to it.
+        await this.mlInference.annotateAnalysis(
+          analysisId,
+          {
+            title: problem.title,
+            description: problem.description,
+            category: problem.category,
+          },
+          requestId,
         );
 
         // Once per job, after the outcome is stored — never per attempt, so a

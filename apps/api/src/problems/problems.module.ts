@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { MulterModule } from '@nestjs/platform-express';
 import { AiModule } from '../ai/ai.module.js';
+import { MlModule } from '../ml/ml.module.js';
 import { AllocationsModule } from '../allocations/allocations.module.js';
 import { AppConfig } from '../config/app.config.js';
 import { ProblemsController } from './problems.controller.js';
@@ -28,6 +29,7 @@ import { ProblemAnalysisService } from './services/problem-analysis.service.js';
 @Module({
   imports: [
     AiModule,
+    MlModule,
     AllocationsModule,
     MulterModule.registerAsync({
       inject: [AppConfig],

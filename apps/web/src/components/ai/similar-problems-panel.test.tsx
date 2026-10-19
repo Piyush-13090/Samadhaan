@@ -121,7 +121,9 @@ describe('SimilarProblemsPanel', () => {
 
     render(<SimilarProblemsPanel publicId="SAM-1" initial={null} canReview />);
 
-    expect(await screen.findByText('Describes a very similar problem')).toBeInTheDocument();
+    expect(
+      await screen.findByText('Describes a very similar problem'),
+    ).toBeInTheDocument();
     expect(screen.getByText('Same civic category')).toBeInTheDocument();
     expect(screen.getByText('Reported nearby')).toBeInTheDocument();
   });
@@ -201,7 +203,9 @@ describe('SimilarProblemsPanel', () => {
     expect(
       await screen.findByText(/Similar problems couldn’t be checked/),
     ).toBeInTheDocument();
-    expect(screen.getByText(/Your report has been saved and is unaffected/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Your report has been saved and is unaffected/),
+    ).toBeInTheDocument();
   });
 
   /**

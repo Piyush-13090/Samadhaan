@@ -1,6 +1,6 @@
 'use client';
 
-import { LogOut, Menu, Search, Settings, User } from 'lucide-react';
+import { LogOut, Menu, Search, User } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useState, type ReactNode } from 'react';
@@ -163,12 +163,6 @@ export function AppTopbar({
               <Link href="/profile">
                 <User />
                 Profile
-              </Link>
-            </DropdownItem>
-            <DropdownItem asChild>
-              <Link href="/settings">
-                <Settings />
-                Settings
               </Link>
             </DropdownItem>
             <DropdownSeparator />

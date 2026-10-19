@@ -32,9 +32,7 @@ export function fetchBadges(): Promise<BadgeView[]> {
   return api.get<BadgeView[]>('/users/me/badges', { cache: 'no-store' });
 }
 
-export function fetchContributions(
-  page = 1,
-): Promise<{
+export function fetchContributions(page = 1): Promise<{
   items: ContributionView[];
   page: number;
   totalCount: number;

@@ -88,12 +88,17 @@ export class SessionService {
 
     // Rotate in one transaction: the old token must stop working at exactly the
     // moment the new one starts, with no window where both or neither work.
-    const [, session] = await this.prisma.$transaction([
-      this.prisma.session.update({
-        where: { id: existing.id },
+    // The revocation is conditional (Prompt 30): of two concurrent refreshes
+    // with the same token only one can revoke it. The other is treated as
+    // reuse — a stolen token raced against the real one — rather than
+    // silently minting a second session.
+    const session = await this.prisma.$transaction(async (tx) => {
+      const { count } = await tx.session.updateMany({
+        where: { id: existing.id, revokedAt: null },
         data: { revokedAt: new Date() },
-      }),
-      this.prisma.session.create({
+      });
+      if (count === 0) return null;
+      return tx.session.create({
         data: {
           userId: existing.userId,
           tokenHash: nextHash,
@@ -101,8 +106,16 @@ export class SessionService {
           ipAddress: context.ipAddress ?? existing.ipAddress,
           expiresAt: new Date(Date.now() + this.config.refreshTokenTtlSeconds * 1000),
         },
-      }),
-    ]);
+      });
+    });
+
+    if (!session) {
+      this.logger.warn(
+        `Concurrent refresh with one token for user ${existing.userId}; revoking all sessions`,
+      );
+      await this.revokeAllForUser(existing.userId);
+      return null;
+    }
 
     return { session, refreshToken: token };
   }

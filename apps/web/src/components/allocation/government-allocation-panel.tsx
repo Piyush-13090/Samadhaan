@@ -190,9 +190,23 @@ function ActiveAllocation({
           <p className="type-caption text-ink-muted">
             Accepted. Coordinate with the organisation in the private resolution room.
           </p>
-          <Button variant="primary" size="sm" leadingIcon={<MessagesSquare />} asChild>
-            <Link href={roomPath(allocation.roomId)}>Open Resolution Room</Link>
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            {/* Prompt 30: ending accepted work is an explicit, reasoned
+                withdrawal that returns the problem for reallocation. */}
+            {allocation.ownedByThisOffice && (
+              <Button
+                variant="secondary"
+                size="sm"
+                leadingIcon={<Undo2 />}
+                onClick={onCancel}
+              >
+                Withdraw allocation
+              </Button>
+            )}
+            <Button variant="primary" size="sm" leadingIcon={<MessagesSquare />} asChild>
+              <Link href={roomPath(allocation.roomId)}>Open Resolution Room</Link>
+            </Button>
+          </div>
         </div>
       )}
 
@@ -564,8 +578,14 @@ function CancelDialog({
     onClose();
   }
 
+  const accepted = allocation?.status === 'ACCEPTED';
+
   async function confirm() {
     if (!allocation) return;
+    if (accepted && reason.trim().length < 10) {
+      setError('Give a reason of at least 10 characters. The organisation will see it.');
+      return;
+    }
     setPending(true);
     setError(null);
     try {
@@ -573,7 +593,9 @@ function CancelDialog({
       toast({
         tone: 'success',
         title: 'Allocation withdrawn',
-        description: `${allocation.organization.name} has been told. You can allocate again.`,
+        description: accepted
+          ? `${allocation.organization.name} has been told. The problem is back to verified and can be allocated again.`
+          : `${allocation.organization.name} has been told. You can allocate again.`,
       });
       close();
       router.refresh();
@@ -593,11 +615,13 @@ function CancelDialog({
     <Modal open={allocation !== null} onOpenChange={(open) => !open && close()}>
       <ModalContent
         size="md"
-        title="Withdraw this allocation?"
+        title={accepted ? 'Withdraw accepted work?' : 'Withdraw this allocation?'}
         description={
-          allocation
-            ? `${allocation.organization.name} will be told the request was withdrawn. The problem stays verified and can be allocated again.`
-            : undefined
+          !allocation
+            ? undefined
+            : accepted
+              ? `${allocation.organization.name} accepted this work. Withdrawing ends it: their project is cancelled, the resolution room is closed (its history stays readable) and the problem returns to verified so you can allocate it again. It is not marked resolved.`
+              : `${allocation.organization.name} will be told the request was withdrawn. The problem stays verified and can be allocated again.`
         }
         footer={
           <>
@@ -618,8 +642,13 @@ function CancelDialog({
         }
       >
         <Field
-          label="Reason (optional)"
-          hint="Kept in your office's records."
+          label={accepted ? 'Reason' : 'Reason (optional)'}
+          required={accepted}
+          hint={
+            accepted
+              ? 'Shown to the organisation and kept in the audit history.'
+              : "Kept in your office's records."
+          }
           error={error ?? undefined}
         >
           <Textarea

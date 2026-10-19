@@ -570,6 +570,43 @@ describe('Resolution room entry points', () => {
     );
   });
 
+  it('lets the office withdraw accepted work, with a required reason', async () => {
+    const active = governmentAllocation({
+      status: 'ACCEPTED',
+      acceptedAt: '2026-10-06T11:20:00.000Z',
+      respondedAt: '2026-10-06T11:20:00.000Z',
+      roomId: ROOM,
+    });
+    service.cancelAllocation.mockResolvedValueOnce({ ...active, status: 'CANCELLED' });
+    render(
+      <GovernmentAllocationPanel
+        slug="gurgaon-mc"
+        publicId="SAM-1023"
+        panel={allocationPanel({
+          canAllocate: false,
+          blockedReason: 'ACTIVE_ALLOCATION',
+          active,
+          history: [active],
+        })}
+      />,
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Withdraw allocation' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Withdraw accepted work?' });
+    // Says what happens, and that the problem is not marked resolved.
+    expect(within(dialog).getByText(/It is not marked resolved/)).toBeInTheDocument();
+    await userEvent.type(within(dialog).getByRole('textbox'), 'too short');
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Withdraw' }));
+    expect(within(dialog).getByText(/at least 10 characters/)).toBeInTheDocument();
+    expect(service.cancelAllocation).not.toHaveBeenCalled();
+    await userEvent.type(within(dialog).getByRole('textbox'), ': crew unavailable');
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Withdraw' }));
+    expect(service.cancelAllocation).toHaveBeenCalledWith(
+      'gurgaon-mc',
+      active.id,
+      'too short: crew unavailable',
+    );
+  });
+
   it('offers no room while the allocation is pending', () => {
     const active = governmentAllocation();
     render(

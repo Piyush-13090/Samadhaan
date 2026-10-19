@@ -41,7 +41,11 @@ export function SimilarProblemsPanel({
 
   if (error) {
     return (
-      <Alert tone="warning" title="Couldn’t check for similar problems" className={className}>
+      <Alert
+        tone="warning"
+        title="Couldn’t check for similar problems"
+        className={className}
+      >
         {error} Your report is unaffected.
       </Alert>
     );
@@ -94,7 +98,9 @@ export function SimilarProblemsPanel({
       aria-labelledby="similar-problems-heading"
     >
       <div className="flex items-center justify-between gap-3 border-b border-ai-border/60 px-4 py-2.5">
-        <AiBadge label={multiple ? 'Possible existing problems' : 'Possible existing problem'} />
+        <AiBadge
+          label={multiple ? 'Possible existing problems' : 'Possible existing problem'}
+        />
         <Copy className="size-3.5 text-ink-subtle" aria-hidden="true" />
       </div>
 

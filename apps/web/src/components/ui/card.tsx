@@ -53,7 +53,10 @@ export function Card({
   ...attributes
 }: CardProps) {
   return (
-    <Component className={cn(cardVariants({ variant, interactive }), className)} {...attributes}>
+    <Component
+      className={cn(cardVariants({ variant, interactive }), className)}
+      {...attributes}
+    >
       {children}
     </Component>
   );

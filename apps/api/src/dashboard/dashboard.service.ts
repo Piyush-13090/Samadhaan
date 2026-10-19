@@ -38,7 +38,10 @@ export class DashboardService {
       // this question, and two implementations of "problems reported" would
       // eventually disagree.
       this.users.getActivity(principal.id),
-      this.discovery.listOwn(principal.id, { sort: 'recent', limit: RECENT_REPORT_COUNT }),
+      this.discovery.listOwn(principal.id, {
+        sort: 'recent',
+        limit: RECENT_REPORT_COUNT,
+      }),
     ]);
 
     const name = profile?.displayName ?? profile?.fullName ?? 'there';

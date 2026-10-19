@@ -1,4 +1,5 @@
 import { config as loadEnv } from 'dotenv';
+import path from 'node:path';
 import type { NextConfig } from 'next';
 
 /**
@@ -101,6 +102,16 @@ const nextConfig: NextConfig = {
   // the workspace source as the single point of truth, with no build step
   // ordering requirement between the two packages.
   transpilePackages: ['@samadhaan/shared'],
+  // Container builds (Prompt 30, infrastructure/docker/web.Dockerfile) set
+  // NEXT_OUTPUT_STANDALONE=true: a self-contained server.js with only the
+  // traced runtime files, traced from the monorepo root so the shared package
+  // is included. Local `next dev` / `next start` are unaffected.
+  ...(process.env.NEXT_OUTPUT_STANDALONE === 'true'
+    ? {
+        output: 'standalone' as const,
+        outputFileTracingRoot: path.resolve(process.cwd(), '../..'),
+      }
+    : {}),
   // Fail the build on a type error rather than shipping a broken page.
   // (Linting is a separate `npm run lint` step — Next 16 no longer runs it.)
   typescript: { ignoreBuildErrors: false },

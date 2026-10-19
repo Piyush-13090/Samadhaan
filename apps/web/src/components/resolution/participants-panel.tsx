@@ -1,5 +1,6 @@
 import type { ResolutionParticipants } from '@samadhaan/shared';
 import { Card, CardBody, CardHeader } from '@/components/ui/card';
+import { ErrorState } from '@/components/ui/states';
 import { MEMBERSHIP_ROLE_LABEL } from '@/lib/profile-display';
 import { ParticipantAvatar } from './participant-avatar';
 
@@ -9,8 +10,13 @@ import { ParticipantAvatar } from './participant-avatar';
  */
 export function ParticipantsPanel({
   participants,
+  loadFailed = false,
+  onRetry,
 }: {
   participants: ResolutionParticipants | null;
+  /** The list could not be loaded (Prompt 30): show it, instead of loading forever. */
+  loadFailed?: boolean;
+  onRetry?: () => void;
 }) {
   return (
     <Card>
@@ -19,7 +25,13 @@ export function ParticipantsPanel({
         description="Active members of both organisations."
       />
       <CardBody className="space-y-5">
-        {participants === null ? (
+        {participants === null && loadFailed ? (
+          <ErrorState
+            size="sm"
+            title="Participants could not be loaded"
+            onRetry={onRetry}
+          />
+        ) : participants === null ? (
           <p className="type-body-sm text-ink-muted">Loading participants…</p>
         ) : (
           [participants.government, participants.organization].map((group, index) => (

@@ -38,7 +38,10 @@ export function ProblemIntelligence({
 
   return (
     <section
-      className={cn('overflow-hidden rounded-card border border-ai-border bg-ai-soft/50', className)}
+      className={cn(
+        'overflow-hidden rounded-card border border-ai-border bg-ai-soft/50',
+        className,
+      )}
       aria-labelledby="ai-intelligence-heading"
     >
       <div className="flex items-center justify-between gap-3 border-b border-ai-border/60 px-4 py-2.5">
@@ -150,14 +153,17 @@ export function ProblemIntelligence({
 
         {isDevelopmentStub && (
           <p className="flex items-start gap-2 rounded-control border border-warning-border bg-warning-soft px-3 py-2 type-caption text-ink">
-            <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-warning" aria-hidden="true" />
+            <AlertTriangle
+              className="mt-0.5 size-3.5 shrink-0 text-warning"
+              aria-hidden="true"
+            />
             This analysis came from a development placeholder, not an AI model.
           </p>
         )}
 
         <p className="border-t border-border-subtle pt-3 type-caption text-ink-subtle">
-          Samadhaan AI produced this analysis. A reviewer confirms it before any
-          decision is made.
+          Samadhaan AI produced this analysis. A reviewer confirms it before any decision
+          is made.
         </p>
       </div>
     </section>

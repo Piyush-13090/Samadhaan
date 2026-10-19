@@ -125,13 +125,25 @@ export class ResolutionAttachmentsService {
       throw AppException.badRequest("The file's name does not match its contents.");
     }
 
+    // Images are decoded fully and re-encoded without metadata (Prompt 29),
+    // as problem and evidence photos already are: EXIF can carry the GPS
+    // position of whoever took the picture, and room attachments are shown to
+    // every participant. Re-encoding also drops anything appended after the
+    // image data. Orientation is applied first so the picture looks the same.
+    let body = file.buffer;
     if (type !== 'application/pdf') {
       try {
-        // Decodes the header: a JPEG signature on something that is not a
-        // JPEG is refused here.
-        const metadata = await sharp(file.buffer, {
+        const pipeline = sharp(file.buffer, {
           limitInputPixels: 40_000_000,
-        }).metadata();
+          failOn: 'error',
+        }).rotate();
+        body =
+          type === 'image/png'
+            ? await pipeline.png().toBuffer()
+            : type === 'image/webp'
+              ? await pipeline.webp({ quality: 90 }).toBuffer()
+              : await pipeline.jpeg({ quality: 90 }).toBuffer();
+        const metadata = await sharp(body).metadata();
         if (!metadata.width || !metadata.height) throw new Error('no dimensions');
       } catch {
         throw AppException.badRequest('That image could not be read.');
@@ -143,7 +155,7 @@ export class ResolutionAttachmentsService {
       now.getUTCMonth() + 1,
     ).padStart(2, '0')}/${randomBytes(16).toString('hex')}.${STORED_EXTENSION[type]}`;
 
-    await this.storage.put({ key, body: file.buffer, contentType: type });
+    await this.storage.put({ key, body, contentType: type });
 
     try {
       const attachment = await this.prisma.$transaction(async (tx) => {
@@ -153,7 +165,7 @@ export class ResolutionAttachmentsService {
             uploadedById: user.id,
             fileName: sanitizeFileName(file.originalname, type),
             mimeType: type,
-            size: file.buffer.length,
+            size: body.length,
             storageKey: key,
           },
           include: { uploadedBy: { select: { id: true, fullName: true } } },

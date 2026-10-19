@@ -115,7 +115,12 @@ export interface CategoryRow {
 export interface AnalyticsCategories extends Scoped {
   total: number;
   categories: CategoryRow[];
-  subcategories: Array<{ category: ProblemCategory; subcategory: string; count: number; share: number }>;
+  subcategories: Array<{
+    category: ProblemCategory;
+    subcategory: string;
+    count: number;
+    share: number;
+  }>;
   severity: Array<{ severity: ProblemSeverity; count: number; share: number }>;
   priority: Array<{ tier: PriorityTier | 'UNASSESSED'; count: number; share: number }>;
 }
@@ -176,8 +181,21 @@ export interface AnalyticsResolution extends Scoped {
   /** The stage with the longest observed average — not a cause. */
   bottleneck: { key: StageDuration['key']; label: string; avgDays: number } | null;
   distribution: Array<{ bucket: string; count: number }>;
-  byPriority: Array<{ tier: PriorityTier | 'UNASSESSED'; count: number; resolved: number; resolutionRate: number | null; medianDays: number | null; openNow: number }>;
-  bySeverity: Array<{ severity: ProblemSeverity; count: number; resolved: number; resolutionRate: number | null; medianDays: number | null }>;
+  byPriority: Array<{
+    tier: PriorityTier | 'UNASSESSED';
+    count: number;
+    resolved: number;
+    resolutionRate: number | null;
+    medianDays: number | null;
+    openNow: number;
+  }>;
+  bySeverity: Array<{
+    severity: ProblemSeverity;
+    count: number;
+    resolved: number;
+    resolutionRate: number | null;
+    medianDays: number | null;
+  }>;
 }
 
 // --------------------------------------------------------------- community
@@ -258,7 +276,12 @@ export interface AnalyticsInsightView {
   observations: Array<{ text: string; metricKeys: string[] }>;
   attention: Array<{ text: string; metricKeys: string[] }>;
   /** Reference knowledge (public guidance), kept apart from the data. */
-  guidance: Array<{ ref: string; title: string; sectionTitle: string | null; href: string }>;
+  guidance: Array<{
+    ref: string;
+    title: string;
+    sectionTitle: string | null;
+    href: string;
+  }>;
   guidanceNotes: Array<{ text: string; refs: string[] }>;
   model: { provider: string; name: string; promptVersion: string; aiRan: boolean };
   generatedAt: string;
@@ -267,12 +290,7 @@ export interface AnalyticsInsightView {
 }
 
 export type AnalyticsExportDataset =
-  | 'overview'
-  | 'trends'
-  | 'categories'
-  | 'areas'
-  | 'resolution'
-  | 'problems';
+  'overview' | 'trends' | 'categories' | 'areas' | 'resolution' | 'problems';
 export const ANALYTICS_EXPORT_DATASETS: readonly AnalyticsExportDataset[] = [
   'overview',
   'trends',
@@ -296,7 +314,12 @@ export interface OrganizationAnalytics extends Omit<Scoped, 'filters'> {
   evidenceSubmitted: number;
   evidenceApprovalRate: number | null;
   governmentApprovals: number;
-  trend: Array<{ start: string; label: string; tasksCompleted: number; projectsCompleted: number }>;
+  trend: Array<{
+    start: string;
+    label: string;
+    tasksCompleted: number;
+    projectsCompleted: number;
+  }>;
 }
 
 // ----------------------------------------------------------------- citizen
@@ -318,35 +341,150 @@ export interface CitizenAnalytics {
 
 /** Every metric, defined once — shown as help text and documented. */
 export const METRIC_DEFINITIONS: Record<string, { label: string; definition: string }> = {
-  reported: { label: 'Problems reported', definition: 'Non-draft problems reported in the period (by report date, reporting time zone).' },
-  verified: { label: 'Verified', definition: 'Of the problems reported in the period, those a government office has verified (now verified, in progress or resolved).' },
-  inProgress: { label: 'In progress', definition: 'Of the problems reported in the period, those an organisation is working on now.' },
-  resolved: { label: 'Resolved', definition: 'Of the problems reported in the period, those a government office has approved as resolved.' },
-  rejected: { label: 'Rejected', definition: 'Of the problems reported in the period, those a government office did not accept.' },
-  criticalHigh: { label: 'Critical / high priority', definition: 'Of the problems reported in the period, those whose effective priority (an official’s override, else the AI tier) is Critical or High.' },
-  resolutionRate: { label: 'Resolution rate', definition: 'Resolved ÷ verified, among problems reported in the period. Unavailable when none were verified.' },
-  avgDaysToVerification: { label: 'Average time to verification', definition: 'Mean days from report to the first government verification, for problems reported in the period that were verified.' },
-  medianDaysToVerification: { label: 'Median time to verification', definition: 'Median of the same durations — less affected by outliers.' },
-  avgDaysToResolution: { label: 'Average resolution time', definition: 'Mean days from report to government-approved resolution, for problems reported in the period that were resolved.' },
-  medianDaysToResolution: { label: 'Median resolution time', definition: 'Median of the same durations.' },
-  activeNow: { label: 'Active now', definition: 'Problems open right now (submitted, under review, verified or in progress), regardless of period.' },
-  fastestDays: { label: 'Fastest resolution', definition: 'The shortest report-to-resolution time among problems reported in the period.' },
-  longestOpenDays: { label: 'Longest waiting', definition: 'Days the oldest problem that is still open has waited since it was reported (a snapshot, regardless of period).' },
-  returnedVerifications: { label: 'Resolutions returned', definition: 'Resolution verification requests the office rejected or returned for more evidence, decided in the period.' },
-  activeContributors: { label: 'Active contributors', definition: 'Distinct people credited with impact points for problems in the jurisdiction during the period.' },
-  verifiedReports: { label: 'Verified reports', definition: 'Reports from the period that a government office verified.' },
-  confirmedDuplicates: { label: 'Confirmed duplicates', definition: 'Reports from the period confirmed as duplicates of an earlier report.' },
-  communitySupported: { label: 'Community-supported', definition: 'Reports from the period with at least one supporter.' },
-  contributionsToResolution: { label: 'Contributions to resolution', definition: 'Credited contributions (reports, support, comments, project work) to problems resolved, awarded in the period.' },
-  avgDaysReportToVerification: { label: 'Report to verification', definition: 'Mean days from report to first verification, for reports from the period.' },
-  projectsCompleted: { label: 'Projects completed', definition: 'Projects your organisation completed in the period.' },
-  projectsActive: { label: 'Active projects', definition: 'Planned, active or paused projects right now.' },
-  avgCompletionDays: { label: 'Average project duration', definition: 'Mean days from start (or creation) to completion, for projects completed in the period. Needs three.' },
-  onTimeRate: { label: 'On-time completion', definition: 'Of projects completed in the period that had a target date, the share completed on or before it. Needs three.' },
-  evidenceApprovalRate: { label: 'Evidence approval rate', definition: 'Approved ÷ (approved + rejected) evidence decided in the period. Needs three decisions.' },
-  tasksCompleted: { label: 'Tasks completed', definition: 'Project tasks completed in the period.' },
-  openTasks: { label: 'Open tasks', definition: 'To-do, in-progress or blocked tasks on live projects right now — your current workload.' },
-  problemsAssigned: { label: 'Problems accepted', definition: 'Allocations your organisation accepted in the period.' },
-  governmentApprovals: { label: 'Resolutions approved', definition: 'Resolution requests a government office approved for your projects in the period.' },
-  changePct: { label: 'Change', definition: '(This period − previous period) ÷ previous period. The previous period has the same length and ends where this one starts. Unavailable when the previous period has fewer than 5.' },
+  reported: {
+    label: 'Problems reported',
+    definition:
+      'Non-draft problems reported in the period (by report date, reporting time zone).',
+  },
+  verified: {
+    label: 'Verified',
+    definition:
+      'Of the problems reported in the period, those a government office has verified (now verified, in progress or resolved).',
+  },
+  inProgress: {
+    label: 'In progress',
+    definition:
+      'Of the problems reported in the period, those an organisation is working on now.',
+  },
+  resolved: {
+    label: 'Resolved',
+    definition:
+      'Of the problems reported in the period, those a government office has approved as resolved.',
+  },
+  rejected: {
+    label: 'Rejected',
+    definition:
+      'Of the problems reported in the period, those a government office did not accept.',
+  },
+  criticalHigh: {
+    label: 'Critical / high priority',
+    definition:
+      'Of the problems reported in the period, those whose effective priority (an official’s override, else the AI tier) is Critical or High.',
+  },
+  resolutionRate: {
+    label: 'Resolution rate',
+    definition:
+      'Resolved ÷ verified, among problems reported in the period. Unavailable when none were verified.',
+  },
+  avgDaysToVerification: {
+    label: 'Average time to verification',
+    definition:
+      'Mean days from report to the first government verification, for problems reported in the period that were verified.',
+  },
+  medianDaysToVerification: {
+    label: 'Median time to verification',
+    definition: 'Median of the same durations — less affected by outliers.',
+  },
+  avgDaysToResolution: {
+    label: 'Average resolution time',
+    definition:
+      'Mean days from report to government-approved resolution, for problems reported in the period that were resolved.',
+  },
+  medianDaysToResolution: {
+    label: 'Median resolution time',
+    definition: 'Median of the same durations.',
+  },
+  activeNow: {
+    label: 'Active now',
+    definition:
+      'Problems open right now (submitted, under review, verified or in progress), regardless of period.',
+  },
+  fastestDays: {
+    label: 'Fastest resolution',
+    definition:
+      'The shortest report-to-resolution time among problems reported in the period.',
+  },
+  longestOpenDays: {
+    label: 'Longest waiting',
+    definition:
+      'Days the oldest problem that is still open has waited since it was reported (a snapshot, regardless of period).',
+  },
+  returnedVerifications: {
+    label: 'Resolutions returned',
+    definition:
+      'Resolution verification requests the office rejected or returned for more evidence, decided in the period.',
+  },
+  activeContributors: {
+    label: 'Active contributors',
+    definition:
+      'Distinct people credited with impact points for problems in the jurisdiction during the period.',
+  },
+  verifiedReports: {
+    label: 'Verified reports',
+    definition: 'Reports from the period that a government office verified.',
+  },
+  confirmedDuplicates: {
+    label: 'Confirmed duplicates',
+    definition: 'Reports from the period confirmed as duplicates of an earlier report.',
+  },
+  communitySupported: {
+    label: 'Community-supported',
+    definition: 'Reports from the period with at least one supporter.',
+  },
+  contributionsToResolution: {
+    label: 'Contributions to resolution',
+    definition:
+      'Credited contributions (reports, support, comments, project work) to problems resolved, awarded in the period.',
+  },
+  avgDaysReportToVerification: {
+    label: 'Report to verification',
+    definition:
+      'Mean days from report to first verification, for reports from the period.',
+  },
+  projectsCompleted: {
+    label: 'Projects completed',
+    definition: 'Projects your organisation completed in the period.',
+  },
+  projectsActive: {
+    label: 'Active projects',
+    definition: 'Planned, active or paused projects right now.',
+  },
+  avgCompletionDays: {
+    label: 'Average project duration',
+    definition:
+      'Mean days from start (or creation) to completion, for projects completed in the period. Needs three.',
+  },
+  onTimeRate: {
+    label: 'On-time completion',
+    definition:
+      'Of projects completed in the period that had a target date, the share completed on or before it. Needs three.',
+  },
+  evidenceApprovalRate: {
+    label: 'Evidence approval rate',
+    definition:
+      'Approved ÷ (approved + rejected) evidence decided in the period. Needs three decisions.',
+  },
+  tasksCompleted: {
+    label: 'Tasks completed',
+    definition: 'Project tasks completed in the period.',
+  },
+  openTasks: {
+    label: 'Open tasks',
+    definition:
+      'To-do, in-progress or blocked tasks on live projects right now — your current workload.',
+  },
+  problemsAssigned: {
+    label: 'Problems accepted',
+    definition: 'Allocations your organisation accepted in the period.',
+  },
+  governmentApprovals: {
+    label: 'Resolutions approved',
+    definition:
+      'Resolution requests a government office approved for your projects in the period.',
+  },
+  changePct: {
+    label: 'Change',
+    definition:
+      '(This period − previous period) ÷ previous period. The previous period has the same length and ends where this one starts. Unavailable when the previous period has fewer than 5.',
+  },
 };

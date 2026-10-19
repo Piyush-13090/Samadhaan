@@ -134,6 +134,21 @@ export class ProblemsService {
 
     const claimedKeys = await this.resolveClaimedImages(imageInputs, user);
 
+    const problem = await this.commitProblem(dto, user, claimedKeys);
+    await this.afterCreate(
+      problem,
+      claimedKeys.map((image) => image.storageKey),
+    );
+    this.logger.log(`Problem ${problem.publicId} reported by ${user.id}`);
+    return toProblemView(problem, this.resolveUrl, { viewerId: user.id });
+  }
+
+  /** The report, its reporter's follow and its photos, in one transaction. */
+  private async commitProblem(
+    dto: CreateProblemDto,
+    user: RequestUser,
+    claimedKeys: Awaited<ReturnType<ProblemsService['resolveClaimedImages']>>,
+  ) {
     try {
       const problem = await this.prisma.$transaction(async (tx) => {
         const created = await tx.problem.create({
@@ -194,31 +209,44 @@ export class ProblemsService {
         });
       });
 
-      // Only after the transaction commits: releasing the claim earlier would
-      // let a retry of a failed submission find the keys already consumed.
-      await this.pending.claim(claimedKeys.map((image) => image.storageKey));
-
-      this.logger.log(`Problem ${problem.publicId} reported by ${user.id}`);
-
-      // Queued *after* the transaction commits, so the report is durable before
-      // anything depends on it. Both are enhancements: if neither runs, the
-      // civic record is still complete and the citizen still has their
-      // reference number.
-      //
-      // Independent of each other on purpose. Duplicate detection works from
-      // the citizen's own words, not from the AI's reading of them, so a failed
-      // analysis must not also cost the deduplication — and chaining them would
-      // put a vision-model call on the critical path of a vector search.
-      await this.analysis.enqueue(problem.id);
-      await this.duplicates.enqueue(problem.id);
-
-      return toProblemView(problem, this.resolveUrl, { viewerId: user.id });
+      return problem;
     } catch (error) {
       // The transaction rolled back, so the rows are gone but the files are
-      // not. Remove them rather than leaking storage on every failed submit.
+      // not. Remove them rather than leaking storage on every failed submit —
+      // except files another problem references (see `discard`).
       await this.pending.discard(claimedKeys.map((image) => image.storageKey));
       throw error;
     }
+  }
+
+  /**
+   * Work after a report is committed (Prompt 29: moved out of the cleanup
+   * path). The report is durable at this point, so none of these may fail the
+   * request or remove its photos: a 500 here would tell the citizen their
+   * report failed when it exists, inviting a duplicate resubmission.
+   */
+  private async afterCreate(problem: { id: string; publicId: string }, keys: string[]) {
+    const step = async (name: string, run: () => Promise<unknown>) => {
+      try {
+        await run();
+      } catch (error) {
+        this.logger.warn(
+          `${name} failed after ${problem.publicId} was saved: ${
+            error instanceof Error ? error.message : 'unknown error'
+          }`,
+        );
+      }
+    };
+    // Releasing the claim only after commit lets a retry of a failed
+    // submission find the keys. If it fails, the sweep leaves these files
+    // alone because a problem now references them.
+    await step('Upload claim', () => this.pending.claim(keys));
+    // Both are enhancements: if neither runs, the civic record is still
+    // complete and the citizen still has their reference number. Independent
+    // of each other on purpose — duplicate detection works from the citizen's
+    // own words, so a failed analysis must not also cost the deduplication.
+    await step('Analysis enqueue', () => this.analysis.enqueue(problem.id));
+    await step('Duplicate check enqueue', () => this.duplicates.enqueue(problem.id));
   }
 
   /**

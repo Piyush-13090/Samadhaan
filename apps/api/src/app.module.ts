@@ -18,6 +18,8 @@ import { GovernmentModule } from './government/government.module.js';
 import { GeoModule } from './geo/geo.module.js';
 import { KnowledgeModule } from './knowledge/knowledge.module.js';
 import { PriorityModule } from './priority/priority.module.js';
+import { MlModule } from './ml/ml.module.js';
+import { MetricsModule } from './metrics/metrics.module.js';
 import { VerificationModule } from './verification/verification.module.js';
 import { ImpactModule } from './impact/impact.module.js';
 import { AnalyticsModule } from './analytics/analytics.module.js';
@@ -51,6 +53,7 @@ import { UsersModule } from './users/users.module.js';
       inject: [AppConfig],
       useFactory: createLoggerConfig,
     }),
+    MetricsModule,
     DatabaseModule,
     RedisModule,
     StorageModule,
@@ -71,6 +74,7 @@ import { UsersModule } from './users/users.module.js';
     CoordinatorModule,
     KnowledgeModule,
     PriorityModule,
+    MlModule,
     VerificationModule,
     ImpactModule,
     AnalyticsModule,

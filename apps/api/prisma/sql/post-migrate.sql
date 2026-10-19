@@ -81,3 +81,10 @@ CREATE INDEX IF NOT EXISTS "knowledge_sources_title_fts" ON "knowledge_sources"
 -- Expression index: Prisma cannot express it.
 -- ---------------------------------------------------------------------------
 CREATE INDEX IF NOT EXISTS "problems_city_lower" ON "problems" (lower("city"));
+
+-- Prompt 28: at most one ACTIVE model version per task (partial unique index,
+-- which Prisma cannot express). `active_models` is the pointer; this makes a
+-- second ACTIVE row impossible even for a writer that bypasses the service.
+CREATE UNIQUE INDEX IF NOT EXISTS "model_versions_one_active_per_task"
+  ON "model_versions" ("task") WHERE "status" = 'ACTIVE';
+

@@ -15,6 +15,16 @@ export const envSchema = z.object({
   // even when CORS_ORIGINS is not set explicitly.
   CORS_ORIGINS: z.string().default('http://localhost:3100'),
 
+  /**
+   * Bearer token for GET /api/v1/metrics (Prompt 30). Unset: the endpoint
+   * returns 404. 32+ characters when set.
+   */
+  METRICS_TOKEN: z
+    .string()
+    .min(32)
+    .optional()
+    .or(z.literal('').transform(() => undefined)),
+
   LOG_LEVEL: z
     .enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent'])
     .default('info'),
@@ -44,6 +54,17 @@ export const envSchema = z.object({
   AI_SERVICE_URL: z.string().url(),
   /** Timeout in ms for a single call from the API to the AI service. */
   AI_SERVICE_TIMEOUT_MS: z.coerce.number().int().positive().default(15_000),
+  /**
+   * Circuit breaker for AI service calls (Prompt 29). After this many
+   * consecutive failures (timeouts, connection errors, 5xx) for one group of
+   * endpoints, further calls in that group fail immediately for
+   * AI_CIRCUIT_RESET_SECONDS, then one trial call is let through. Callers
+   * already degrade on failure (keyword search, FAILED analysis, 503), so an
+   * open circuit turns minutes of waiting into an immediate fallback.
+   * 0 disables the breaker.
+   */
+  AI_CIRCUIT_FAILURE_THRESHOLD: z.coerce.number().int().min(0).max(100).default(5),
+  AI_CIRCUIT_RESET_SECONDS: z.coerce.number().int().min(1).max(3600).default(30),
   /**
    * Shared secret sent as `x-internal-token` so the AI service can reject
    * traffic that did not come through the API boundary. Optional in
@@ -108,6 +129,32 @@ export const envSchema = z.object({
   STORAGE_PROVIDER: z.enum(['local', 's3']).default('local'),
   /** Directory the local driver writes to. Relative paths resolve from apps/api. */
   STORAGE_LOCAL_ROOT: z.string().default('.storage'),
+  /**
+   * Production on local disk is only safe for a single API instance with a
+   * persistent, backed-up volume. It must be accepted explicitly (Prompt 30).
+   */
+  STORAGE_ALLOW_LOCAL_IN_PRODUCTION: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((value) => value === 'true'),
+
+  // S3-compatible object storage (Prompt 30). Required when STORAGE_PROVIDER=s3.
+  // The bucket must be private: files are served only through the API.
+  STORAGE_BUCKET: z.string().optional(),
+  STORAGE_REGION: z.string().optional(),
+  STORAGE_ACCESS_KEY_ID: z.string().optional(),
+  STORAGE_SECRET_ACCESS_KEY: z.string().optional(),
+  /** Non-AWS providers (R2, MinIO, ...). Omit for AWS S3. */
+  STORAGE_ENDPOINT: z
+    .string()
+    .url()
+    .optional()
+    .or(z.literal('').transform(() => undefined)),
+  /** Path-style addressing, needed by MinIO and some providers. */
+  STORAGE_FORCE_PATH_STYLE: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((value) => value === 'true'),
 
   /**
    * Public base URL of the API, used to build media URLs. Distinct from
@@ -500,6 +547,27 @@ export const envSchema = z.object({
   SEARCH_CACHE_SECONDS: z.coerce.number().int().min(0).max(3600).default(120),
   SEARCH_RECENT_MAX: z.coerce.number().int().min(0).max(50).default(10),
   SEARCH_RECENT_DAYS: z.coerce.number().int().min(1).max(365).default(30),
+
+  // --- Locally trained models (Prompt 28) -----------------------------------
+  /**
+   * Master switch for registry-backed inference. Off by default: even with an
+   * ACTIVE model in the registry nothing is called until this is true, so a
+   * deployment opts in explicitly. Predictions are advisory either way.
+   */
+  ML_INFERENCE_ENABLED: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((value) => value === 'true'),
+  /** Per-prediction timeout. A slow model falls back to the existing path. */
+  ML_INFERENCE_TIMEOUT_MS: z.coerce.number().int().min(100).max(30000).default(3000),
+  /** How long a process caches which version is active for a task. */
+  ML_ACTIVE_CACHE_SECONDS: z.coerce.number().int().min(0).max(3600).default(30),
+  /** Inference monitoring rows older than this are deleted. */
+  ML_MONITORING_RETENTION_DAYS: z.coerce.number().int().min(1).max(730).default(90),
+  /** Population stability index above which a distribution shift is flagged. */
+  ML_DRIFT_PSI_WARN: z.coerce.number().min(0).max(10).default(0.2),
+  /** Fewer inferences than this in a window: drift is reported as not assessable. */
+  ML_MONITORING_MIN_SAMPLES: z.coerce.number().int().min(1).max(100000).default(100),
 });
 
 /**
@@ -522,6 +590,28 @@ export function productionIssues(env: z.infer<typeof envSchema>): string[] {
     issues.push('AI_SERVICE_TOKEN must be set (32+ characters)');
   }
   if (env.ALLOW_DEV_SEED) issues.push('ALLOW_DEV_SEED must be false');
+  // Prompt 30.
+  if (env.STORAGE_PROVIDER === 'local' && !env.STORAGE_ALLOW_LOCAL_IN_PRODUCTION) {
+    issues.push(
+      'STORAGE_PROVIDER=local in production: use s3, or set STORAGE_ALLOW_LOCAL_IN_PRODUCTION=true for a single instance with a backed-up volume',
+    );
+  }
+  if (!/^https:\/\//.test(env.PUBLIC_API_URL)) {
+    issues.push('PUBLIC_API_URL must be an https URL');
+  }
+  // Redis carries sessions' rate limits, locks and caches: never open.
+  if (
+    !/^rediss:\/\//.test(env.REDIS_URL) &&
+    !/^redis:\/\/[^@/]*:[^@/]+@/.test(env.REDIS_URL)
+  ) {
+    issues.push('REDIS_URL must use TLS (rediss://) or include a password');
+  }
+  if (env.STORAGE_ENDPOINT && !/^https:\/\//.test(env.STORAGE_ENDPOINT)) {
+    issues.push('STORAGE_ENDPOINT must be an https URL');
+  }
+  if (env.LOG_LEVEL === 'debug' || env.LOG_LEVEL === 'trace') {
+    issues.push('LOG_LEVEL must not be debug or trace (request detail would be logged)');
+  }
   for (const origin of env.CORS_ORIGINS.split(',')
     .map((o) => o.trim())
     .filter(Boolean)) {
@@ -530,6 +620,21 @@ export function productionIssues(env: z.infer<typeof envSchema>): string[] {
     }
   }
   return issues;
+}
+
+/** STORAGE_PROVIDER=s3 needs its settings in every environment (Prompt 30). */
+export function storageIssues(env: z.infer<typeof envSchema>): string[] {
+  if (env.STORAGE_PROVIDER !== 's3') return [];
+  return (
+    [
+      'STORAGE_BUCKET',
+      'STORAGE_REGION',
+      'STORAGE_ACCESS_KEY_ID',
+      'STORAGE_SECRET_ACCESS_KEY',
+    ] as const
+  )
+    .filter((name) => !env[name])
+    .map((name) => `${name} is required when STORAGE_PROVIDER=s3`);
 }
 
 export type Env = z.infer<typeof envSchema>;
@@ -546,6 +651,13 @@ export function validateEnv(raw: Record<string, unknown>): Env {
       .map((issue) => `  - ${issue.path.join('.') || '(root)'}: ${issue.message}`)
       .join('\n');
     throw new Error(`Invalid environment configuration:\n${issues}`);
+  }
+
+  const storage = storageIssues(result.data);
+  if (storage.length > 0) {
+    throw new Error(
+      `Invalid storage configuration:\n${storage.map((i) => `  - ${i}`).join('\n')}`,
+    );
   }
 
   const production = productionIssues(result.data);

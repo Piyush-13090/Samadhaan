@@ -1,0 +1,16 @@
+# TLS-terminating reverse proxy for the production-like local stack
+# (docker-compose.prod.yml, Prompt 30). `tls internal` issues a certificate
+# from Caddy's own local CA, so https://localhost works without a public
+# domain; browsers warn until that CA is trusted. In a real deployment put the
+# public domain here (Caddy then obtains a certificate automatically) or use
+# the platform's load balancer instead.
+#
+# Only the web app is published. The browser calls /api on the same origin and
+# Next.js proxies it to the API on the internal network; the API, AI service,
+# PostgreSQL and Redis are never exposed.
+{$SITE_ADDRESS:localhost} {
+	tls internal
+	encode zstd gzip
+	reverse_proxy web:3100
+	header -Server
+}

@@ -55,7 +55,7 @@ async def analyze_problem(
         # misbehaved". The distinction matters to whoever is on call.
         http_status = (
             status.HTTP_503_SERVICE_UNAVAILABLE
-            if error.code in {"PROVIDER_UNAVAILABLE", "TIMEOUT"}
+            if error.code in {"PROVIDER_UNAVAILABLE", "TIMEOUT", "RATE_LIMITED"}
             else status.HTTP_502_BAD_GATEWAY
         )
 

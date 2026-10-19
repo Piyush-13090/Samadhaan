@@ -187,7 +187,15 @@ export function attributeResolution(input: ResolutionInput): AwardDraft[] {
       );
     }
   }
-  return drafts;
+  // The reporter's awards go last (Prompt 29). The ledger commits one user at
+  // a time, and reconciliation treats a problem as done once the reporter's
+  // PROBLEM_RESOLVED row exists — so that row must only exist after everyone
+  // else's awards have committed. A crash part-way leaves the reporter's key
+  // missing, and the next reconciliation re-runs the whole (idempotent) set.
+  return [
+    ...drafts.filter((d) => d.userId !== problem.reporterId),
+    ...drafts.filter((d) => d.userId === problem.reporterId),
+  ];
 }
 
 /**

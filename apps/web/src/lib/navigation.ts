@@ -14,7 +14,6 @@ import {
   MessagesSquare,
   Plus,
   Settings,
-  ShieldCheck,
   Sparkles,
   Search,
   Target,
@@ -222,9 +221,6 @@ const ADMIN_NAV: NavSection[] = [
     id: 'primary',
     items: [
       { href: '/admin', label: 'Overview', icon: Gauge },
-      { href: '/admin/users', label: 'Users', icon: Users },
-      { href: '/admin/organizations', label: 'Organisations', icon: Building2 },
-      { href: '/admin/moderation', label: 'Moderation', icon: ShieldCheck },
       KNOWLEDGE_ITEM,
       NOTIFICATIONS_ITEM,
     ],
@@ -242,9 +238,8 @@ const NAV_BY_ROLE: Record<UserRole, NavSection[]> = {
 };
 
 /** Pinned to the bottom of the sidebar, away from the primary destinations. */
-export const SECONDARY_NAV: NavItem[] = [
-  { href: '/settings', label: 'Settings', icon: Settings },
-];
+// Empty since Prompt 30: Settings was a mock (see app/(app)/settings/page.tsx).
+export const SECONDARY_NAV: NavItem[] = [];
 
 /**
  * Navigation for a role.

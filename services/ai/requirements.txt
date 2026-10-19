@@ -22,3 +22,11 @@ sentence-transformers>=6.0.0
 
 # Knowledge ingestion (RAG): text extraction from uploaded PDFs. Pure Python.
 pypdf>=6.0.0
+
+# Model training and serving (Prompt 28). Already installed as dependencies of
+# sentence-transformers; declared because the ML pipeline (`ml/`) and the
+# registry-backed inference (`app/models/`) use them directly. Serving needs
+# only numpy; scikit-learn and scipy are used by offline training.
+numpy>=2.0.0
+scipy>=1.13.0
+scikit-learn>=1.5.0

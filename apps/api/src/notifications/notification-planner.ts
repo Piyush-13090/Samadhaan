@@ -554,7 +554,9 @@ export function planNotifications(
           message: event.headline,
           entityType: 'SYSTEM',
           entityId: null,
-          metadata: event.problemPublicId ? { problemPublicId: event.problemPublicId } : {},
+          metadata: event.problemPublicId
+            ? { problemPublicId: event.problemPublicId }
+            : {},
           dedupeKey: `impact:${event.eventKey}`,
         },
       ];

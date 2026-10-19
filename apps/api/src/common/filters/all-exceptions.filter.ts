@@ -56,11 +56,11 @@ export class AllExceptionsFilter implements ExceptionFilter {
 
     if (status >= HttpStatus.INTERNAL_SERVER_ERROR) {
       this.logger.error(
-        `${request.method} ${request.url} -> ${status}`,
+        `${request.method} ${request.path} -> ${status}`,
         exception instanceof Error ? exception.stack : String(exception),
       );
     } else {
-      this.logger.warn(`${request.method} ${request.url} -> ${status} ${code}`);
+      this.logger.warn(`${request.method} ${request.path} -> ${status} ${code}`);
     }
 
     response
@@ -124,6 +124,22 @@ export class AllExceptionsFilter implements ExceptionFilter {
         status: parserError.status,
         code: STATUS_TO_CODE[parserError.status] ?? ERROR_CODES.VALIDATION_FAILED,
         message: 'The request could not be read.',
+      };
+    }
+
+    // An uncaught unique-constraint violation (Prisma P2002) is a conflicting
+    // or repeated request — a double-clicked submit, two people acting at
+    // once — not a server fault (Prompt 29). Constraint names are not echoed.
+    const prismaError = exception as { name?: unknown; code?: unknown };
+    if (
+      prismaError?.name === 'PrismaClientKnownRequestError' &&
+      prismaError.code === 'P2002'
+    ) {
+      return {
+        status: HttpStatus.CONFLICT,
+        code: ERROR_CODES.CONFLICT,
+        message:
+          'This conflicts with a change that was already made. Refresh and try again.',
       };
     }
 

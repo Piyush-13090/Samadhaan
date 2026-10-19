@@ -625,8 +625,14 @@ describe('Government allocation (e2e)', () => {
       }
     });
 
-    it('cannot be cancelled once accepted', async () => {
-      await cancel(secondId).expect(409);
+    it('cannot be withdrawn once accepted without a stated reason', async () => {
+      // Withdrawing accepted work is a deliberate act with a reason the
+      // organisation sees (room-lifecycle.e2e covers the withdrawal itself).
+      await cancel(secondId).expect(400);
+      const row = await prisma.problemAllocation.findUniqueOrThrow({
+        where: { id: secondId },
+      });
+      expect(row.status).toBe('ACCEPTED');
     });
 
     it('lists the government activity with the organisation named', async () => {
@@ -718,7 +724,14 @@ describe('Government allocation (e2e)', () => {
         respond(id, 'accept', {}, 'org-owner'),
         cancel(id),
       ]);
-      expect([accepted.status, cancelled.status].sort()).toEqual([200, 409]);
+      // Exactly one wins. If the acceptance won, the reason-less cancel is a
+      // withdrawal of accepted work and is refused for lacking a reason (400);
+      // if the cancel won, the acceptance finds it already withdrawn (409).
+      const [first, second] = [accepted.status, cancelled.status];
+      expect(
+        (first === 200 && [400, 409].includes(second)) ||
+          (second === 200 && first === 409),
+      ).toBe(true);
 
       const row = await prisma.problemAllocation.findUniqueOrThrow({ where: { id } });
       expect(await problemStatus('race2')).toBe(

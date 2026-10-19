@@ -62,6 +62,9 @@ const MAX_VISIBLE = 4;
 
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<ToastRecord[]>([]);
+  // Prompt 30: announcements go through two persistent live regions. A region
+  // created already filled with text is often not announced at all.
+  const [announcement, setAnnouncement] = useState({ polite: '', assertive: '' });
   const timers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
 
   const dismiss = useCallback((id: string) => {
@@ -79,9 +82,21 @@ export function ToastProvider({ children }: { children: ReactNode }) {
       const id = `toast-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 
       setToasts((current) => [...current, { ...options, id }].slice(-MAX_VISIBLE));
+      const text = [options.title, options.description].filter(Boolean).join('. ');
+      setAnnouncement((current) =>
+        options.tone === 'danger'
+          ? { ...current, assertive: text }
+          : { ...current, polite: text },
+      );
 
+      // Errors stay until dismissed (Prompt 30): five seconds is too short to
+      // read and act on a failure, especially with a screen magnifier.
       const duration =
-        options.duration === undefined ? DEFAULT_DURATION : options.duration;
+        options.duration !== undefined
+          ? options.duration
+          : options.tone === 'danger'
+            ? null
+            : DEFAULT_DURATION;
       if (duration !== null) {
         timers.current.set(
           id,
@@ -109,6 +124,12 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     <ToastContext.Provider value={value}>
       {children}
       <ToastViewport toasts={toasts} onDismiss={dismiss} />
+      <div aria-live="polite" aria-atomic="true" className="sr-only">
+        {announcement.polite}
+      </div>
+      <div aria-live="assertive" aria-atomic="true" className="sr-only">
+        {announcement.assertive}
+      </div>
     </ToastContext.Provider>
   );
 }
@@ -132,9 +153,10 @@ function ToastViewport({
 }) {
   return (
     <div
-      // Bottom on mobile so it clears the bottom navigation; top-right on desktop.
+      // Above the bottom navigation on mobile; top-right on desktop.
       className={cn(
-        'pointer-events-none fixed inset-x-0 bottom-0 flex flex-col gap-2 p-4',
+        'pointer-events-none fixed inset-x-0 flex flex-col gap-2 p-4',
+        'bottom-[calc(var(--spacing-mobilenav)+env(safe-area-inset-bottom))] lg:bottom-0',
         'sm:inset-x-auto sm:top-0 sm:right-0 sm:bottom-auto sm:w-96',
       )}
       style={{ zIndex: 'var(--z-toast)' }}
@@ -142,8 +164,6 @@ function ToastViewport({
       {toasts.map((entry) => (
         <div
           key={entry.id}
-          role={entry.tone === 'danger' ? 'alert' : 'status'}
-          aria-live={entry.tone === 'danger' ? 'assertive' : 'polite'}
           className={cn(
             'pointer-events-auto flex items-start gap-3 rounded-card border border-border',
             'bg-overlay p-3.5 shadow-overlay animate-slide-up',
@@ -175,7 +195,7 @@ function ToastViewport({
           <button
             type="button"
             onClick={() => onDismiss(entry.id)}
-            className="shrink-0 rounded-control p-1 text-ink-subtle transition-colors hover:bg-subtle hover:text-ink"
+            className="grid size-7 shrink-0 place-items-center rounded-control text-ink-subtle transition-colors hover:bg-subtle hover:text-ink"
           >
             <X className="size-3.5" />
             <span className="sr-only">Dismiss notification</span>

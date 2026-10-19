@@ -1,12 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AppConfig } from '../config/app.config.js';
-import { AiClient, AiRequestError } from './ai.client.js';
+import { AiCircuitOpenError, AiClient, AiRequestError } from './ai.client.js';
 
 function createClient(overrides: Partial<AppConfig> = {}): AiClient {
   return new AiClient({
     aiServiceUrl: 'http://ai.test:8000',
     aiServiceTimeoutMs: 50,
     aiServiceToken: undefined,
+    aiCircuit: { failureThreshold: 2, resetMs: 60_000 },
     ...overrides,
   } as AppConfig);
 }
@@ -165,5 +166,39 @@ describe('AiClient', () => {
 
     expect(result.ok).toBe(false);
     expect(!result.ok && result.error.message).toMatch(/timed out after 50ms/);
+  });
+
+  it('tells the AI service how long it will wait (Prompt 29)', async () => {
+    fetchMock.mockResolvedValue({ ok: true, json: async () => ({}) });
+
+    await createClient().post('/search/understand', { query: 'x' }, { timeoutMs: 8000 });
+
+    const headers = fetchMock.mock.calls[0]?.[1]?.headers as Record<string, string>;
+    expect(headers['x-deadline-ms']).toBe('8000');
+  });
+
+  it('fails fast once a group of endpoints keeps failing, without touching health', async () => {
+    const client = createClient();
+    fetchMock.mockRejectedValue(new Error('connect ECONNREFUSED'));
+    await client.post('/search/understand', {});
+    await client.post('/search/understand', {});
+    fetchMock.mockClear();
+
+    const result = await client.post('/search/understand', {});
+    expect(result.ok).toBe(false);
+    expect(!result.ok && result.error).toBeInstanceOf(AiCircuitOpenError);
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    // Other groups and the health probe still reach the service.
+    fetchMock.mockResolvedValue({ ok: true, json: async () => ({}) });
+    expect((await client.post('/embeddings/text', {})).ok).toBe(true);
+    expect((await client.get('/health')).ok).toBe(true);
+  });
+
+  it('does not count a 4xx verdict as the service failing', async () => {
+    const client = createClient();
+    fetchMock.mockResolvedValue({ ok: false, status: 422, json: async () => ({}) });
+    for (let i = 0; i < 5; i++) await client.post('/models/predict', {});
+    expect(client.breaker.state('models')).toBe('closed');
   });
 });

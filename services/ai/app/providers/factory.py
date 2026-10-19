@@ -10,6 +10,16 @@ from app.providers.development_provider import DevelopmentProvider
 
 logger = get_logger(__name__)
 
+_clients: dict[tuple[str, str, float, float], AnthropicVisionProvider] = {}
+
+
+async def close_providers() -> None:
+    """Closes cached provider clients (application shutdown)."""
+    clients = list(_clients.values())
+    _clients.clear()
+    for client in clients:
+        await client.aclose()
+
 
 def build_provider(settings: Settings) -> VisionLanguageProvider:
     """Returns the provider named by `LLM_PROVIDER`.
@@ -45,11 +55,25 @@ def build_provider(settings: Settings) -> VisionLanguageProvider:
                 retryable=False,
             )
 
-        return AnthropicVisionProvider(
-            api_key=settings.llm_api_key,
-            model=settings.llm_model or settings.default_llm_model,
-            timeout_seconds=settings.llm_timeout_seconds,
+        # One client per configuration, reused (Prompt 29). Building an
+        # `AsyncAnthropic` per request opened a fresh connection pool every
+        # time and never closed it.
+        key = (
+            settings.llm_api_key,
+            settings.llm_model or settings.default_llm_model,
+            settings.llm_timeout_seconds,
+            settings.llm_deadline_seconds,
         )
+        cached = _clients.get(key)
+        if cached is None:
+            cached = AnthropicVisionProvider(
+                api_key=settings.llm_api_key,
+                model=settings.llm_model or settings.default_llm_model,
+                timeout_seconds=settings.llm_timeout_seconds,
+                deadline_seconds=settings.llm_deadline_seconds,
+            )
+            _clients[key] = cached
+        return cached
 
     raise ProviderError(
         "PROVIDER_UNAVAILABLE",

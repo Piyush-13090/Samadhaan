@@ -1,0 +1,193 @@
+{
+  "description": "Sensitivity of priority-heuristic-v1 to ±25% weight changes on seeded synthetic feature vectors. Not an accuracy evaluation: no independent priority labels exist.",
+  "scoringVersion": "priority-heuristic-v1",
+  "samples": 2000,
+  "seed": 28,
+  "weights": {
+    "severity": 0.2,
+    "urgency": 0.15,
+    "communityImpact": 0.2,
+    "safetyRisk": 0.15,
+    "geographicImpact": 0.1,
+    "recency": 0.05,
+    "affectedPopulation": 0.1,
+    "evidence": 0.05
+  },
+  "tiers": {
+    "critical": 80,
+    "high": 60,
+    "medium": 35
+  },
+  "baselineTierDistribution": {
+    "MEDIUM": 1298,
+    "LOW": 224,
+    "HIGH": 457,
+    "CRITICAL": 21
+  },
+  "safeguards": {
+    "safetyFloorApplied": 9,
+    "engagementShareCap": 1.5,
+    "provisional": 68
+  },
+  "missingData": {
+    "samplesWithAnyMissingFeature": 1360,
+    "meanScoreWithMissing": 50.5149,
+    "meanScoreComplete": 50.2096
+  },
+  "perturbations": [
+    {
+      "feature": "severity",
+      "factor": 0.75,
+      "spearman": 0.9925,
+      "tierAgreement": 0.9655,
+      "topDecileOverlap": 0.925,
+      "meanAbsScoreChange": 1.1067
+    },
+    {
+      "feature": "severity",
+      "factor": 1.25,
+      "spearman": 0.9943,
+      "tierAgreement": 0.959,
+      "topDecileOverlap": 0.94,
+      "meanAbsScoreChange": 0.9834
+    },
+    {
+      "feature": "urgency",
+      "factor": 0.75,
+      "spearman": 0.9953,
+      "tierAgreement": 0.972,
+      "topDecileOverlap": 0.935,
+      "meanAbsScoreChange": 0.8583
+    },
+    {
+      "feature": "urgency",
+      "factor": 1.25,
+      "spearman": 0.9962,
+      "tierAgreement": 0.9635,
+      "topDecileOverlap": 0.94,
+      "meanAbsScoreChange": 0.7808
+    },
+    {
+      "feature": "communityImpact",
+      "factor": 0.75,
+      "spearman": 0.9926,
+      "tierAgreement": 0.9575,
+      "topDecileOverlap": 0.925,
+      "meanAbsScoreChange": 1.0718
+    },
+    {
+      "feature": "communityImpact",
+      "factor": 1.25,
+      "spearman": 0.9944,
+      "tierAgreement": 0.9685,
+      "topDecileOverlap": 0.945,
+      "meanAbsScoreChange": 0.9578
+    },
+    {
+      "feature": "safetyRisk",
+      "factor": 0.75,
+      "spearman": 0.9953,
+      "tierAgreement": 0.965,
+      "topDecileOverlap": 0.955,
+      "meanAbsScoreChange": 0.8784
+    },
+    {
+      "feature": "safetyRisk",
+      "factor": 1.25,
+      "spearman": 0.9959,
+      "tierAgreement": 0.9705,
+      "topDecileOverlap": 0.94,
+      "meanAbsScoreChange": 0.8016
+    },
+    {
+      "feature": "geographicImpact",
+      "factor": 0.75,
+      "spearman": 0.9976,
+      "tierAgreement": 0.9755,
+      "topDecileOverlap": 0.955,
+      "meanAbsScoreChange": 0.6372
+    },
+    {
+      "feature": "geographicImpact",
+      "factor": 1.25,
+      "spearman": 0.9978,
+      "tierAgreement": 0.9775,
+      "topDecileOverlap": 0.96,
+      "meanAbsScoreChange": 0.5965
+    },
+    {
+      "feature": "recency",
+      "factor": 0.75,
+      "spearman": 0.9996,
+      "tierAgreement": 0.989,
+      "topDecileOverlap": 0.985,
+      "meanAbsScoreChange": 0.3162
+    },
+    {
+      "feature": "recency",
+      "factor": 1.25,
+      "spearman": 0.9996,
+      "tierAgreement": 0.9895,
+      "topDecileOverlap": 0.975,
+      "meanAbsScoreChange": 0.3084
+    },
+    {
+      "feature": "affectedPopulation",
+      "factor": 0.75,
+      "spearman": 0.9978,
+      "tierAgreement": 0.973,
+      "topDecileOverlap": 0.955,
+      "meanAbsScoreChange": 0.6086
+    },
+    {
+      "feature": "affectedPopulation",
+      "factor": 1.25,
+      "spearman": 0.9981,
+      "tierAgreement": 0.9785,
+      "topDecileOverlap": 0.975,
+      "meanAbsScoreChange": 0.5702
+    },
+    {
+      "feature": "evidence",
+      "factor": 0.75,
+      "spearman": 0.9994,
+      "tierAgreement": 0.9855,
+      "topDecileOverlap": 0.985,
+      "meanAbsScoreChange": 0.3313
+    },
+    {
+      "feature": "evidence",
+      "factor": 1.25,
+      "spearman": 0.9994,
+      "tierAgreement": 0.9885,
+      "topDecileOverlap": 0.965,
+      "meanAbsScoreChange": 0.32
+    }
+  ],
+  "leastStable": [
+    {
+      "feature": "severity",
+      "factor": 0.75,
+      "spearman": 0.9925,
+      "tierAgreement": 0.9655,
+      "topDecileOverlap": 0.925,
+      "meanAbsScoreChange": 1.1067
+    },
+    {
+      "feature": "communityImpact",
+      "factor": 0.75,
+      "spearman": 0.9926,
+      "tierAgreement": 0.9575,
+      "topDecileOverlap": 0.925,
+      "meanAbsScoreChange": 1.0718
+    },
+    {
+      "feature": "severity",
+      "factor": 1.25,
+      "spearman": 0.9943,
+      "tierAgreement": 0.959,
+      "topDecileOverlap": 0.94,
+      "meanAbsScoreChange": 0.9834
+    }
+  ]
+}

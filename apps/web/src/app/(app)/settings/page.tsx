@@ -1,20 +1,13 @@
-import type { Metadata } from 'next';
-import { PageContainer, PageHeading } from '@/components/layout/page-container';
-import { SettingsForm } from './settings-form';
-
-export const metadata: Metadata = { title: 'Settings' };
+import { redirect } from 'next/navigation';
 
 /**
- * Settings.
+ * Settings (Prompt 30).
  *
- * Renders the form components against the design system. Nothing is persisted —
- * profile updates land with the authentication milestone.
+ * The earlier settings screen was a design mock: its save button only showed a
+ * success toast and its notification switches were wired to nothing. Account
+ * details are edited on the profile page, which persists them, so this route
+ * sends people there instead of pretending to save.
  */
-export default function SettingsPage() {
-  return (
-    <PageContainer width="narrow">
-      <PageHeading title="Settings" description="Your profile and how we reach you." />
-      <SettingsForm />
-    </PageContainer>
-  );
+export default function SettingsPage(): never {
+  redirect('/profile');
 }

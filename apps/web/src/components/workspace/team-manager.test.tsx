@@ -135,7 +135,10 @@ describe('TeamManager', () => {
     await userEvent.click(await screen.findByRole('option', { name: 'Admin' }));
 
     expect(service.changeMemberRole).toHaveBeenCalledWith('org-1', 'm-member', 'ADMIN');
-    expect(await screen.findByText('Rahul Verma is now an admin')).toBeInTheDocument();
+    // Shown, and announced through the toast live region (Prompt 30).
+    expect(
+      (await screen.findAllByText('Rahul Verma is now an admin')).length,
+    ).toBeGreaterThan(0);
     expect(routerMock.refresh).toHaveBeenCalled();
   });
 
@@ -244,7 +247,10 @@ describe('TeamManager', () => {
     await userEvent.click(
       within(dialog).getByRole('button', { name: 'Send invitation' }),
     );
-    expect(await screen.findByText('Invitation sent to Kabir Rao')).toBeInTheDocument();
+    // Shown, and announced through the toast live region (Prompt 30).
+    expect(
+      (await screen.findAllByText('Invitation sent to Kabir Rao')).length,
+    ).toBeGreaterThan(0);
     expect(routerMock.refresh).toHaveBeenCalled();
   });
 

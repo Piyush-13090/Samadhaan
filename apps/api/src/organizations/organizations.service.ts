@@ -215,7 +215,7 @@ export class OrganizationsService {
     membershipRole: OrganizationMemberRole,
     user: RequestUser,
   ): Promise<OrganizationMemberSummary> {
-    await this.access.assertCanManage(organizationId, user);
+    await this.access.assertCanManageMembers(organizationId, user);
 
     const updated = await this.prisma.$transaction(async (tx) => {
       const membership = await tx.organizationMember.findFirst({
@@ -273,7 +273,7 @@ export class OrganizationsService {
     memberId: string,
     user: RequestUser,
   ): Promise<void> {
-    await this.access.assertCanManage(organizationId, user);
+    await this.access.assertCanManageMembers(organizationId, user);
 
     await this.prisma.$transaction(async (tx) => {
       const membership = await tx.organizationMember.findFirst({
@@ -327,7 +327,7 @@ export class OrganizationsService {
     input: { email: string; membershipRole: InvitableMemberRole },
     user: RequestUser,
   ): Promise<OrganizationMemberSummary> {
-    await this.access.assertCanManage(organizationId, user);
+    await this.access.assertCanManageMembers(organizationId, user);
 
     const organization = await this.prisma.organization.findFirst({
       where: { id: organizationId, deletedAt: null },

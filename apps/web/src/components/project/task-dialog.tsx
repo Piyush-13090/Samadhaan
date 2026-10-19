@@ -81,6 +81,9 @@ function TaskForm({
   );
 
   async function submit() {
+    // Enter on the hidden submit button can fire while a save is in flight;
+    // a second request would create a duplicate task (Prompt 30).
+    if (pending) return;
     if (!title.trim()) {
       setError('Give the task a title.');
       return;

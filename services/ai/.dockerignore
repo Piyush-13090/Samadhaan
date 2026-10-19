@@ -1,0 +1,13 @@
+# AI service build context (Prompt 30). Only requirements.txt and app/ are
+# copied; this keeps the context small and keeps data out of images.
+.venv
+**/__pycache__
+.pytest_cache
+.ruff_cache
+tests
+ml_data
+ml_artifacts
+evaluation
+scripts
+**/.env
+**/.env.*

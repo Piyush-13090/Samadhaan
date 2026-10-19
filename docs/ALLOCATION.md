@@ -187,12 +187,39 @@ and the phone bar.
 **Public problem page:** an *Assigned organisation · Government-assigned*
 card, and the status *In progress*.
 
+## 9a. Withdrawing accepted work
+
+The allocating office can withdraw an **accepted** allocation
+(`POST /government/:slug/allocations/:id/cancel`). This is the only way to end
+work early, and it recovers problems stuck under the old room-closure rule. It
+requires a reason of at least 10 characters, which the organisation sees.
+
+One transaction, under a row lock on the allocation, with every write
+conditional (a lost race returns `409`):
+
+1. The allocation goes from ACCEPTED to CANCELLED, with the time, the official
+   and the reason.
+2. The problem goes from IN_PROGRESS to VERIFIED. It is **never** marked
+   resolved. If it is no longer IN_PROGRESS (for example, already RESOLVED),
+   the withdrawal is refused.
+3. An unfinished project (PLANNED, ACTIVE or PAUSED) is cancelled. A project
+   that is already cancelled is left alone.
+4. An open room is closed with the reason `Allocation withdrawn: …`. A room
+   that is already closed keeps its original reason.
+
+The withdrawal is refused (`409`) while a verification request is PENDING:
+approve or reject it first.
+
+It writes the audits `ALLOCATION_CANCELLED` (`from: ACCEPTED`),
+`PROBLEM_STATUS_CHANGED` (`viaAllocationWithdrawal`) and, where they apply,
+`RESOLUTION_PROJECT_STATUS_CHANGED` and `RESOLUTION_ROOM_CLOSED`. It notifies
+through the same events as the normal transitions. The problem can then be
+allocated again through the usual workflow.
+
 ## 10. Not yet
 
 - `EXPIRED` and response deadlines.
 - Allocating to several organisations, or co-assignment.
-- Reassigning after acceptance: an accepted allocation cannot be cancelled,
-  and changing course after acceptance belongs to resolution.
 - Acceptance now also opens the resolution room in the same transaction —
   see [`RESOLUTION_ROOMS.md`](./RESOLUTION_ROOMS.md).
 - Finer government roles. Every active member of an office may allocate.

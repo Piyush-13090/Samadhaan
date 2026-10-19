@@ -29,9 +29,17 @@ Problem VERIFIED → office allocates → organisation accepts
 | `CLOSED` | Closed by the allocating office, with a reason. Read-only, and history stays readable. |
 | `ARCHIVED` | Reserved for a later retention workflow. Nothing sets it. |
 
-A room is **never closed automatically**. A later change to the problem's
-status, including resolution, does not touch it; closing on resolution
-belongs to the verification workflow.
+A room is **never closed automatically** by resolution. The office closes it
+once the work is over.
+
+**When a room may close.** The office can close a room only once its work is
+over: the problem is in a final status (RESOLVED, REJECTED, DUPLICATE or
+ARCHIVED), or the allocation is no longer ACCEPTED. `close()` checks this
+under a row lock and otherwise returns `409`; `viewer.canClose` reflects it.
+Closing a room mid-work used to leave the problem IN_PROGRESS with a read-only
+project and no way to reallocate. To end work early, the office now
+**withdraws the allocation** (see `ALLOCATION.md` §9a). That closes the room
+and returns the problem to VERIFIED.
 
 ### Creation is part of acceptance
 

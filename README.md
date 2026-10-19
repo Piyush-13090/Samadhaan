@@ -563,9 +563,37 @@ together.
 
   The load-testing toolkit is in `apps/api/scripts/perf/`. See
   [`docs/PERFORMANCE_AUDIT.md`](./docs/PERFORMANCE_AUDIT.md).
+- **ML lifecycle:** an honest capability inventory and the infrastructure a
+  trained model needs:
+  - validated, versioned, privacy-checked datasets with leakage-aware splits;
+  - evaluation metrics and a controlled training CLI (scikit-learn, JSON
+    artifacts);
+  - an admin-only model registry with separation-of-duties approval, verified
+    activation, rollback and audit;
+  - advisory, off-by-default inference and privacy-preserving monitoring.
+
+  No model has been trained on real data, because no reviewed labels exist
+  yet. See [`docs/ML_CAPABILITY_INVENTORY.md`](./docs/ML_CAPABILITY_INVENTORY.md).
 - Monorepo with npm workspaces and a shared types package; health probes;
   Docker Compose for PostgreSQL (PostGIS, pgvector, pg_trgm) and Redis
-- Tests: 485 API unit, 718 API e2e, 479 web unit, 189 AI service
+- **Testing and reliability:** CI on GitHub Actions (`.github/workflows/ci.yml`):
+  formatting, lint, types, unit and web tests, AI tests, clean-database
+  migration validation, the API e2e suite, builds, and dependency and secret
+  scans. Also an HTTP-only full civic-lifecycle journey test, and fixes for
+  the defects a four-part reliability audit confirmed. **Not yet
+  production-ready:** see [`docs/PRODUCTION_READINESS.md`](./docs/PRODUCTION_READINESS.md).
+- **Deployment (Prompt 30):**
+  - production Dockerfiles for web, API (plus a migrate job) and the AI
+    service;
+  - a production-like `docker-compose.prod.yml` with HTTPS (Caddy);
+  - an S3-compatible storage driver;
+  - startup validation of the production configuration;
+  - a Prometheus metrics endpoint;
+  - a staging smoke-test script.
+
+  **Status: not ready for production launch** — nothing has been deployed,
+  and staging is unverified. See [`docs/LAUNCH_CHECKLIST.md`](./docs/LAUNCH_CHECKLIST.md).
+- Tests: 533 API unit, 749 API e2e, 488 web unit, 234 AI service (+2 opt-in real-model)
 
 ### Not implemented
 
@@ -630,6 +658,23 @@ Details: [`docs/PRODUCT.md`](./docs/PRODUCT.md) and [`docs/ML_PLAN.md`](./docs/M
 | [`docs/PERFORMANCE_BENCHMARKS.md`](./docs/PERFORMANCE_BENCHMARKS.md) | Load-test method, environment, dataset, results, vector benchmark, bundle |
 | [`docs/CACHING_STRATEGY.md`](./docs/CACHING_STRATEGY.md) | Every cache: keys, TTLs, isolation, invalidation, rules |
 | [`docs/SCALABILITY_GUIDE.md`](./docs/SCALABILITY_GUIDE.md) | Scaling levers in order, thresholds for architectural changes |
+| [`docs/ML_CAPABILITY_INVENTORY.md`](./docs/ML_CAPABILITY_INVENTORY.md) | What each AI capability really is (hosted, pretrained, heuristic, trained), its data and oversight |
+| [`docs/ML_DATASETS.md`](./docs/ML_DATASETS.md) | Dataset format, per-task schemas, validation, splits, privacy, exports |
+| [`docs/ML_EVALUATION.md`](./docs/ML_EVALUATION.md) | Metric definitions and every measurement actually taken |
+| [`docs/ML_TRAINING.md`](./docs/ML_TRAINING.md) | Training CLI, configuration, artifacts, abstention |
+| [`docs/MODEL_REGISTRY.md`](./docs/MODEL_REGISTRY.md) | Registry tables, constraints, admin API, artifact storage |
+| [`docs/MODEL_LIFECYCLE.md`](./docs/MODEL_LIFECYCLE.md) | Approval, activation, rollback rules, advisory serving and fallbacks |
+| [`docs/MODEL_MONITORING.md`](./docs/MODEL_MONITORING.md) | Inference monitoring, drift vs accuracy, fairness safeguards |
+| [`docs/PRODUCTION_READINESS.md`](./docs/PRODUCTION_READINESS.md) | Audit findings, fixes, production blockers, remaining risks, observability |
+| [`docs/TEST_STRATEGY.md`](./docs/TEST_STRATEGY.md) | Test layers, where they run, journeys covered, commands, rules |
+| [`docs/RECOVERY_RUNBOOK.md`](./docs/RECOVERY_RUNBOOK.md) | Backup, restore, migrations, Redis/AI/DB outages, background-job recovery |
+| [`docs/RELEASE_CHECKLIST.md`](./docs/RELEASE_CHECKLIST.md) | Release gates with evidence; CI, staging and release-day steps |
+| [`docs/DEPLOYMENT_GUIDE.md`](./docs/DEPLOYMENT_GUIDE.md) | Topology, versions, hosting constraints, images, deploy order, rollback |
+| [`docs/PRODUCTION_CONFIGURATION.md`](./docs/PRODUCTION_CONFIGURATION.md) | Environments, enforced checks, secrets, database role, optional integrations |
+| [`docs/LAUNCH_CHECKLIST.md`](./docs/LAUNCH_CHECKLIST.md) | Launch status: verified vs pending, by owner |
+| [`docs/STAGING_SMOKE_TESTS.md`](./docs/STAGING_SMOKE_TESTS.md) | Smoke script, prerequisites, step-by-step results |
+| [`docs/OPERATIONS_RUNBOOK.md`](./docs/OPERATIONS_RUNBOOK.md) | Health, metrics, logs, diagnosing failures |
+| [`docs/KNOWN_LIMITATIONS.md`](./docs/KNOWN_LIMITATIONS.md) | Launch blockers, accepted risks, gaps, accessibility status |
 | [`docs/RESOLUTION_VERIFICATION.md`](./docs/RESOLUTION_VERIFICATION.md) | Resolution verification: evidence lifecycle, AI review, scoring, guard rules, government decision, audit |
 | [`docs/EVIDENCE_SECURITY.md`](./docs/EVIDENCE_SECURITY.md) | Evidence authorisation, upload validation, EXIF handling, integrity, injection, leakage |
 | [`docs/AI_PRIORITY_ENGINE.md`](./docs/AI_PRIORITY_ENGINE.md) | AI Priority Engine: features, scoring, tiers, confidence, missing data, fairness, override, recalculation |

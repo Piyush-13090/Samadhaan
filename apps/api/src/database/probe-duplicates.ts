@@ -10,7 +10,9 @@ import { AppModule } from '../app.module.js';
 import { PrismaService } from './prisma.service.js';
 import { DuplicateDetectionService } from '../problems/services/duplicate-detection.service.js';
 
-const app = await NestFactory.createApplicationContext(AppModule, { logger: ['warn', 'error'] });
+const app = await NestFactory.createApplicationContext(AppModule, {
+  logger: ['warn', 'error'],
+});
 
 const prisma = app.get(PrismaService);
 const duplicates = app.get(DuplicateDetectionService);

@@ -29,7 +29,9 @@
      Structure comes from hairlines, not shadows.
      ====================================================================== */
   --color-border: #e5e7e4; /* default hairline */
-  --color-border-strong: #d3d7d2; /* inputs, emphasised edges */
+  --color-border-strong: #d3d7d2; /* emphasised edges */
+  /* Form-control edges must reach 3:1 (WCAG 1.4.11): ≥3.08:1 on every surface. */
+  --color-border-control: #878d96;
   --color-border-subtle: #eff1ed; /* barely-there dividers inside cards */
 
   /* ======================================================================
@@ -38,7 +40,8 @@
      ====================================================================== */
   --color-ink: #171a1f; /* headings, primary content */
   --color-ink-muted: #626872; /* secondary text, descriptions */
-  --color-ink-subtle: #8a9099; /* captions, metadata, placeholders */
+  /* Prompt 30: was #8a9099 (2.96–3.22:1); now ≥4.73:1 on canvas, subtle and surface. */
+  --color-ink-subtle: #686e78; /* captions, metadata, placeholders */
   --color-ink-inverse: #ffffff; /* text on a filled accent */
 
   /* ======================================================================
@@ -48,13 +51,16 @@
      reliably means "Samadhaan AI produced this".
      ====================================================================== */
   --color-primary: #2563eb;
+  /* Focus rings (`ring-focus`) — was undefined, falling back to currentColor. */
+  --color-focus: #2563eb;
   --color-primary-hover: #1d4ed8;
   --color-primary-active: #1e40af;
   --color-primary-soft: #eff4ff; /* tinted background, selected nav item */
   --color-primary-border: #c7dafe;
 
-  --color-ai: #0d9488; /* teal — AI insights only */
-  --color-ai-hover: #0f766e;
+  /* Prompt 30: was #0d9488 (3.45–3.74:1, failing for the 11px AI badge); now ≥5.05:1. */
+  --color-ai: #0f766e; /* teal — AI insights only */
+  --color-ai-hover: #115e59;
   --color-ai-soft: #f0fdfa;
   --color-ai-border: #b8e6e0;
 

@@ -132,7 +132,10 @@ export class ResolutionRoomsService {
         userId: user.id,
         side: context.side,
         canPost: room.status === 'OPEN',
-        canClose: context.side === 'GOVERNMENT' && room.status === 'OPEN',
+        canClose:
+          context.side === 'GOVERNMENT' &&
+          room.status === 'OPEN' &&
+          roomWorkIsOver(problem.status, allocation.status),
         homePath:
           context.side === 'GOVERNMENT'
             ? `/government/${room.governmentOrganization.slug}/problems/${problem.publicId}#allocation`
@@ -146,7 +149,18 @@ export class ResolutionRoomsService {
   /** Rooms the caller participates in, through any of their memberships. */
   async mine(user: RequestUser): Promise<ResolutionRoomSummary[]> {
     const memberships = await this.prisma.organizationMember.findMany({
-      where: { userId: user.id, status: 'ACTIVE', organization: { deletedAt: null } },
+      // Operational organisations only (Prompt 29): a suspended or
+      // deactivated organisation's members could not enter these rooms, so
+      // the list must not show them either.
+      where: {
+        userId: user.id,
+        status: 'ACTIVE',
+        organization: {
+          deletedAt: null,
+          isActive: true,
+          verificationStatus: { not: 'SUSPENDED' },
+        },
+      },
       select: { organizationId: true, organization: { select: { type: true } } },
     });
     const officeIds =
@@ -274,6 +288,32 @@ export class ResolutionRoomsService {
     }
     const closedAt = new Date();
     await this.prisma.$transaction(async (tx) => {
+      // Prompt 30: a room may close only when its work is over — the problem
+      // reached a final status, or the allocation is no longer active. Closing
+      // it mid-work left the problem IN_PROGRESS with no path to resolution
+      // (the project turns read-only, so neither evidence nor verification is
+      // possible). Ending active work is the allocation withdrawal, which
+      // returns the problem for reallocation. Read under a row lock, so a
+      // concurrent withdrawal or approval is seen.
+      const [state] = await tx.$queryRaw<
+        Array<{ room: string; problem: string; allocation: string }>
+      >`
+        SELECT r.status::text AS room, p.status::text AS problem, a.status::text AS allocation
+        FROM resolution_rooms r
+        JOIN problems p ON p.id = r."problemId"
+        JOIN problem_allocations a ON a.id = r."allocationId"
+        WHERE r.id = ${context.room.id}::uuid
+        FOR UPDATE OF r
+      `;
+      if (
+        state &&
+        state.room === 'OPEN' &&
+        !roomWorkIsOver(state.problem, state.allocation)
+      ) {
+        throw AppException.conflict(
+          'This problem is still being worked on. Approve the resolution first, or withdraw the allocation to end the work and reallocate the problem.',
+        );
+      }
       const { count } = await tx.resolutionRoom.updateMany({
         where: { id: context.room.id, status: 'OPEN' },
         data: { status: 'CLOSED', closedAt, closedById: user.id, closeReason: reason },
@@ -812,4 +852,18 @@ function toActivityEntry(
     reason: event.type === 'ROOM_CLOSED' ? text('reason') : null,
     createdAt: event.createdAt.toISOString(),
   };
+}
+
+/** Problem statuses after which a room's work is over (Prompt 30). */
+const FINAL_PROBLEM_STATUSES = ['RESOLVED', 'REJECTED', 'DUPLICATE', 'ARCHIVED'];
+
+/**
+ * Whether a room may be closed: its problem reached a final status, or its
+ * allocation is no longer the active one (withdrawn, so the problem is
+ * available for reallocation). Shared by `close` and the view's `canClose`.
+ */
+export function roomWorkIsOver(problemStatus: string, allocationStatus: string): boolean {
+  return (
+    FINAL_PROBLEM_STATUSES.includes(problemStatus) || allocationStatus !== 'ACCEPTED'
+  );
 }

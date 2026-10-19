@@ -6,6 +6,8 @@ import { buildErrorResponse } from './common/api-response.js';
 import { getRequestId } from './common/request-context.js';
 import { createValidationPipe } from './common/validation.pipe.js';
 import { csrfOriginCheck, securityHeaders } from './common/security/http-security.js';
+import { httpMetrics } from './metrics/http-metrics.middleware.js';
+import { MetricsService } from './metrics/metrics.service.js';
 import { AppConfig } from './config/app.config.js';
 
 /**
@@ -20,9 +22,15 @@ export function configureApp(app: INestApplication): void {
   // tries to read one.
   app.use(cookieParser());
 
+  // Request latency and status by route template (Prompt 30), recorded for
+  // every request including refused ones.
+  app.use(httpMetrics(app.get(MetricsService)));
+
   // Security headers and the CSRF origin check (Prompt 26), before any route.
   const config = app.get(AppConfig);
-  const express = app.getHttpAdapter().getInstance() as { disable: (name: string) => void };
+  const express = app.getHttpAdapter().getInstance() as {
+    disable: (name: string) => void;
+  };
   express.disable('x-powered-by');
   app.use(securityHeaders({ production: config.isProduction }));
   app.use(csrfOriginCheck(config.corsOrigins));

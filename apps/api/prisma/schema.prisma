@@ -134,6 +134,12 @@ model User {
   projectUpdates        ProjectUpdate[]
   notifications         Notification[]
 
+  // Model registry (Prompt 28). Administrative actions only.
+  mlModelsRegistered ModelVersion[] @relation("ModelRegisteredBy")
+  mlModelsEvaluated  ModelVersion[] @relation("ModelEvaluatedBy")
+  mlModelsApproved   ModelVersion[] @relation("ModelApprovedBy")
+  mlActivations      ActiveModel[]  @relation("ModelActivatedBy")
+
   createdAt DateTime  @default(now()) @db.Timestamptz(3)
   updatedAt DateTime  @updatedAt @db.Timestamptz(3)
   /// Soft delete. Every query filters on `deletedAt: null` so a removed account
@@ -2608,4 +2614,153 @@ model UserBadge {
   @@unique([userId, badgeKey])
   @@index([badgeKey])
   @@map("user_badges")
+}
+
+// ===========================================================================
+// MODEL REGISTRY (Prompt 28)
+// ===========================================================================
+//
+// Locally trained models: what was trained, on which data, how it measured,
+// who approved it, and which version (if any) serves each task. Artifacts live
+// in the AI service's artifact directory, never in this database; a row holds
+// the artifact's location and sha256. See docs/MODEL_REGISTRY.md and
+// docs/MODEL_LIFECYCLE.md.
+
+/// Tasks a locally trained model may serve. Mirrors services/ai/app/models/tasks.py.
+enum ModelTask {
+  PROBLEM_CATEGORY
+  PROBLEM_SEVERITY
+  PROBLEM_URGENCY
+  DUPLICATE_PAIR
+}
+
+enum ModelStatus {
+  /// Registered from a training run; nothing checked yet.
+  EXPERIMENTAL
+  /// Held-out evaluation recorded against a named evaluation dataset.
+  EVALUATED
+  /// An administrator other than the registrant approved it for activation.
+  APPROVED
+  /// Serving its task. At most one per task (enforced by `ActiveModel`).
+  ACTIVE
+  /// Withdrawn; can never be activated again.
+  RETIRED
+}
+
+model ModelVersion {
+  id String @id @default(uuid()) @db.Uuid
+
+  task    ModelTask
+  version String
+  status  ModelStatus @default(EXPERIMENTAL)
+
+  modelFormat          String
+  /// `<task>/<version>` under ML_ARTIFACT_DIR. Never a client-chosen path.
+  artifactUri          String
+  artifactSha256       String @db.Char(64)
+  featureSchemaVersion String
+  labelSchemaVersion   String
+
+  datasetName        String
+  datasetVersion     String
+  datasetFingerprint String
+  /// Trained on synthetic data: can be registered (pipeline testing) but never
+  /// evaluated for promotion, approved or activated.
+  syntheticData      Boolean
+
+  trainingConfig  Json     @db.JsonB
+  codeRevision    String?
+  trainedAt       DateTime @db.Timestamptz(3)
+  /// The training run's own measurements (validation selection, held-out test,
+  /// baselines, slices, reference distribution), exactly as the run wrote them.
+  trainingMetrics Json     @db.JsonB
+
+  evaluationDatasetVersion String?
+  evaluationMetrics        Json?     @db.JsonB
+  evaluatedAt              DateTime? @db.Timestamptz(3)
+  evaluatedById            String?   @db.Uuid
+  evaluatedBy              User?     @relation("ModelEvaluatedBy", fields: [evaluatedById], references: [id], onDelete: Restrict)
+
+  registeredById String @db.Uuid
+  registeredBy   User   @relation("ModelRegisteredBy", fields: [registeredById], references: [id], onDelete: Restrict)
+
+  approvedById String?   @db.Uuid
+  approvedBy   User?     @relation("ModelApprovedBy", fields: [approvedById], references: [id], onDelete: Restrict)
+  approvedAt   DateTime? @db.Timestamptz(3)
+  approvalNote String?
+
+  activatedAt DateTime? @db.Timestamptz(3)
+  retiredAt   DateTime? @db.Timestamptz(3)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  activeFor   ActiveModel[]    @relation("ActiveModelCurrent")
+  previousFor ActiveModel[]    @relation("ActiveModelPrevious")
+  inferences  ModelInference[]
+
+  @@unique([task, version])
+  @@index([task, status])
+  @@map("model_versions")
+}
+
+/// Which version serves each task. One row per task; `modelVersionId` null
+/// means the task is switched off and the existing provider path is used.
+/// `previousModelVersionId` is the rollback target.
+model ActiveModel {
+  task ModelTask @id
+
+  modelVersionId String?       @unique @db.Uuid
+  modelVersion   ModelVersion? @relation("ActiveModelCurrent", fields: [modelVersionId], references: [id], onDelete: Restrict)
+
+  previousModelVersionId String?       @db.Uuid
+  previousModelVersion   ModelVersion? @relation("ActiveModelPrevious", fields: [previousModelVersionId], references: [id], onDelete: Restrict)
+
+  activatedById String   @db.Uuid
+  activatedBy   User     @relation("ModelActivatedBy", fields: [activatedById], references: [id], onDelete: Restrict)
+  activatedAt   DateTime @db.Timestamptz(3)
+  reason        String
+
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  @@map("active_models")
+}
+
+enum ModelInferenceOutcome {
+  OK
+  /// The model declined: low confidence, out-of-vocabulary or too little text.
+  ABSTAINED
+  /// The input did not match the task schema.
+  INPUT_SCHEMA
+  /// The artifact was missing, corrupt or incompatible.
+  ARTIFACT_ERROR
+  TIMEOUT
+  ERROR
+}
+
+/// One inference by a registry model, for monitoring. Deliberately holds no
+/// input text, no problem or user id and no free text: task, version, outcome,
+/// latency, the predicted label and confidence, a missing-feature count and a
+/// coarse input-length bucket. Pruned after ML_MONITORING_RETENTION_DAYS.
+model ModelInference {
+  id String @id @default(uuid()) @db.Uuid
+
+  task           ModelTask
+  modelVersionId String?       @db.Uuid
+  modelVersion   ModelVersion? @relation(fields: [modelVersionId], references: [id], onDelete: SetNull)
+
+  outcome         ModelInferenceOutcome
+  latencyMs       Int?
+  predictedLabel  String?
+  confidence      Decimal?              @db.Decimal(5, 4)
+  abstainReason   String?
+  missingFeatures Int                   @default(0)
+  inputLength     String?
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([task, createdAt])
+  @@index([modelVersionId, createdAt])
+  @@index([createdAt])
+  @@map("model_inferences")
 }

@@ -6,7 +6,7 @@ import { useFieldControl } from './field';
 
 /** Shared control chrome, so Input, Textarea and Select are visually identical. */
 export const controlBaseClasses = [
-  'w-full rounded-control border border-border-strong bg-surface text-ink',
+  'w-full rounded-control border border-border-control bg-surface text-ink',
   'transition-[border-color,box-shadow] duration-fast ease-standard',
   'placeholder:text-ink-subtle',
   'hover:border-ink-subtle',

@@ -150,9 +150,18 @@ export class OrganizationAccessService {
     if (!user) return none;
 
     if (user.role === 'ADMIN') {
+      // Prompt 29: a platform ADMIN never staffs a government office. Its
+      // members carry jurisdiction — review, internal notes, allocation and
+      // verification — so letting an admin invite or promote members there
+      // would be an indirect way of granting government privileges, which
+      // admins deliberately do not have (government-access.service.ts).
+      const target = await this.prisma.organization.findFirst({
+        where: { id: organizationId },
+        select: { type: true },
+      });
       return {
         canEdit: true,
-        canManageMembers: true,
+        canManageMembers: target?.type !== 'GOVERNMENT',
         canManageExpertise: true,
         // Verification is an administrative capability, but it is not part of
         // this milestone — no endpoint honours it yet.
@@ -198,6 +207,18 @@ export class OrganizationAccessService {
     const permissions = await this.permissionsFor(organizationId, user);
 
     if (!permissions.canEdit) {
+      throw AppException.forbidden('You do not have access to this organisation');
+    }
+  }
+
+  /**
+   * Requires authority over the organisation's *people*: inviting, changing
+   * roles, removing. Stricter than `assertCanManage` for platform ADMINs, who
+   * may not manage a government office's members (Prompt 29).
+   */
+  async assertCanManageMembers(organizationId: string, user: RequestUser): Promise<void> {
+    const permissions = await this.permissionsFor(organizationId, user);
+    if (!permissions.canManageMembers) {
       throw AppException.forbidden('You do not have access to this organisation');
     }
   }

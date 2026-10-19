@@ -205,6 +205,7 @@ class TestProviderFactory:
             build_provider(
                 Settings(
                     NODE_ENV="production",
+                    AI_LOG_LEVEL="info",
                     LLM_PROVIDER="development",
                     AI_INTERNAL_TOKEN="t" * 40,
                 )

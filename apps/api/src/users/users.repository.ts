@@ -156,7 +156,12 @@ export class UsersRepository {
       problemsResolved,
       stats,
     ] = await this.prisma.$transaction([
-      this.prisma.problem.count({ where: { reporterId: userId, deletedAt: null } }),
+      // Drafts are unpublished, so they are not civic activity — and counting
+      // them on a public profile disclosed that unpublished reports exist
+      // (Prompt 29).
+      this.prisma.problem.count({
+        where: { reporterId: userId, deletedAt: null, status: { not: 'DRAFT' } },
+      }),
       this.prisma.problemVote.count({ where: { userId } }),
       this.prisma.problemFollow.count({ where: { userId } }),
       this.prisma.problemComment.count({ where: { userId, deletedAt: null } }),

@@ -1,4 +1,9 @@
-import type { OrganizationMemberRole, ProblemCategory, ProblemSeverity, ProblemStatus } from './problem.js';
+import type {
+  OrganizationMemberRole,
+  ProblemCategory,
+  ProblemSeverity,
+  ProblemStatus,
+} from './problem.js';
 import type { WorkspaceOrganizationType } from './workspace.js';
 
 /**
@@ -99,7 +104,12 @@ export interface ResolutionRoomView {
 export interface ResolutionRoomSummary {
   id: string;
   status: ResolutionRoomStatus;
-  problem: { publicId: string; title: string; status: ProblemStatus; severity: ProblemSeverity };
+  problem: {
+    publicId: string;
+    title: string;
+    status: ProblemStatus;
+    severity: ProblemSeverity;
+  };
   government: { name: string };
   organization: { name: string };
   side: ResolutionParticipantSide;

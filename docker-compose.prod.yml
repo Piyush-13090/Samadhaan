@@ -1,0 +1,178 @@
+# Production-like local stack (Prompt 30). Everything in containers, HTTPS on
+# https://localhost, NODE_ENV=production, so the production configuration
+# checks apply exactly as they would in a deployment.
+#
+#   cp .env.production.example .env.production    # then fill in real values
+#   docker compose -f docker-compose.prod.yml --env-file .env.production up -d --build
+#
+# Not a deployment: one host, local-disk storage (STORAGE_ALLOW_LOCAL_IN_PRODUCTION
+# must be set explicitly for that), no backups. See docs/DEPLOYMENT_GUIDE.md.
+
+name: samadhaan-prod
+
+x-api-env: &api-env
+  NODE_ENV: production
+  DATABASE_URL: postgresql://${POSTGRES_USER:-samadhaan}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-samadhaan}
+  REDIS_URL: redis://:${REDIS_PASSWORD:?set REDIS_PASSWORD}@redis:6379
+  AI_SERVICE_URL: http://ai:8001
+  AI_SERVICE_TOKEN: ${AI_SERVICE_TOKEN:?set AI_SERVICE_TOKEN}
+  JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:?set JWT_ACCESS_SECRET}
+  AUTH_COOKIE_SECURE: 'true'
+  CORS_ORIGINS: ${PUBLIC_WEB_URL:-https://localhost}
+  PUBLIC_API_URL: ${PUBLIC_WEB_URL:-https://localhost}
+  LOG_LEVEL: ${LOG_LEVEL:-info}
+  STORAGE_PROVIDER: ${STORAGE_PROVIDER:-local}
+  STORAGE_ALLOW_LOCAL_IN_PRODUCTION: ${STORAGE_ALLOW_LOCAL_IN_PRODUCTION:-false}
+  STORAGE_LOCAL_ROOT: /app/apps/api/.storage
+  STORAGE_BUCKET: ${STORAGE_BUCKET:-}
+  STORAGE_REGION: ${STORAGE_REGION:-}
+  STORAGE_ACCESS_KEY_ID: ${STORAGE_ACCESS_KEY_ID:-}
+  STORAGE_SECRET_ACCESS_KEY: ${STORAGE_SECRET_ACCESS_KEY:-}
+  STORAGE_ENDPOINT: ${STORAGE_ENDPOINT:-}
+  METRICS_TOKEN: ${METRICS_TOKEN:-}
+  DATABASE_POOL_MAX: ${DATABASE_POOL_MAX:-10}
+  DATABASE_STATEMENT_TIMEOUT_MS: ${DATABASE_STATEMENT_TIMEOUT_MS:-30000}
+  ML_INFERENCE_ENABLED: 'false'
+
+services:
+  postgres:
+    build:
+      context: ./infrastructure/docker
+      dockerfile: postgres.Dockerfile
+    image: samadhaan/postgres:16-postgis-pgvector
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-samadhaan}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-samadhaan}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./infrastructure/database/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    healthcheck:
+      test:
+        [
+          'CMD-SHELL',
+          'pg_isready -U ${POSTGRES_USER:-samadhaan} -d ${POSTGRES_DB:-samadhaan}',
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    # Internal network only: no ports published.
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command:
+      [
+        'redis-server',
+        '--appendonly',
+        'yes',
+        '--requirepass',
+        '${REDIS_PASSWORD:?set REDIS_PASSWORD}',
+      ]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test:
+        [
+          'CMD-SHELL',
+          'redis-cli -a "$${REDIS_PASSWORD}" --no-auth-warning ping | grep PONG',
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?set REDIS_PASSWORD}
+
+  # One-off release job: applies migrations and post-migrate.sql, then exits.
+  # The API only starts after it succeeded (never migrates on its own start).
+  migrate:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/api.Dockerfile
+      target: migrate
+    image: samadhaan/api-migrate:local
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-samadhaan}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-samadhaan}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: 'no'
+
+  ai:
+    build:
+      context: ./services/ai
+      dockerfile: ../../infrastructure/docker/ai.Dockerfile
+    image: samadhaan/ai:local
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      AI_INTERNAL_TOKEN: ${AI_SERVICE_TOKEN:?set AI_SERVICE_TOKEN}
+      AI_LOG_LEVEL: info
+      LLM_PROVIDER: ${LLM_PROVIDER:-anthropic}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_MODEL: ${LLM_MODEL:-}
+    volumes:
+      - ml-artifacts:/srv/ml_artifacts:ro
+    deploy:
+      resources:
+        limits:
+          memory: 2g
+
+  api:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/api.Dockerfile
+    image: samadhaan/api:local
+    restart: unless-stopped
+    environment: *api-env
+    volumes:
+      - api-storage:/app/apps/api/.storage
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      ai:
+        condition: service_started
+    deploy:
+      resources:
+        limits:
+          memory: 1g
+
+  web:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/web.Dockerfile
+      args:
+        API_INTERNAL_URL: http://api:4000
+        NEXT_PUBLIC_API_URL: ''
+    image: samadhaan/web:local
+    restart: unless-stopped
+    depends_on:
+      - api
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - '443:443'
+      - '80:80'
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS:-localhost}
+    volumes:
+      - ./infrastructure/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+    depends_on:
+      - web
+
+volumes:
+  postgres-data:
+  redis-data:
+  api-storage:
+  ml-artifacts:
+  caddy-data:

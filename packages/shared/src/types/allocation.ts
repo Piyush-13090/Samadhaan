@@ -38,7 +38,10 @@ export const ALLOCATION_TRANSITIONS: Readonly<
   PENDING: ['ACCEPTED', 'DECLINED', 'CANCELLED'],
 };
 
-export function canTransitionAllocation(from: AllocationStatus, to: AllocationStatus): boolean {
+export function canTransitionAllocation(
+  from: AllocationStatus,
+  to: AllocationStatus,
+): boolean {
   return (ALLOCATION_TRANSITIONS[from] ?? []).includes(to);
 }
 
@@ -46,16 +49,16 @@ export function canTransitionAllocation(from: AllocationStatus, to: AllocationSt
 export const ACTIVE_ALLOCATION_STATUSES = ['PENDING', 'ACCEPTED'] as const;
 
 /** Membership roles that may accept or decline for an organisation. */
-export const ALLOCATION_RESPONDER_ROLES = ['OWNER', 'ADMIN'] as const satisfies readonly OrganizationMemberRole[];
+export const ALLOCATION_RESPONDER_ROLES = [
+  'OWNER',
+  'ADMIN',
+] as const satisfies readonly OrganizationMemberRole[];
 
 export const ALLOCATION_NOTE_MAX_LENGTH = 1000;
 
 /** Why an organisation cannot be selected. */
 export type AllocationIneligibility =
-  | 'NOT_VERIFIED'
-  | 'SUSPENDED'
-  | 'REJECTED'
-  | 'INACTIVE';
+  'NOT_VERIFIED' | 'SUSPENDED' | 'REJECTED' | 'INACTIVE';
 
 // ---------------------------------------------------------------------------
 // Government side
@@ -210,4 +213,3 @@ export interface ProblemAssignment {
   /** Share of the project's tasks completed, 0–100 (Prompt 22). Null before any task. */
   progress?: number | null;
 }
-

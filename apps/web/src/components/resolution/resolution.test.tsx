@@ -391,6 +391,21 @@ describe('ResolutionRoom', () => {
     );
   });
 
+  it('explains to the office why it cannot close the room while work is active', () => {
+    render(
+      <ResolutionRoom
+        initial={roomView({
+          viewer: { ...roomView().viewer, side: 'GOVERNMENT', canClose: false },
+        })}
+      />,
+    );
+    expect(screen.queryByRole('button', { name: 'Close room' })).not.toBeInTheDocument();
+    expect(
+      screen.getByText(/can be closed once the resolution is approved/),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'problem page' })).toBeInTheDocument();
+  });
+
   it('offers no close control to the organisation', () => {
     render(<ResolutionRoom initial={roomView()} />);
     expect(screen.queryByRole('button', { name: 'Close room' })).not.toBeInTheDocument();

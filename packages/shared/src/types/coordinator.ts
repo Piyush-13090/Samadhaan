@@ -14,7 +14,12 @@ import type { ResolutionParticipantSide } from './resolution.js';
  * separate system.
  */
 
-export const PROJECT_HEALTH_LEVELS = ['HEALTHY', 'NEEDS_ATTENTION', 'AT_RISK', 'BLOCKED'] as const;
+export const PROJECT_HEALTH_LEVELS = [
+  'HEALTHY',
+  'NEEDS_ATTENTION',
+  'AT_RISK',
+  'BLOCKED',
+] as const;
 export type ProjectHealth = (typeof PROJECT_HEALTH_LEVELS)[number];
 
 export const RISK_TYPES = [
@@ -55,7 +60,15 @@ export type CoordinatorSignalCode =
 
 /** Something a finding rests on, resolved to a label and a link. */
 export interface SourceReference {
-  kind: 'task' | 'milestone' | 'message' | 'event' | 'update' | 'question' | 'signal' | 'knowledge';
+  kind:
+    | 'task'
+    | 'milestone'
+    | 'message'
+    | 'event'
+    | 'update'
+    | 'question'
+    | 'signal'
+    | 'knowledge';
   id: string;
   label: string;
   href: string | null;

@@ -12,7 +12,7 @@ export function Radio({
   return (
     <RadioGroupPrimitive.Item
       className={cn(
-        'size-4.5 shrink-0 rounded-full border border-border-strong bg-surface',
+        'size-4.5 shrink-0 rounded-full border border-border-control bg-surface',
         'transition-colors duration-fast ease-standard',
         'hover:border-ink-subtle',
         'data-[state=checked]:border-primary data-[state=checked]:border-[5px]',

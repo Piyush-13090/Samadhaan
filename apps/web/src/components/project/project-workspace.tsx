@@ -115,11 +115,15 @@ export function ProjectWorkspace({ initial }: { initial: ProjectView }) {
         .catch(() => setTaskError(true)),
     [id, query],
   );
+  const [milestonesFailed, setMilestonesFailed] = useState(false);
   const loadMilestones = useCallback(
     () =>
       fetchMilestones(id)
-        .then(setMilestones)
-        .catch(() => undefined),
+        .then((list) => {
+          setMilestones(list);
+          setMilestonesFailed(false);
+        })
+        .catch(() => setMilestonesFailed(true)),
     [id],
   );
   const loadActivity = useCallback(
@@ -490,6 +494,8 @@ export function ProjectWorkspace({ initial }: { initial: ProjectView }) {
           >
             <MilestoneList
               milestones={milestones}
+              loadFailed={milestonesFailed}
+              onRetry={() => void loadMilestones()}
               canManage={permissions.canManage && permissions.isEditable}
               minDate={project.startDate}
               onCreate={async (input) => {

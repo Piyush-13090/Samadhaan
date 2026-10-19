@@ -1,0 +1,235 @@
+# Samadhaan CI (Prompt 29). Release gates for every push and pull request.
+#
+# No repository secrets are used: every credential below is generated per run
+# or is a throwaway value for disposable CI containers, so pull requests from
+# forks run the same pipeline. See docs/TEST_STRATEGY.md for what each job
+# covers and docs/RELEASE_CHECKLIST.md for how results gate a release.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: '22'
+  PYTHON_VERSION: '3.12'
+  # CPU-only torch wheels: the CUDA build is several GB and unused here.
+  PIP_EXTRA_INDEX_URL: https://download.pytorch.org/whl/cpu
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Formatting, lint, types, unit tests and production builds (TypeScript).
+  # ---------------------------------------------------------------------------
+  node-quality:
+    name: Node — format, lint, typecheck, unit tests, build
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      # Placeholder for code generation only: Prisma's config requires a URL,
+      # but nothing in this job connects to a database.
+      DATABASE_URL: postgresql://ci:ci@localhost:5432/unused
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - name: Install (lockfile must match package.json)
+        run: npm ci
+      - name: Prisma client
+        run: npm run db:generate
+      - name: Shared package
+        run: npm run build --workspace @samadhaan/shared
+      - name: Formatting
+        run: npm run format:check
+      - name: Lint (API, web)
+        run: |
+          npm run lint --workspace @samadhaan/api
+          npm run lint --workspace @samadhaan/web
+      # Builds before the typecheck: Next.js generates the route types the web
+      # typecheck reads.
+      - name: Production builds
+        run: |
+          npm run build --workspace @samadhaan/api
+          npm run build --workspace @samadhaan/web
+      - name: Typecheck
+        run: npm run typecheck
+      - name: API unit tests
+        run: npm run test --workspace @samadhaan/api
+      - name: Web tests
+        run: npm run test --workspace @samadhaan/web
+
+  # ---------------------------------------------------------------------------
+  # Python AI service: lint, format, tests (fake providers; no downloads).
+  # ---------------------------------------------------------------------------
+  ai-service:
+    name: AI service — ruff, pytest
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: services/ai
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: services/ai/requirements*.txt
+      - name: Install
+        run: pip install -r requirements-dev.txt
+      - name: Ruff lint
+        run: ruff check .
+      - name: Ruff format
+        run: ruff format --check .
+      - name: Tests
+        run: pytest -q
+
+  # ---------------------------------------------------------------------------
+  # Clean-database migration validation, then the API end-to-end suite against
+  # real PostgreSQL (PostGIS + pgvector), Redis and the AI service.
+  # ---------------------------------------------------------------------------
+  database-and-e2e:
+    name: Migrations + API e2e
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      POSTGRES_PASSWORD: ci_only_password
+      DATABASE_URL: postgresql://samadhaan:ci_only_password@localhost:5432/samadhaan?schema=public
+      REDIS_URL: redis://localhost:6379
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: services/ai/requirements*.txt
+      - name: Start PostgreSQL and Redis (documented docker-compose setup)
+        run: docker compose up -d --wait
+      - name: Install
+        run: |
+          npm ci
+          pip install -r services/ai/requirements.txt
+      - name: Environment file (generated, no secrets)
+        run: |
+          cp .env.example .env
+          {
+            echo "NODE_ENV=development"
+            echo "DATABASE_URL=$DATABASE_URL"
+            echo "REDIS_URL=$REDIS_URL"
+            echo "JWT_ACCESS_SECRET=$(openssl rand -base64 48 | tr -d '\n')"
+            echo "ALLOW_DEV_SEED=true"
+            echo "LLM_PROVIDER=development"
+            echo "AI_SERVICE_URL=http://localhost:8001"
+          } >> .env
+      - name: Build shared package and Prisma client
+        run: |
+          npm run build --workspace @samadhaan/shared
+          npm run db:generate
+      - name: Migration validation (clean database, idempotency, drift, indexes)
+        env:
+          CHECK_DATABASE_URL: postgresql://samadhaan:ci_only_password@localhost:5432/samadhaan_migration_check
+        run: apps/api/scripts/ci/check-migrations.sh
+        working-directory: .
+      - name: Migrate and seed the e2e database
+        run: |
+          npm run db:migrate:deploy --workspace @samadhaan/api
+          npm run db:seed
+      - name: Cache embedding model
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: hf-all-MiniLM-L6-v2
+      - name: Start AI service (development LLM provider, real embeddings)
+        working-directory: services/ai
+        run: |
+          nohup python -m uvicorn app.main:app --host 127.0.0.1 --port 8001 > ../../ai-service.log 2>&1 &
+          for i in $(seq 1 90); do
+            curl -sf http://127.0.0.1:8001/health/live >/dev/null && exit 0
+            sleep 2
+          done
+          cat ../../ai-service.log; exit 1
+      - name: API end-to-end tests
+        run: npm run test:e2e
+      - name: AI service log (on failure)
+        if: failure()
+        run: tail -200 ai-service.log || true
+
+  # ---------------------------------------------------------------------------
+  # Dependency and secret scanning.
+  # ---------------------------------------------------------------------------
+  security:
+    name: Dependency and secret scanning
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: npm audit (production dependencies, high and critical)
+        run: npm audit --omit=dev --audit-level=high
+      - name: pip-audit (AI service runtime dependencies)
+        run: |
+          pip install pip-audit
+          pip-audit -r services/ai/requirements.txt
+      - name: Secret scan (gitleaks, full history)
+        run: |
+          docker run --rm -v "$PWD:/repo" ghcr.io/gitleaks/gitleaks:v8.24.3 \
+            detect --source /repo --redact --no-banner --exit-code 1
+
+  # ---------------------------------------------------------------------------
+  # Production images build, and the production-like compose file is valid
+  # (Prompt 30). Images are built, never pushed.
+  # ---------------------------------------------------------------------------
+  docker-images:
+    name: Docker images and production compose
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: API runtime image
+        run: docker buildx build --load -f infrastructure/docker/api.Dockerfile -t samadhaan/api:ci .
+      - name: API migrate image
+        run: docker buildx build --load -f infrastructure/docker/api.Dockerfile --target migrate -t samadhaan/api-migrate:ci .
+      - name: Web image
+        run: docker buildx build --load -f infrastructure/docker/web.Dockerfile --build-arg API_INTERNAL_URL=http://api:4000 -t samadhaan/web:ci .
+      - name: AI service image (model not preloaded in CI)
+        run: docker buildx build --load -f infrastructure/docker/ai.Dockerfile --build-arg PRELOAD_EMBEDDING_MODEL=false -t samadhaan/ai:ci services/ai
+      - name: Images run as non-root and contain no .env files
+        run: |
+          for image in samadhaan/api:ci samadhaan/web:ci samadhaan/ai:ci; do
+            user=$(docker run --rm --entrypoint sh "$image" -c 'id -u')
+            [ "$user" != "0" ] || { echo "$image runs as root"; exit 1; }
+            if docker run --rm --entrypoint sh "$image" -c 'find / -name ".env" -not -path "/proc/*" 2>/dev/null | grep -q .'; then
+              echo "$image contains a .env file"; exit 1
+            fi
+          done
+      - name: Production compose file is valid
+        run: |
+          sed -e 's/^POSTGRES_PASSWORD=$/POSTGRES_PASSWORD=ci-only/' \
+              -e 's/^REDIS_PASSWORD=$/REDIS_PASSWORD=ci-only/' \
+              -e "s/^JWT_ACCESS_SECRET=$/JWT_ACCESS_SECRET=$(openssl rand -hex 32)/" \
+              -e "s/^AI_SERVICE_TOKEN=$/AI_SERVICE_TOKEN=$(openssl rand -hex 32)/" \
+              .env.production.example > .env.production
+          docker compose -f docker-compose.prod.yml --env-file .env.production config --quiet

@@ -193,7 +193,9 @@ describe('NearbyProblems', () => {
 
       render(<NearbyProblems profileCity="Gurugram" />);
 
-      expect(await screen.findByText(/Couldn't load nearby problems/)).toBeInTheDocument();
+      expect(
+        await screen.findByText(/Couldn't load nearby problems/),
+      ).toBeInTheDocument();
 
       fetchNearbyProblems.mockResolvedValue(feed());
       await user.click(screen.getByRole('button', { name: /Try again/i }));

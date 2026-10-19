@@ -35,7 +35,8 @@ Resolution project (ACTIVE)
 ```
 
 The allocation stays **ACCEPTED**, its final state; the allocation lifecycle
-has no later state. The resolution room stays open until the office closes it.
+has no later state. The resolution room stays open until the office closes it,
+which it may do once the problem is resolved.
 
 **Organisations can no longer complete a project themselves.** From this
 milestone, `POST /resolution-projects/:id/status { COMPLETED }` returns 409:

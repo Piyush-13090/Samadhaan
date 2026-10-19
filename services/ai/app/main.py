@@ -24,7 +24,9 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from app.api.router import api_router
 from app.core.config import get_settings
 from app.core.constants import REQUEST_ID_HEADER, SERVICE_NAME, SERVICE_VERSION
+from app.core.deadline import DEADLINE_HEADER, set_deadline_from_header
 from app.core.logging import configure_logging, get_logger
+from app.providers.factory import close_providers
 from app.schemas.common import ErrorResponse
 
 settings = get_settings()
@@ -48,6 +50,7 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     )
     yield
     logger.info("ai_service_stopping")
+    await close_providers()
 
 
 app = FastAPI(
@@ -103,6 +106,8 @@ async def request_context(
 
     structlog.contextvars.clear_contextvars()
     structlog.contextvars.bind_contextvars(request_id=request_id)
+    # How long the caller will wait (Prompt 29): provider calls stop before it.
+    set_deadline_from_header(request.headers.get(DEADLINE_HEADER))
 
     response = await call_next(request)
     response.headers[REQUEST_ID_HEADER] = request_id
