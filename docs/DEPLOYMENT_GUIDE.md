@@ -67,6 +67,11 @@ pgvector 0.8; confirm with
 `SELECT extversion FROM pg_extension WHERE extname='vector'` after
 `CREATE EXTENSION vector`.
 
+PostgreSQL versions: CI and `postgres.Dockerfile` use PostGIS on
+PostgreSQL 16, while local development has run on 17. Both pass the
+migration check. Pick one major version for staging and production, and run
+`pg_dump`/`pg_restore` from that version (`RECOVERY_RUNBOOK.md`).
+
 ## Hosting options
 
 The repository builds three containers, so any container platform works: a

@@ -31,6 +31,11 @@ pg_dump --format=custom --no-owner --file=samadhaan-$(date -u +%Y%m%dT%H%MZ).dum
 tar -czf storage-$(date -u +%Y%m%dT%H%MZ).tar.gz -C "$STORAGE_LOCAL_ROOT" .
 ```
 
+**Use client tools of the server's major version.** `pg_dump` refuses to dump
+a newer server ("aborting because of server version mismatch"). The 2026-10-19
+drill hit this: PostgreSQL 16 client tools against a 17 server. On a host with
+several versions, put the matching `bin/` first on `PATH`.
+
 Recommended: daily full dumps with point-in-time recovery (WAL archiving) on
 a managed PostgreSQL, 30-day retention, storage synced alongside, and backups
 encrypted at rest. Backups hold citizens' personal data: same access controls
@@ -59,6 +64,13 @@ tar -xzf storage-<stamp>.tar.gz -C "$STORAGE_LOCAL_ROOT"
 # 6. Point the API at the restored database, start it, and check readiness.
 curl -fsS https://<api>/api/v1/health
 ```
+
+### Drill record
+
+| Date | Where | Result |
+| --- | --- | --- |
+| 2026-10-19 | **Local only** (development PostgreSQL 17.11, synthetic data, 2.1 MB dump), restored into a new `samadhaan_restore_drill` database and then dropped | **PASS** after the client-version fix above. Dump 1 s, restore 2 s, `pg_restore` exit 0; `post-migrate.sql` idempotent; `prisma migrate status` up to date (22 migrations). Row counts identical for users, problems, audit logs, impact ledger, allocations, rooms, embeddings, knowledge chunks and migrations. Extensions: postgis 3.6.4, vector 0.8.6, pg_trgm 1.6. Append-only triggers present and refusing UPDATE. The API booted against the restored copy: readiness ok, sign-in 200. Storage restore not exercised (local driver, no files at stake). |
+| — | **Staging / production-like infrastructure** | **NOT RUN.** Needs the staging database and its managed backups. Time the restore at real data size. |
 
 After a restore, the background sweeps catch up on their own:
 - impact reconciliation;

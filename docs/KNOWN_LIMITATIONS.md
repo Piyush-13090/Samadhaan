@@ -13,11 +13,21 @@ capability, documented honestly).
 | B2 | **Container images haven't been built or run** (Docker isn't installed on the development machine). | `DEPLOYMENT_GUIDE.md` | Green `docker-images` CI job; boot the production compose stack |
 | B3 | **CI has never run on GitHub.** The workflow was validated by running its steps locally. | `RELEASE_CHECKLIST.md` | Push; all five jobs green; branch protection |
 | B4 | **S3 storage is untested against a real bucket**: unit-tested against a fake client only. | `s3-storage.service.spec.ts` | Staging upload and download with the real provider |
-| B5 | **Backups never restored on production-like infrastructure.** | `RECOVERY_RUNBOOK.md` | Timed restore drill |
+| B5 | **Backups never restored on production-like infrastructure.** A local drill passed on 2026-10-19. | `RECOVERY_RUNBOOK.md` § Drill record | Timed restore drill in staging, at real data size |
 | ~~B6~~ | **Resolved (post-Prompt 30).** Room-closure dead end. A room can no longer close while its work is active. The office withdraws accepted work instead, which returns the problem to VERIFIED for reallocation and also recovers problems already stuck. | `ALLOCATION.md` §9a; `test/room-lifecycle.e2e-spec.ts`; `scripts/ops/find-stuck-resolutions.sql` | Run the detection query in each environment after deploying (0 rows in development) |
 | B7 | **Real AI provider behaviour unverified**: latency, cost, 429 handling with a real key. | Tests use fakes and the development provider | Staging run with a key and a budget alert |
 
 ## Risks (accepted, mitigated)
+
+- **Intermittent e2e 404s (seen once, 2026-10-19).** Three tests in
+  `notifications.e2e` and `ml.e2e` failed once with unexpected 404s, then
+  passed in 4 full runs. Cause unknown. Locally the suite shares its database
+  and Redis with the running development API; CI doesn't. Watch the first CI
+  runs (owner: QA).
+- **Session refresh in browsers without Web Locks** (very old browsers) is
+  still unserialised. Tabs refreshing at the same moment there can trigger
+  replay detection and sign the user out. Every current major browser
+  supports Web Locks.
 
 - **In-memory event bus (at-most-once).** A crash between commit and delivery
   loses notifications. Ledger awards are reconciled; notifications aren't.
