@@ -17,7 +17,7 @@ const CITIZEN: AuthenticatedUser = {
   displayName: null,
   avatarUrl: null,
   role: 'CITIZEN',
-  status: 'PENDING_VERIFICATION',
+  status: 'ACTIVE', // what registration returns since release blocker B1
   createdAt: '2026-01-01T00:00:00.000Z',
   lastLoginAt: null,
   emailVerifiedAt: null,

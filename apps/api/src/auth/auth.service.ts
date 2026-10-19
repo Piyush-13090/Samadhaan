@@ -79,11 +79,19 @@ export class AuthService {
 
     const passwordHash = await this.passwords.hash(dto.password);
 
+    // A public registration is always an ACTIVE CITIZEN (release blocker B1,
+    // 2026-10-19). The access guard admits only ACTIVE accounts and nothing
+    // can activate a PENDING_VERIFICATION one, so until email verification
+    // exists, new citizens start active. Their email stays unverified
+    // (`emailVerifiedAt` null), and nothing grants privileges on account
+    // status alone: government, organisation and admin powers come from role
+    // and membership, which registration never sets.
     const user = await this.users.create({
       email: dto.email,
       passwordHash,
       fullName: dto.fullName,
       role: 'CITIZEN',
+      status: 'ACTIVE',
     });
 
     this.logger.log(`Registered user ${user.id}`);
