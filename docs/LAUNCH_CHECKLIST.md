@@ -9,12 +9,14 @@ What remains needs infrastructure, credentials or a person:
 - a real bucket and a real AI key;
 - a restore drill.
 
-See `KNOWN_LIMITATIONS.md` (B1–B5, B7; B6 is resolved).
+See `KNOWN_LIMITATIONS.md` (B1–B5, B7, B8; B6 is resolved).
 
 ## Staging release record (2026-10-19)
 
-Status: **GO FOR STAGING, not staging verified.** Nothing has been deployed.
-The items below are what a staging pass actually established.
+Status: **NO-GO for deploying staging** (updated by the preflight audit,
+`STAGING_PREFLIGHT.md`). Self-registration is broken (blocker B1 there), and CI
+has never run. Nothing has been deployed. The items below are what the
+staging pass actually established.
 
 | Item | Result |
 | --- | --- |

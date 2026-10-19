@@ -16,6 +16,7 @@ capability, documented honestly).
 | B5 | **Backups never restored on production-like infrastructure.** A local drill passed on 2026-10-19. | `RECOVERY_RUNBOOK.md` § Drill record | Timed restore drill in staging, at real data size |
 | ~~B6~~ | **Resolved (post-Prompt 30).** Room-closure dead end. A room can no longer close while its work is active. The office withdraws accepted work instead, which returns the problem to VERIFIED for reallocation and also recovers problems already stuck. | `ALLOCATION.md` §9a; `test/room-lifecycle.e2e-spec.ts`; `scripts/ops/find-stuck-resolutions.sql` | Run the detection query in each environment after deploying (0 rows in development) |
 | B7 | **Real AI provider behaviour unverified**: latency, cost, 429 handling with a real key. | Tests use fakes and the development provider | Staging run with a key and a budget alert |
+| B8 | **Self-registration is broken.** New accounts are `PENDING_VERIFICATION`, the access guard admits only `ACTIVE`, and nothing activates an account. Register returns 201, then every authenticated request returns 401. | `STAGING_PREFLIGHT.md` B1 | Product decision, a fix and a register-then-use e2e test |
 
 ## Risks (accepted, mitigated)
 

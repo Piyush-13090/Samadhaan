@@ -64,3 +64,4 @@ Every error response carries the request id. Search all services for it.
 | Inspect inference health | `GET /api/v1/admin/ml/monitoring?task=…` |
 | Load test before scaling | `apps/api/scripts/perf/load-test.mjs` against a `*_perf` copy |
 | Archive smoke-test reports | Search for `[SMOKE TEST` titles in staging |
+| Find problems stuck under the old room-closure rule | `psql "$DATABASE_URL" -f scripts/ops/find-stuck-resolutions.sql` (read-only). Expect 0 rows. For each row, an official of the allocating office withdraws the allocation with a reason (`ALLOCATION.md` §9a). Never repair rows with SQL. Run it after every deploy until it has stayed at 0. |

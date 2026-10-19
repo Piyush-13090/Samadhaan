@@ -4,13 +4,16 @@
 public API with synthetic records. **Staging status: NOT RUN.** No staging
 environment or credentials were available. The script itself was run against
 a local, production-built API on a dedicated synthetic database
-(`samadhaan_perf`) and passed 26 of 26 steps (2026-10-19). That run shows the
+(`samadhaan_perf`) and passed all 26 checks across the 20 steps below
+(2026-10-19). That run shows the
 script works; it isn't staging verification.
 
 ## Prerequisites (staging)
 
 Create these once in staging. Never use production accounts or real people's
-details.
+details. These accounts and organisations can't yet be created through the
+application (`STAGING_PREFLIGHT.md`, blockers B1 and B4). Step 4 uses a
+pre-created account, so it doesn't cover self-registration.
 
 | Variable | What |
 | --- | --- |
