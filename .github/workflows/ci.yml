@@ -161,7 +161,7 @@ jobs:
           npm run db:migrate:deploy --workspace @samadhaan/api
           npm run db:seed
       - name: Cache embedding model
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cache/huggingface
           key: hf-all-MiniLM-L6-v2
