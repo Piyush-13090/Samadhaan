@@ -29,4 +29,4 @@ pypdf>=6.0.0
 # only numpy; scikit-learn and scipy are used by offline training.
 numpy>=2.0.0
 scipy>=1.13.0
-scikit-learn>=1.5.0
+scikit-learn>=1.9.1
