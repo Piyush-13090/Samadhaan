@@ -27,6 +27,6 @@ pypdf>=6.0.0
 # sentence-transformers; declared because the ML pipeline (`ml/`) and the
 # registry-backed inference (`app/models/`) use them directly. Serving needs
 # only numpy; scikit-learn and scipy are used by offline training.
-numpy>=2.0.0
+numpy>=2.4.6
 scipy>=1.13.0
 scikit-learn>=1.5.0
