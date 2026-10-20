@@ -12,7 +12,7 @@ httpx>=0.27.0
 structlog>=24.4.0
 
 # Vision-language analysis (problem analysis).
-anthropic>=1.5.0
+anthropic>=1.15.0
 
 # Text embeddings (duplicate detection). Runs a real model locally, so
 # deduplication needs no API key and no per-report cost. Pulls in torch and
