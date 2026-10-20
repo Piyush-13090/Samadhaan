@@ -107,13 +107,21 @@ export function ResolutionRoom({ initial }: { initial: ResolutionRoomView }) {
       .catch(() => undefined);
   }, [room.id]);
 
+  const [participantsFailed, setParticipantsFailed] = useState(false);
+  const loadParticipants = useCallback(() => {
+    fetchParticipants(room.id)
+      .then((value) => {
+        setParticipants(value);
+        setParticipantsFailed(false);
+      })
+      .catch(() => setParticipantsFailed(true));
+  }, [room.id]);
+
   useEffect(() => {
     void loadLatest();
-    fetchParticipants(room.id)
-      .then(setParticipants)
-      .catch(() => undefined);
+    loadParticipants();
     refreshActivity();
-  }, [room.id, loadLatest, refreshActivity]);
+  }, [loadLatest, loadParticipants, refreshActivity]);
 
   // Opening the room reads it. Later messages are read as they arrive while
   // the page is visible.
@@ -280,6 +288,23 @@ export function ResolutionRoom({ initial }: { initial: ResolutionRoomView }) {
         </div>
       </header>
 
+      {room.status === 'OPEN' &&
+        room.viewer.side === 'GOVERNMENT' &&
+        !room.viewer.canClose && (
+          // Prompt 30: closing is only possible once the work is over.
+          <p className="type-caption text-ink-muted">
+            The room can be closed once the resolution is approved. To end this work
+            early, withdraw the allocation from the{' '}
+            <Link
+              href={room.viewer.homePath}
+              className="text-primary underline-offset-2 hover:underline"
+            >
+              problem page
+            </Link>
+            ; the problem then returns to verified for reallocation.
+          </p>
+        )}
+
       {room.status === 'CLOSED' && (
         <Alert tone="info" title="This room is closed">
           Closed {room.closedAt ? formatDateTime(room.closedAt) : ''}
@@ -338,7 +363,11 @@ export function ResolutionRoom({ initial }: { initial: ResolutionRoomView }) {
             aria-labelledby="room-tab-people"
             className={cn(tab !== 'people' && 'hidden', 'lg:block')}
           >
-            <ParticipantsPanel participants={participants} />
+            <ParticipantsPanel
+              participants={participants}
+              loadFailed={participantsFailed}
+              onRetry={loadParticipants}
+            />
           </div>
         </div>
 

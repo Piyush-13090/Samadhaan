@@ -1,0 +1,26 @@
+{
+  "task": "problem_category",
+  "dataset": "../../ml_data/problem-category/2026-10-v1",
+  "artifact_dir": "ml_artifacts",
+  "split": {
+    "strategy": "group_random",
+    "seed": 20261018,
+    "validation": 0.15,
+    "test": 0.15,
+    "min_test_records": 150,
+    "min_test_per_class": 10,
+    "min_train_per_class": 30
+  },
+  "model": {
+    "ngram_max": 2,
+    "min_df": 2,
+    "max_features": 20000,
+    "class_weight": "balanced",
+    "C_grid": [0.25, 1.0, 4.0],
+    "max_iter": 2000
+  },
+  "decision": { "abstain_below": 0.5, "min_known_ratio": 0.3, "min_tokens": 4 },
+  "strict": true,
+  "allow_synthetic": false,
+  "min_group_size": 30
+}

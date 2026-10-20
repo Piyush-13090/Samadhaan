@@ -1,5 +1,8 @@
+import { MetricsService } from '../metrics/metrics.service.js';
+import { withRedisLock } from '../common/redis-lock.js';
 import {
   Injectable,
+  Optional,
   Logger,
   type OnApplicationBootstrap,
   type OnModuleDestroy,
@@ -53,6 +56,7 @@ export class PriorityJobsService
     private readonly redis: RedisService,
     private readonly calculation: PriorityCalculationService,
     private readonly config: AppConfig,
+    @Optional() private readonly metrics?: MetricsService,
   ) {}
 
   onModuleInit(): void {
@@ -180,13 +184,16 @@ export class PriorityJobsService
   async sweep(trigger: string, now: Date = new Date()): Promise<number> {
     const settings = this.config.priority;
     if (!settings.enabled || settings.batchSize === 0) return 0;
-    const lock = await this.redis.connection
-      .set(LOCK_KEY, '1', 'EX', 15 * 60, 'NX')
-      .catch(() => 'OK');
-    if (lock !== 'OK') return 0;
-    try {
-      const cutoff = new Date(now.getTime() - settings.refreshHours * 3_600_000);
-      const rows = await this.prisma.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+    let failed = false;
+    const outcome = await withRedisLock(
+      this.redis.connection,
+      LOCK_KEY,
+      15 * 60,
+      'run',
+      async () => {
+        try {
+          const cutoff = new Date(now.getTime() - settings.refreshHours * 3_600_000);
+          const rows = await this.prisma.$queryRaw<Array<{ id: string }>>(Prisma.sql`
         SELECT p.id FROM problems p
         LEFT JOIN LATERAL (
           SELECT a."scoringVersion", a."featureVersion" FROM problem_priority_assessments a
@@ -200,21 +207,33 @@ export class PriorityJobsService
         ORDER BY p."priorityAssessedAt" ASC NULLS FIRST
         LIMIT ${settings.batchSize}
       `);
-      for (const { id } of rows) {
-        this.pending.set(id, trigger);
-        this.enqueue(id);
-      }
-      if (rows.length > 0)
-        this.logger.log(`Priority ${trigger} sweep queued ${rows.length} problem(s)`);
-      await this.idle();
-      return rows.length;
-    } catch (error) {
-      this.logger.warn(
-        `Priority sweep failed: ${error instanceof Error ? error.message : 'unknown'}`,
-      );
-      return 0;
-    } finally {
-      await this.redis.connection.del(LOCK_KEY).catch(() => undefined);
-    }
+          for (const { id } of rows) {
+            this.pending.set(id, trigger);
+            this.enqueue(id);
+          }
+          if (rows.length > 0)
+            this.logger.log(`Priority ${trigger} sweep queued ${rows.length} problem(s)`);
+          await this.idle();
+          return rows.length;
+        } catch (error) {
+          failed = true;
+          this.logger.warn(
+            `Priority sweep failed: ${error instanceof Error ? error.message : 'unknown'}`,
+          );
+          return 0;
+        }
+      },
+    );
+    this.metrics?.jobRuns.inc({
+      job: 'priority_sweep',
+      outcome: outcome.ran
+        ? failed
+          ? 'failed'
+          : 'completed'
+        : outcome.reason === 'held'
+          ? 'skipped_held'
+          : 'skipped_redis_error',
+    });
+    return outcome.ran ? outcome.value : 0;
   }
 }

@@ -15,6 +15,7 @@ import {
   type OrganizationAllocationPage,
   type ProblemAssignment,
   type ProblemCategory,
+  type ProjectStatus,
   type WorkspaceOrganizationType,
 } from '@samadhaan/shared';
 import type { RequestUser } from '../auth/auth.types.js';
@@ -214,7 +215,21 @@ export class AllocationsService {
     return toGovernmentView(allocation.created, office.organization.id);
   }
 
-  /** Withdraws a pending allocation this office made. */
+  /**
+   * Withdraws an allocation this office made.
+   *
+   * PENDING: the organisation has not answered; the allocation is simply
+   * cancelled and the problem stays VERIFIED.
+   *
+   * ACCEPTED (Prompt 30 — the recovery path for abandoned work): the office
+   * ends the assignment with a reason. In one transaction the allocation is
+   * cancelled, the problem returns IN_PROGRESS → VERIFIED (never RESOLVED),
+   * an unfinished project is cancelled and the resolution room is closed —
+   * so the problem can be allocated again through the normal workflow. It
+   * also recovers rooms closed, or projects cancelled, before this rule
+   * existed. Refused while a resolution verification is pending: the office
+   * decides that request first.
+   */
   async cancel(
     office: AllocatingOffice,
     allocationId: string,
@@ -222,26 +237,36 @@ export class AllocationsService {
     user: RequestUser,
   ): Promise<GovernmentAllocationView> {
     const result = await this.prisma.$transaction(async (tx) => {
-      const allocation = await this.findOfficeAllocation(tx, office, allocationId);
+      // Locked: concurrent withdrawals, acceptance and room closure serialise here.
+      const allocation = await this.findOfficeAllocation(tx, office, allocationId, true);
+      const withdrawal =
+        allocation.status === 'ACCEPTED'
+          ? await this.withdrawAccepted(tx, office, allocationId, reason, user)
+          : null;
 
-      const { count } = await tx.problemAllocation.updateMany({
-        where: {
-          id: allocationId,
-          governmentOrganizationId: office.organization.id,
-          status: 'PENDING',
-        },
-        data: {
-          status: 'CANCELLED',
-          cancelledAt: new Date(),
-          cancelledById: user.id,
-          cancellationReason: reason,
-        },
-      });
-      if (count === 0) throw respondedAlready(allocation.status);
+      if (!withdrawal) {
+        const { count } = await tx.problemAllocation.updateMany({
+          where: {
+            id: allocationId,
+            governmentOrganizationId: office.organization.id,
+            status: 'PENDING',
+          },
+          data: {
+            status: 'CANCELLED',
+            cancelledAt: new Date(),
+            cancelledById: user.id,
+            cancellationReason: reason,
+          },
+        });
+        if (count === 0) throw respondedAlready(allocation.status);
+      }
 
       const updated = await tx.problemAllocation.findUniqueOrThrow({
         where: { id: allocationId },
-        include: { ...GOVERNMENT_INCLUDE, problem: { select: { publicId: true } } },
+        include: {
+          ...GOVERNMENT_INCLUDE,
+          problem: { select: { publicId: true, reporterId: true } },
+        },
       });
       await tx.auditLog.create({
         data: {
@@ -250,7 +275,7 @@ export class AllocationsService {
           entityType: 'Problem',
           entityId: updated.problemId,
           metadata: auditMetadata(updated, office.organization, {
-            from: 'PENDING',
+            from: withdrawal ? 'ACCEPTED' : 'PENDING',
             to: 'CANCELLED',
             note: reason,
           }),
@@ -259,7 +284,7 @@ export class AllocationsService {
       const target = await tx.organization.findUniqueOrThrow({
         where: { id: updated.organizationId },
       });
-      return { updated, target };
+      return { updated, target, withdrawal };
     });
 
     this.publish(
@@ -270,7 +295,227 @@ export class AllocationsService {
       office.organization,
       user.id,
     );
+    const w = result.withdrawal;
+    if (w) {
+      // After commit only: nothing is announced that could still roll back.
+      this.events.publish({
+        type: 'PROBLEM_STATUS_CHANGED',
+        problemId: result.updated.problemId,
+        problemPublicId: result.updated.problem.publicId,
+        reporterId: result.updated.problem.reporterId,
+        fromStatus: 'IN_PROGRESS',
+        toStatus: 'VERIFIED',
+        actorUserId: user.id,
+        changeId: w.changeId,
+      });
+      if (w.projectCancelled) {
+        this.events.publish({
+          type: 'PROJECT_STATUS_CHANGED',
+          projectId: w.projectCancelled.id,
+          roomId: w.projectCancelled.roomId,
+          problemPublicId: result.updated.problem.publicId,
+          from: w.projectCancelled.from,
+          to: 'CANCELLED',
+          actorUserId: user.id,
+          actorOrganizationName: office.organization.name,
+          changeId: w.projectCancelled.eventId,
+        });
+      }
+      if (w.roomClosed) {
+        this.events.publish({
+          type: 'RESOLUTION_ROOM_CLOSED',
+          roomId: w.roomClosed,
+          problemPublicId: result.updated.problem.publicId,
+          governmentName: office.organization.name,
+          actorUserId: user.id,
+        });
+      }
+      this.logger.log(
+        `${result.updated.problem.publicId}: accepted allocation withdrawn by ${office.organization.slug}`,
+      );
+    }
     return toGovernmentView(result.updated, office.organization.id);
+  }
+
+  /**
+   * The ACCEPTED branch of `cancel`, inside its transaction. Every write is
+   * conditional on the state just checked, so a concurrent approval,
+   * withdrawal or acceptance makes this a 409 and nothing is half-applied.
+   */
+  private async withdrawAccepted(
+    tx: Prisma.TransactionClient,
+    office: AllocatingOffice,
+    allocationId: string,
+    reason: string | null,
+    user: RequestUser,
+  ): Promise<{
+    changeId: string;
+    roomClosed: string | null;
+    projectCancelled: {
+      id: string;
+      roomId: string;
+      from: ProjectStatus;
+      eventId: string;
+    } | null;
+  }> {
+    const why = reason?.trim() ?? '';
+    if (why.length < 10) {
+      throw AppException.badRequest(
+        'Give a reason (at least 10 characters) for withdrawing work the organisation accepted.',
+      );
+    }
+    const allocation = await tx.problemAllocation.findUniqueOrThrow({
+      where: { id: allocationId },
+      select: { problemId: true, organization: { select: { name: true } } },
+    });
+    const pending = await tx.resolutionVerificationRequest.count({
+      where: { problemId: allocation.problemId, status: 'PENDING' },
+    });
+    if (pending > 0) {
+      throw AppException.conflict(
+        'A resolution verification is waiting for your decision. Approve or reject it before withdrawing the allocation.',
+      );
+    }
+
+    const now = new Date();
+    const { count } = await tx.problemAllocation.updateMany({
+      where: { id: allocationId, status: 'ACCEPTED' },
+      data: {
+        status: 'CANCELLED',
+        cancelledAt: now,
+        cancelledById: user.id,
+        cancellationReason: why,
+      },
+    });
+    if (count === 0) throw respondedAlready('ACCEPTED');
+
+    // Back to VERIFIED so it can be allocated again. Never RESOLVED: that is
+    // only ever the outcome of an approved verification.
+    const moved = await tx.problem.updateMany({
+      where: { id: allocation.problemId, status: 'IN_PROGRESS' },
+      data: { status: 'VERIFIED' },
+    });
+    if (moved.count === 0) {
+      throw AppException.conflict(
+        'This problem is no longer in progress (it may have been resolved), so the allocation cannot be withdrawn.',
+      );
+    }
+    const statusAudit = await tx.auditLog.create({
+      data: {
+        actorUserId: user.id,
+        action: 'PROBLEM_STATUS_CHANGED',
+        entityType: 'Problem',
+        entityId: allocation.problemId,
+        metadata: {
+          from: 'IN_PROGRESS',
+          to: 'VERIFIED',
+          note: why,
+          allocationId,
+          viaAllocationWithdrawal: true,
+          organizationName: office.organization.name,
+          organizationId: office.organization.id,
+        },
+      },
+      select: { id: true },
+    });
+
+    const room = await tx.resolutionRoom.findUnique({
+      where: { allocationId },
+      select: { id: true, status: true },
+    });
+    let projectCancelled: {
+      id: string;
+      roomId: string;
+      from: ProjectStatus;
+      eventId: string;
+    } | null = null;
+    let roomClosed: string | null = null;
+    if (room) {
+      const project = await tx.resolutionProject.findUnique({
+        where: { roomId: room.id },
+        select: { id: true, name: true, status: true },
+      });
+      if (project && ['PLANNED', 'ACTIVE', 'PAUSED'].includes(project.status)) {
+        const changed = await tx.resolutionProject.updateMany({
+          where: { id: project.id, status: project.status },
+          data: { status: 'CANCELLED', cancelledAt: now, version: { increment: 1 } },
+        });
+        if (changed.count === 0) {
+          throw AppException.conflict('The project changed at the same time. Try again.');
+        }
+        const event = await tx.resolutionRoomEvent.create({
+          data: {
+            roomId: room.id,
+            type: 'PROJECT_STATUS_CHANGED',
+            actorId: user.id,
+            metadata: {
+              subject: project.name,
+              from: project.status,
+              to: 'CANCELLED',
+              reason: `Allocation withdrawn: ${why}`.slice(0, 1000),
+            },
+          },
+          select: { id: true },
+        });
+        await tx.auditLog.create({
+          data: {
+            actorUserId: user.id,
+            action: 'RESOLUTION_PROJECT_STATUS_CHANGED',
+            entityType: 'ResolutionProject',
+            entityId: project.id,
+            metadata: {
+              from: project.status,
+              to: 'CANCELLED',
+              reason: why,
+              roomId: room.id,
+              organizationId: office.organization.id,
+              viaAllocationWithdrawal: true,
+            },
+          },
+        });
+        projectCancelled = {
+          id: project.id,
+          roomId: room.id,
+          from: project.status as ProjectStatus,
+          eventId: event.id,
+        };
+      }
+      if (room.status === 'OPEN') {
+        const closeReason = `Allocation withdrawn: ${why}`.slice(0, 1000);
+        const closed = await tx.resolutionRoom.updateMany({
+          where: { id: room.id, status: 'OPEN' },
+          data: { status: 'CLOSED', closedAt: now, closedById: user.id, closeReason },
+        });
+        if (closed.count === 1) {
+          await tx.resolutionRoomEvent.create({
+            data: {
+              roomId: room.id,
+              type: 'ROOM_CLOSED',
+              actorId: user.id,
+              metadata: {
+                organizationName: office.organization.name,
+                reason: closeReason,
+              },
+            },
+          });
+          await tx.auditLog.create({
+            data: {
+              actorUserId: user.id,
+              action: 'RESOLUTION_ROOM_CLOSED',
+              entityType: 'ResolutionRoom',
+              entityId: room.id,
+              metadata: {
+                organizationId: office.organization.id,
+                reason: closeReason,
+                viaAllocationWithdrawal: true,
+              },
+            },
+          });
+          roomClosed = room.id;
+        }
+      }
+    }
+    return { changeId: statusAudit.id, roomClosed, projectCancelled };
   }
 
   /** An allocation made by this office, on a problem in its jurisdiction. */
@@ -278,6 +523,7 @@ export class AllocationsService {
     tx: Prisma.TransactionClient,
     office: AllocatingOffice,
     allocationId: string,
+    lock = false,
   ): Promise<{ id: string; status: AllocationStatus }> {
     const [row] = await tx.$queryRaw<
       Array<{ id: string; status: AllocationStatus }>
@@ -288,6 +534,7 @@ export class AllocationsService {
       WHERE a.id = ${allocationId}::uuid
         AND a."governmentOrganizationId" = ${office.organization.id}::uuid
         AND ${office.jurisdiction.condition}
+      ${lock ? Prisma.sql`FOR UPDATE OF a` : Prisma.empty}
     `);
     if (!row) throw AppException.notFound('Allocation');
     return row;
@@ -519,6 +766,16 @@ export class AllocationsService {
     note: string | null,
     user: RequestUser,
   ): Promise<OrganizationAllocationDetail> {
+    // Eligibility is re-checked at acceptance (Prompt 29), not only when the
+    // allocation was made: an organisation rejected or unverified since then
+    // must not take on official work. Suspension is already refused by the
+    // workspace guard; this also covers REJECTED and NOT_VERIFIED.
+    const ineligible = ineligibility(context.organization);
+    if (ineligible) {
+      throw AppException.forbidden(
+        'This organisation is not currently eligible to accept official allocations.',
+      );
+    }
     const result = await this.prisma.$transaction(async (tx) => {
       const now = new Date();
       const { count } = await tx.problemAllocation.updateMany({

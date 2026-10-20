@@ -211,7 +211,7 @@ export class KnowledgeQueryService {
       this.logger.warn(`RAG generation failed: ${outcome.failure.code}`);
       throw new AppException(
         ERROR_CODES.UPSTREAM_UNAVAILABLE,
-        'An answer could not be generated right now. The sources found are still listed.',
+        'An answer could not be generated right now. Try again shortly, or use knowledge search to read the sources directly.',
         HttpStatus.SERVICE_UNAVAILABLE,
       );
     }

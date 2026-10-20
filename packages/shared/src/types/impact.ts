@@ -28,13 +28,28 @@ export const IMPACT_TRANSACTION_TYPES = [
 export type ImpactTransactionType = (typeof IMPACT_TRANSACTION_TYPES)[number];
 
 /** History filters, as the profile page groups them. */
-export const IMPACT_FILTERS = ['all', 'reports', 'community', 'projects', 'resolutions', 'bonuses'] as const;
+export const IMPACT_FILTERS = [
+  'all',
+  'reports',
+  'community',
+  'projects',
+  'resolutions',
+  'bonuses',
+] as const;
 export type ImpactFilter = (typeof IMPACT_FILTERS)[number];
 
-export const IMPACT_FILTER_TYPES: Record<Exclude<ImpactFilter, 'all'>, readonly ImpactTransactionType[]> = {
+export const IMPACT_FILTER_TYPES: Record<
+  Exclude<ImpactFilter, 'all'>,
+  readonly ImpactTransactionType[]
+> = {
   reports: ['PROBLEM_REPORTED', 'PROBLEM_VERIFIED', 'DUPLICATE_IDENTIFIED'],
   community: ['USEFUL_COMMENT', 'PROBLEM_SUPPORTED'],
-  projects: ['PROJECT_CONTRIBUTION', 'TASK_COMPLETED', 'MILESTONE_COMPLETED', 'RESOLUTION_EVIDENCE_SUBMITTED'],
+  projects: [
+    'PROJECT_CONTRIBUTION',
+    'TASK_COMPLETED',
+    'MILESTONE_COMPLETED',
+    'RESOLUTION_EVIDENCE_SUBMITTED',
+  ],
   resolutions: ['PROBLEM_RESOLVED'],
   bonuses: ['QUALITY_BONUS', 'PENALTY', 'ADMIN_ADJUSTMENT'],
 };
@@ -101,7 +116,12 @@ export interface BadgeView {
 }
 
 export interface ContributionView {
-  problem: { publicId: string; title: string; category: ProblemCategory; city: string | null };
+  problem: {
+    publicId: string;
+    title: string;
+    category: ProblemCategory;
+    city: string | null;
+  };
   /** Kinds of credit received for it. */
   roles: ImpactTransactionType[];
   points: number;
@@ -122,7 +142,11 @@ export interface LeaderboardEntryView {
 /** `GET /leaderboard` */
 export interface LeaderboardPage {
   period: LeaderboardPeriod;
-  filters: { city: string | null; state: string | null; category: ProblemCategory | null };
+  filters: {
+    city: string | null;
+    state: string | null;
+    category: ProblemCategory | null;
+  };
   items: LeaderboardEntryView[];
   page: number;
   limit: number;

@@ -480,7 +480,8 @@ function controllerFor(map: MapLibreMap): MapController {
       map.flyTo({
         center: [center.longitude, center.latitude],
         zoom: zoom ?? Math.max(map.getZoom(), mapConfig.placeZoom),
-        essential: true,
+        // Not `essential` (Prompt 30): MapLibre then honours the user's
+        // reduced-motion preference and jumps instead of flying.
       }),
     fitBounds: (bbox) =>
       map.fitBounds(new LngLatBounds([bbox[0], bbox[1]], [bbox[2], bbox[3]]), {

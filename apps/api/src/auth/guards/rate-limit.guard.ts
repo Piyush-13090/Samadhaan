@@ -49,14 +49,16 @@ export const RateLimit = (options: RateLimitOptions = {}) =>
  * window avoids that at the cost of more state. For slowing credential stuffing
  * the difference does not matter, and this is two Redis commands.
  *
- * **Fails open.** If Redis is unavailable the request proceeds. Rate limiting
- * is a mitigation, not an authorisation control — authentication still runs —
- * and taking sign-in down entirely because a cache is down would be the worse
- * outcome. The failure is logged.
+ * **Degrades, does not fail open** (Prompt 30). If Redis is unavailable the
+ * limits are enforced per process from memory, so a Redis outage neither takes
+ * sign-in down nor removes brute-force protection.
  */
 @Injectable()
 export class RateLimitGuard implements CanActivate {
   private readonly logger = new Logger(RateLimitGuard.name);
+  /** In-process fallback windows, used only while Redis is unreachable. */
+  private readonly local = new Map<string, { count: number; resetAt: number }>();
+  private fallbackWarned = false;
 
   constructor(
     private readonly reflector: Reflector,
@@ -79,59 +81,87 @@ export class RateLimitGuard implements CanActivate {
     const request = http.getRequest<Request>();
     const key = this.buildKey(request, options.keyField);
 
-    try {
-      if (options.ipMax) {
-        const ipKey = `ratelimit:${request.method}:${request.path}:${request.ip ?? 'unknown'}:*`;
-        const ipCount = await this.redis.connection.incr(ipKey);
-        if (ipCount === 1) await this.redis.connection.expire(ipKey, windowSeconds);
-        if (ipCount > options.ipMax) {
-          const retryAfter = await this.redis.connection.ttl(ipKey);
-          http.getResponse<Response>().setHeader('retry-after', Math.max(retryAfter, 1));
-          this.logger.warn(
-            `IP-wide rate limit reached on ${request.method} ${request.path}`,
-          );
-          throw new AppException(
-            ERROR_CODES.RATE_LIMITED,
-            'Too many attempts. Please wait a few minutes and try again.',
-            HttpStatus.TOO_MANY_REQUESTS,
-          );
-        }
-      }
-
-      const count = await this.redis.connection.incr(key);
-
-      // Only the first hit sets the TTL, which is what makes the window fixed.
-      if (count === 1) {
-        await this.redis.connection.expire(key, windowSeconds);
-      }
-
-      const remaining = Math.max(0, max - count);
-      const response = http.getResponse<Response>();
-      response.setHeader('x-ratelimit-limit', max);
-      response.setHeader('x-ratelimit-remaining', remaining);
-
-      if (count > max) {
-        const retryAfter = await this.redis.connection.ttl(key);
-        response.setHeader('retry-after', Math.max(retryAfter, 1));
-
+    if (options.ipMax) {
+      const ipKey = `ratelimit:${request.method}:${request.path}:${request.ip ?? 'unknown'}:*`;
+      const ip = await this.hit(ipKey, windowSeconds);
+      if (ip.count > options.ipMax) {
+        http.getResponse<Response>().setHeader('retry-after', Math.max(ip.ttl, 1));
+        this.logger.warn(
+          `IP-wide rate limit reached on ${request.method} ${request.path}`,
+        );
         throw new AppException(
           ERROR_CODES.RATE_LIMITED,
           'Too many attempts. Please wait a few minutes and try again.',
           HttpStatus.TOO_MANY_REQUESTS,
         );
       }
-
-      return true;
-    } catch (error) {
-      if (error instanceof AppException) throw error;
-
-      this.logger.warn(
-        `Rate limiting unavailable, allowing request: ${
-          error instanceof Error ? error.message : 'unknown error'
-        }`,
-      );
-      return true;
     }
+
+    const { count, ttl } = await this.hit(key, windowSeconds);
+    const response = http.getResponse<Response>();
+    response.setHeader('x-ratelimit-limit', max);
+    response.setHeader('x-ratelimit-remaining', Math.max(0, max - count));
+
+    if (count > max) {
+      response.setHeader('retry-after', Math.max(ttl, 1));
+      throw new AppException(
+        ERROR_CODES.RATE_LIMITED,
+        'Too many attempts. Please wait a few minutes and try again.',
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+
+    return true;
+  }
+
+  /**
+   * Counts one hit in a fixed window and returns the count and seconds left.
+   *
+   * One atomic Redis round trip (Prompt 30): INCR and EXPIRE NX in a MULTI, so
+   * a crash between them can no longer leave a counter that never expires.
+   * When Redis is unavailable the window is kept in this process's memory
+   * instead of failing open: sign-in stays up during a Redis outage, and
+   * brute-force protection does too (per instance rather than global).
+   */
+  private async hit(
+    key: string,
+    windowSeconds: number,
+  ): Promise<{ count: number; ttl: number }> {
+    try {
+      const results = await this.redis.connection
+        .multi()
+        .incr(key)
+        .expire(key, windowSeconds, 'NX')
+        .ttl(key)
+        .exec();
+      if (!results || results.some(([error]) => error))
+        throw new Error('rate limit MULTI failed');
+      return { count: Number(results[0]?.[1]), ttl: Number(results[2]?.[1]) };
+    } catch (error) {
+      if (!this.fallbackWarned) {
+        this.logger.warn(
+          `Redis unavailable for rate limiting; using in-process limits: ${
+            error instanceof Error ? error.message : 'unknown error'
+          }`,
+        );
+        this.fallbackWarned = true;
+      }
+      return this.localHit(key, windowSeconds);
+    }
+  }
+
+  private localHit(key: string, windowSeconds: number): { count: number; ttl: number } {
+    const now = Date.now();
+    if (this.local.size > 50_000) {
+      for (const [k, v] of this.local) if (v.resetAt <= now) this.local.delete(k);
+    }
+    let entry = this.local.get(key);
+    if (!entry || entry.resetAt <= now) {
+      entry = { count: 0, resetAt: now + windowSeconds * 1000 };
+      this.local.set(key, entry);
+    }
+    entry.count += 1;
+    return { count: entry.count, ttl: Math.ceil((entry.resetAt - now) / 1000) };
   }
 
   /**

@@ -20,6 +20,9 @@ from __future__ import annotations
 import base64
 import binascii
 
+import anyio
+
+from app.core.limits import EXTRACTION_LIMITER
 from app.core.logging import get_logger
 from app.knowledge.extraction import extract
 from app.prompts.evidence_verification import (
@@ -51,6 +54,11 @@ def read_documents(request: VerifyEvidenceRequest) -> dict[str, str]:
             data = base64.b64decode(document.file_base64, validate=True)
             text = extract(data, None, max_pages=50).text.strip()
         except (binascii.Error, ValueError, ProviderError):
+            continue
+        except Exception:  # noqa: BLE001 — a malformed PDF can raise anything
+            # (RecursionError, zlib.error, ...); an unreadable document is
+            # skipped, never a failed verification (Prompt 29).
+            logger.warning("evidence_document_unreadable", ref=document.ref)
             continue
         if text:
             texts[document.ref] = text[:MAX_DOCUMENT_CHARS]
@@ -125,7 +133,10 @@ class VerificationService:
     async def verify(self, request: VerifyEvidenceRequest) -> VerifyEvidenceResult:
         info = self._provider.info
         ai_ran = info.provider != "development"
-        documents = read_documents(request)
+        # CPU-bound parsing off the event loop, shared limit (Prompt 29).
+        documents = await anyio.to_thread.run_sync(
+            read_documents, request, limiter=EXTRACTION_LIMITER
+        )
         images = [i.image for i in request.before_images] + [i.image for i in request.after_images]
         # Tell the model which image is which, in the order they are attached.
         order = ", ".join(i.ref for i in [*request.before_images, *request.after_images])

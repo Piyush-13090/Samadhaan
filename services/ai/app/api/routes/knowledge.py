@@ -11,6 +11,7 @@ import anyio
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.api.deps import SettingsDep
+from app.core.limits import EXTRACTION_LIMITER
 from app.core.logging import get_logger
 from app.core.security import require_internal_token
 from app.providers.base import ProviderError
@@ -53,7 +54,7 @@ def _error(error: ProviderError) -> HTTPException:
 # /health for ~0.94 s (Prompt 27, docs/PERFORMANCE_AUDIT.md). They now run on a
 # worker thread, at most two at a time, so ingestion cannot starve search
 # embeddings or analysis.
-_EXTRACTION_LIMITER = anyio.CapacityLimiter(2)
+_EXTRACTION_LIMITER = EXTRACTION_LIMITER
 
 
 @router.post("/chunk", response_model=ChunkResponse)

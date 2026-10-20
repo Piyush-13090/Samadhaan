@@ -1,4 +1,10 @@
-import type { OrganizationType, ProblemCategory, ProblemSeverity, ProblemStatus, ProblemUrgency } from './problem.js';
+import type {
+  OrganizationType,
+  ProblemCategory,
+  ProblemSeverity,
+  ProblemStatus,
+  ProblemUrgency,
+} from './problem.js';
 import type { PriorityTier } from './priority.js';
 
 /**
@@ -9,7 +15,12 @@ import type { PriorityTier } from './priority.js';
  * and a short explanation of why a result ranked where it did.
  */
 
-export const SEARCH_ENTITY_TYPES = ['PROBLEM', 'ORGANIZATION', 'KNOWLEDGE', 'PROJECT'] as const;
+export const SEARCH_ENTITY_TYPES = [
+  'PROBLEM',
+  'ORGANIZATION',
+  'KNOWLEDGE',
+  'PROJECT',
+] as const;
 export type SearchEntityType = (typeof SEARCH_ENTITY_TYPES)[number];
 
 export const PROBLEM_SEARCH_SORTS = [
@@ -115,7 +126,12 @@ export type SearchResult =
 
 /** What the query-understanding layer read from the text. */
 export interface SearchUnderstanding {
-  intent: 'SEARCH_PROBLEMS' | 'SEARCH_ORGANIZATIONS' | 'SEARCH_KNOWLEDGE' | 'SEARCH_PROJECTS' | 'SEARCH_ALL';
+  intent:
+    | 'SEARCH_PROBLEMS'
+    | 'SEARCH_ORGANIZATIONS'
+    | 'SEARCH_KNOWLEDGE'
+    | 'SEARCH_PROJECTS'
+    | 'SEARCH_ALL';
   entityType: SearchEntityType | null;
   /** Filters applied because of words in the query (explicit filters win). */
   applied: Array<{ filter: string; value: string; label: string }>;

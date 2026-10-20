@@ -36,7 +36,7 @@ export default function GlobalError({
             An unexpected error occurred while loading the application.
           </p>
           {error.digest && (
-            <p style={{ marginTop: '0.75rem', fontSize: '0.75rem', color: '#8a9099' }}>
+            <p style={{ marginTop: '0.75rem', fontSize: '0.75rem', color: '#686e78' }}>
               Reference: {error.digest}
             </p>
           )}

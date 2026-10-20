@@ -1,8 +1,4 @@
-import type {
-  DuplicateStatus,
-  ProblemCategory,
-  ProblemStatus,
-} from './problem.js';
+import type { DuplicateStatus, ProblemCategory, ProblemStatus } from './problem.js';
 import type { AnalysisProcessingStatus } from './analysis.js';
 
 /**

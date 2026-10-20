@@ -1,6 +1,6 @@
 import type { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, onTestFinished } from 'vitest';
 import { AppModule } from '../src/app.module.js';
 import { PrismaService } from '../src/database/prisma.service.js';
 import { deleteAuditLogs } from './audit-maintenance.js';
@@ -519,6 +519,27 @@ describe('Database schema (e2e)', () => {
     });
 
     it('loads a problem with every satellite relation', async () => {
+      // The seed creates no duplicate candidates (the real detector does), so
+      // on a fresh database (CI) there's no match to load. Point the seed's
+      // near-duplicate report at SAM-1000 for this test, and remove only a row
+      // created here.
+      const [target, source] = await Promise.all([
+        prisma.problem.findFirstOrThrow({ where: { publicId: 'SAM-1000' } }),
+        prisma.problem.findFirstOrThrow({ where: { publicId: 'SAM-1005' } }),
+      ]);
+      const pair = { problemId: source.id, candidateProblemId: target.id };
+      const existing = await prisma.problemDuplicateCandidate.findUnique({
+        where: { problemId_candidateProblemId: pair },
+      });
+      const created = existing
+        ? null
+        : await prisma.problemDuplicateCandidate.create({ data: pair });
+      onTestFinished(async () => {
+        if (created) {
+          await prisma.problemDuplicateCandidate.delete({ where: { id: created.id } });
+        }
+      });
+
       const seeded = await prisma.problem.findFirst({
         where: { publicId: 'SAM-1000' },
         include: {

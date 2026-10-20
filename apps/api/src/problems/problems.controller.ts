@@ -324,6 +324,8 @@ export class ProblemsController {
    */
   @Post(':publicId/duplicates/analyze')
   @HttpCode(HttpStatus.ACCEPTED)
+  // Each re-check embeds text on the AI service (Prompt 29: was unbounded).
+  @UserRateLimit({ bucket: 'duplicate-recheck', max: 10, windowSeconds: 600 })
   async recheckDuplicates(
     @Param('publicId') publicId: string,
     @CurrentUser() user: RequestUser,

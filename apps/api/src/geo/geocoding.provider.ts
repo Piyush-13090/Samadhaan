@@ -9,6 +9,10 @@ import type { GeocodingConfig } from '../config/app.config.js';
  * commercial geocoder is a new class implementing this, selected by
  * `GEOCODING_PROVIDER` — no caller changes, and the browser never knows.
  */
+
+/** Longest a lookup may queue for the upstream rate limit before it is refused. */
+export const MAX_GATE_WAIT_MS = 10_000;
+
 export abstract class GeocodingProvider {
   abstract readonly name: string;
   abstract search(query: string, limit: number): Promise<GeocodeResult[]>;
@@ -118,10 +122,19 @@ export class NominatimGeocodingProvider extends GeocodingProvider {
     }
   }
 
-  /** Spaces upstream calls at least `minIntervalMs` apart, in arrival order. */
+  /**
+   * Spaces upstream calls at least `minIntervalMs` apart, in arrival order.
+   *
+   * Bounded (Prompt 29): a caller that would wait longer than
+   * MAX_GATE_WAIT_MS is refused at once as unavailable — and takes no slot —
+   * instead of joining a queue that grows without limit under load.
+   */
   private async gate(): Promise<void> {
     const now = Date.now();
     const slot = Math.max(now, this.nextSlot);
+    if (slot - now > MAX_GATE_WAIT_MS) {
+      throw new GeocodingUnavailableError('The geocoder is busy. Try again shortly.');
+    }
     this.nextSlot = slot + this.minIntervalMs;
     if (slot > now) await new Promise((resolve) => setTimeout(resolve, slot - now));
   }

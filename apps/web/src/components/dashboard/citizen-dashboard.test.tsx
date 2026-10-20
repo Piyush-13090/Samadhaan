@@ -39,7 +39,12 @@ function report(overrides: Record<string, unknown> = {}) {
 
 function dashboard(overrides: Partial<CitizenDashboardData> = {}): CitizenDashboardData {
   return {
-    user: { name: 'Priya Sharma', firstName: 'Priya', city: 'Gurugram', state: 'Haryana' },
+    user: {
+      name: 'Priya Sharma',
+      firstName: 'Priya',
+      city: 'Gurugram',
+      state: 'Haryana',
+    },
     activity: {
       problemsReported: 7,
       problemsSupported: 2,
@@ -103,8 +108,13 @@ describe('CitizenDashboard', () => {
   it('renders community activity scoped to the profile city', () => {
     render(<CitizenDashboard data={dashboard()} hour={9} />);
 
-    expect(screen.getByTestId('community-activity')).toHaveAttribute('data-city', 'Gurugram');
-    expect(screen.getByText('What people in Gurugram are supporting and discussing.')).toBeInTheDocument();
+    expect(screen.getByTestId('community-activity')).toHaveAttribute(
+      'data-city',
+      'Gurugram',
+    );
+    expect(
+      screen.getByText('What people in Gurugram are supporting and discussing.'),
+    ).toBeInTheDocument();
   });
 
   /**
@@ -152,9 +162,7 @@ describe('CitizenDashboard', () => {
   });
 
   it('hides view-all when every report is already listed', () => {
-    render(
-      <CitizenDashboard data={dashboard({ reportCount: 1 })} hour={9} />,
-    );
+    render(<CitizenDashboard data={dashboard({ reportCount: 1 })} hour={9} />);
 
     expect(screen.queryByRole('link', { name: /View all/i })).not.toBeInTheDocument();
   });
@@ -167,9 +175,7 @@ describe('CitizenDashboard', () => {
       />,
     );
 
-    expect(
-      screen.getByText(/You haven't reported any problems yet/),
-    ).toBeInTheDocument();
+    expect(screen.getByText(/You haven't reported any problems yet/)).toBeInTheDocument();
   });
 
   it('renders the nearby section', () => {
@@ -182,7 +188,12 @@ describe('CitizenDashboard', () => {
   it('gives each section an accessible heading', () => {
     render(<CitizenDashboard data={dashboard()} hour={9} />);
 
-    for (const name of ['Your impact', 'Nearby problems', 'Community activity', 'Your reports']) {
+    for (const name of [
+      'Your impact',
+      'Nearby problems',
+      'Community activity',
+      'Your reports',
+    ]) {
       expect(screen.getByRole('heading', { name, level: 2 })).toBeInTheDocument();
     }
   });

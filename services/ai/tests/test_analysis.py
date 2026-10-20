@@ -205,6 +205,7 @@ class TestProviderFactory:
             build_provider(
                 Settings(
                     NODE_ENV="production",
+                    AI_LOG_LEVEL="info",
                     LLM_PROVIDER="development",
                     AI_INTERNAL_TOKEN="t" * 40,
                 )
@@ -231,7 +232,14 @@ class TestProviderFactory:
 
 
 class TestAnalysisEndpoint:
-    def test_analyses_a_report(self, client: TestClient) -> None:
+    def test_analyses_a_report(self, client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+        # Pin the deterministic provider instead of inheriting it from a
+        # developer's .env (absent in CI, where LLM_PROVIDER was None and the
+        # endpoint correctly answered 503). Same pattern as test_coordinator.
+        monkeypatch.setenv("LLM_PROVIDER", "development")
+        from app.core.config import get_settings
+
+        get_settings.cache_clear()
         response = client.post(
             "/analyze/problem",
             json={
@@ -241,6 +249,7 @@ class TestAnalysisEndpoint:
                 "images": [],
             },
         )
+        get_settings.cache_clear()
 
         assert response.status_code == 200
         body = response.json()

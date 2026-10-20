@@ -70,8 +70,11 @@ export class VerificationAnalysisService {
     const claimed = await this.prisma.$transaction(async (tx) => {
       const row = await tx.resolutionEvidence.findUnique({ where: { id: evidenceId } });
       if (!row || row.aiStatus !== 'PENDING') return null;
+      // Conditional on the status just read as well (Prompt 29): a withdrawal
+      // that commits between the read and this write must not be overwritten
+      // with PROCESSING — and later AI_REVIEWED.
       const { count } = await tx.resolutionEvidence.updateMany({
-        where: { id: evidenceId, aiStatus: 'PENDING' },
+        where: { id: evidenceId, aiStatus: 'PENDING', status: row.status },
         data: {
           aiStatus: 'PROCESSING',
           aiAttempts: { increment: 1 },

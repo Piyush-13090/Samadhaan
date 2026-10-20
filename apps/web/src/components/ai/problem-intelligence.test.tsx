@@ -73,7 +73,9 @@ describe('ProblemIntelligence', () => {
       />,
     );
 
-    expect(screen.getByText(/development placeholder, not an AI model/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/development placeholder, not an AI model/i),
+    ).toBeInTheDocument();
   });
 
   it('does not warn for a real model', () => {
@@ -137,7 +139,9 @@ describe('AnalysisFailed', () => {
     expect(
       screen.getByText(/The analysis service could not be reached/),
     ).toBeInTheDocument();
-    expect(screen.getByText(/Your report has been\s+saved and is unaffected/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Your report has been\s+saved and is unaffected/),
+    ).toBeInTheDocument();
   });
 
   it('falls back to a generic reason when none was given', () => {
@@ -158,6 +162,8 @@ describe('AnalysisFailed', () => {
   it('hides retry from someone who may not trigger it', () => {
     render(<AnalysisFailed message={null} onRetry={vi.fn()} canRetry={false} />);
 
-    expect(screen.queryByRole('button', { name: /Try analysis again/i })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: /Try analysis again/i }),
+    ).not.toBeInTheDocument();
   });
 });

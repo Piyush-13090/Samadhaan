@@ -1,5 +1,8 @@
+import { MetricsService } from '../metrics/metrics.service.js';
+import { withRedisLock } from '../common/redis-lock.js';
 import {
   Injectable,
+  Optional,
   Logger,
   type OnModuleDestroy,
   type OnModuleInit,
@@ -32,6 +35,7 @@ export class CoordinatorSchedulerService implements OnModuleInit, OnModuleDestro
     private readonly context: CoordinatorContextService,
     private readonly redis: RedisService,
     private readonly config: AppConfig,
+    @Optional() private readonly metrics?: MetricsService,
   ) {}
 
   onModuleInit(): void {
@@ -49,47 +53,61 @@ export class CoordinatorSchedulerService implements OnModuleInit, OnModuleDestro
   async sweep(now: Date = new Date()): Promise<number> {
     const settings = this.config.coordinator;
     if (!settings.enabled) return 0;
-    const lock = await this.redis.connection
-      .set(LOCK_KEY, '1', 'EX', 30 * 60, 'NX')
-      .catch(() => 'OK');
-    if (lock !== 'OK') return 0;
+    let failed = false;
+    const outcome = await withRedisLock(
+      this.redis.connection,
+      LOCK_KEY,
+      30 * 60,
+      'skip',
+      async () => {
+        try {
+          const cutoff = new Date(now.getTime() - settings.minIntervalHours * 3_600_000);
+          const projects = await this.prisma.resolutionProject.findMany({
+            where: {
+              status: { in: ['PLANNED', 'ACTIVE'] },
+              room: { status: 'OPEN' },
+              // Nothing tried since the cut-off.
+              insights: { none: { generatedAt: { gte: cutoff } } },
+            },
+            orderBy: { updatedAt: 'desc' },
+            take: settings.batchSize * 3,
+          });
 
-    try {
-      const cutoff = new Date(now.getTime() - settings.minIntervalHours * 3_600_000);
-      const projects = await this.prisma.resolutionProject.findMany({
-        where: {
-          status: { in: ['PLANNED', 'ACTIVE'] },
-          room: { status: 'OPEN' },
-          // Nothing tried since the cut-off.
-          insights: { none: { generatedAt: { gte: cutoff } } },
-        },
-        orderBy: { updatedAt: 'desc' },
-        take: settings.batchSize * 3,
-      });
-
-      let analysed = 0;
-      for (const project of projects) {
-        if (analysed >= settings.batchSize) break;
-        const latest = await this.prisma.projectAIInsight.findFirst({
-          where: { projectId: project.id, status: 'COMPLETED' },
-          orderBy: { generatedAt: 'desc' },
-          select: { basedOnChangeAt: true, expiresAt: true },
-        });
-        if (latest && latest.expiresAt > now) {
-          const { lastChangeAt } = await this.context.health(project);
-          if (lastChangeAt <= latest.basedOnChangeAt) continue; // still current
+          let analysed = 0;
+          for (const project of projects) {
+            if (analysed >= settings.batchSize) break;
+            const latest = await this.prisma.projectAIInsight.findFirst({
+              where: { projectId: project.id, status: 'COMPLETED' },
+              orderBy: { generatedAt: 'desc' },
+              select: { basedOnChangeAt: true, expiresAt: true },
+            });
+            if (latest && latest.expiresAt > now) {
+              const { lastChangeAt } = await this.context.health(project);
+              if (lastChangeAt <= latest.basedOnChangeAt) continue; // still current
+            }
+            await this.coordinator.analyse(project, null, 'SCHEDULED');
+            analysed += 1;
+          }
+          return analysed;
+        } catch (error) {
+          failed = true;
+          this.logger.warn(
+            `Coordinator sweep failed: ${error instanceof Error ? error.message : 'unknown'}`,
+          );
+          return 0;
         }
-        await this.coordinator.analyse(project, null, 'SCHEDULED');
-        analysed += 1;
-      }
-      return analysed;
-    } catch (error) {
-      this.logger.warn(
-        `Coordinator sweep failed: ${error instanceof Error ? error.message : 'unknown'}`,
-      );
-      return 0;
-    } finally {
-      await this.redis.connection.del(LOCK_KEY).catch(() => undefined);
-    }
+      },
+    );
+    this.metrics?.jobRuns.inc({
+      job: 'coordinator_sweep',
+      outcome: outcome.ran
+        ? failed
+          ? 'failed'
+          : 'completed'
+        : outcome.reason === 'held'
+          ? 'skipped_held'
+          : 'skipped_redis_error',
+    });
+    return outcome.ran ? outcome.value : 0;
   }
 }

@@ -139,9 +139,7 @@ export function useAnalysisPolling(
       timer.current = setTimeout(() => void poll(), POLL_INTERVAL_MS);
     } catch (caught) {
       setError(
-        caught instanceof ApiError
-          ? caught.message
-          : 'Could not start a new analysis.',
+        caught instanceof ApiError ? caught.message : 'Could not start a new analysis.',
       );
     } finally {
       setRetrying(false);

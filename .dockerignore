@@ -1,0 +1,19 @@
+# Repository-root build context (API and web images, Prompt 30).
+# Nothing here may reach an image: secrets, VCS, caches, data, artifacts.
+.git
+.github
+**/.env
+**/.env.*
+!**/.env.example
+**/node_modules
+**/.next
+**/dist
+**/coverage
+**/.turbo
+**/.storage
+**/*.log
+.ruff_cache
+services/ai
+docs
+apps/api/scripts/perf/results
+infrastructure/database

@@ -85,9 +85,12 @@ export function InsightPanel({
           <>
             <section aria-label="AI interpretation" className="space-y-2">
               <div className="flex flex-wrap items-center gap-2">
-                <Badge tone="ai" size="sm">
-                  AI interpretation
-                </Badge>
+                {/* Only when a model actually ran (Prompt 30). */}
+                {view.model.aiRan && (
+                  <Badge tone="ai" size="sm">
+                    AI interpretation
+                  </Badge>
+                )}
                 {!view.model.aiRan && (
                   <Badge tone="neutral" size="sm">
                     No model ran — figures listed as recorded

@@ -14,7 +14,7 @@ name: samadhaan
 
 services:
   postgres:
-    # Custom image: PostGIS 3.4 on PostgreSQL 16, plus pgvector.
+    # Custom image: PostGIS 3.6 on PostgreSQL 16 (Debian trixie), plus pgvector 0.8.
     # See infrastructure/docker/postgres.Dockerfile.
     build:
       context: ./infrastructure/docker
@@ -60,7 +60,11 @@ services:
     volumes:
       - redis-data:/data
     healthcheck:
-      test: ['CMD-SHELL', 'redis-cli $${REDIS_PASSWORD:+-a "$$REDIS_PASSWORD"} --no-auth-warning ping | grep PONG']
+      test:
+        [
+          'CMD-SHELL',
+          'redis-cli $${REDIS_PASSWORD:+-a "$$REDIS_PASSWORD"} --no-auth-warning ping | grep PONG',
+        ]
       interval: 10s
       timeout: 5s
       retries: 5

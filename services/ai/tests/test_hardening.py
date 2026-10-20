@@ -23,14 +23,28 @@ def with_token(monkeypatch: pytest.MonkeyPatch):
 class TestProductionSettings:
     def test_production_requires_a_strong_token(self) -> None:
         with pytest.raises(ValidationError, match="AI_INTERNAL_TOKEN"):
-            Settings(NODE_ENV="production")
+            Settings(NODE_ENV="production", AI_LOG_LEVEL="info")
         with pytest.raises(ValidationError, match="AI_INTERNAL_TOKEN"):
-            Settings(NODE_ENV="production", AI_INTERNAL_TOKEN="short")
-        assert Settings(NODE_ENV="production", AI_INTERNAL_TOKEN=TOKEN).internal_token == TOKEN
+            Settings(NODE_ENV="production", AI_LOG_LEVEL="info", AI_INTERNAL_TOKEN="short")
+        assert (
+            Settings(
+                NODE_ENV="production", AI_LOG_LEVEL="info", AI_INTERNAL_TOKEN=TOKEN
+            ).internal_token
+            == TOKEN
+        )
 
     def test_production_refuses_wildcard_cors(self) -> None:
         with pytest.raises(ValidationError, match="AI_CORS_ORIGINS"):
-            Settings(NODE_ENV="production", AI_INTERNAL_TOKEN=TOKEN, AI_CORS_ORIGINS="*")
+            Settings(
+                NODE_ENV="production",
+                AI_LOG_LEVEL="info",
+                AI_INTERNAL_TOKEN=TOKEN,
+                AI_CORS_ORIGINS="*",
+            )
+
+    def test_production_refuses_debug_logging(self) -> None:
+        with pytest.raises(ValidationError, match="AI_LOG_LEVEL"):
+            Settings(NODE_ENV="production", AI_INTERNAL_TOKEN=TOKEN, AI_LOG_LEVEL="debug")
 
     def test_development_may_run_without_a_token(self) -> None:
         assert not Settings(NODE_ENV="development", AI_INTERNAL_TOKEN="").internal_token

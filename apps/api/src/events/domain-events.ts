@@ -1,4 +1,9 @@
-import type { PriorityTier, ProblemCategory, ProblemStatus, ReputationTier } from '@samadhaan/shared';
+import type {
+  PriorityTier,
+  ProblemCategory,
+  ProblemStatus,
+  ReputationTier,
+} from '@samadhaan/shared';
 
 /**
  * Domain events — facts about things that have already happened.

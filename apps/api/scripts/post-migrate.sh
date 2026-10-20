@@ -5,13 +5,17 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-# Same precedence the API and Prisma config use: app-local .env wins, then root.
-for candidate in .env ../../.env; do
-  if [ -f "$candidate" ]; then
-    DATABASE_URL="$(grep -E '^DATABASE_URL=' "$candidate" | tail -1 | cut -d= -f2-)"
-    [ -n "${DATABASE_URL:-}" ] && break
-  fi
-done
+# An explicit DATABASE_URL in the environment wins (containers, CI, release
+# jobs — Prompt 30). Otherwise the same precedence the API and Prisma config
+# use: app-local .env, then root.
+if [ -z "${DATABASE_URL:-}" ]; then
+  for candidate in .env ../../.env; do
+    if [ -f "$candidate" ]; then
+      DATABASE_URL="$(grep -E '^DATABASE_URL=' "$candidate" | tail -1 | cut -d= -f2-)"
+      [ -n "${DATABASE_URL:-}" ] && break
+    fi
+  done
+fi
 
 if [ -z "${DATABASE_URL:-}" ]; then
   echo "post-migrate: DATABASE_URL is not set; skipping." >&2

@@ -53,6 +53,13 @@ describe('AppConfig', () => {
       AI_SERVICE_TOKEN: 'k'.repeat(20) + 'm'.repeat(20),
       AUTH_COOKIE_SECURE: 'true',
       CORS_ORIGINS: 'https://samadhaan.app',
+      PUBLIC_API_URL: 'https://api.samadhaan.app',
+      REDIS_URL: 'redis://:strong-redis-password@redis:6379',
+      STORAGE_PROVIDER: 's3',
+      STORAGE_BUCKET: 'samadhaan-media',
+      STORAGE_REGION: 'ap-south-1',
+      STORAGE_ACCESS_KEY_ID: 'AKIATESTONLY',
+      STORAGE_SECRET_ACCESS_KEY: 'test-only-secret',
     };
     expect(createConfig(production).isProduction).toBe(true);
     expect(createConfig(production).isDevelopment).toBe(false);

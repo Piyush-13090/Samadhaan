@@ -204,10 +204,10 @@ export function ProjectEvidencePanel({ projectId }: { projectId: string }) {
                 <EvidenceCard
                   evidence={e}
                   onWithdraw={() =>
-                    void act(() => withdrawEvidence(e.id), 'Evidence withdrawn')
+                    act(() => withdrawEvidence(e.id), 'Evidence withdrawn')
                   }
                   onAnalyze={() =>
-                    void act(() => analyzeEvidence(e.id), 'AI review requested')
+                    act(() => analyzeEvidence(e.id), 'AI review requested')
                   }
                 />
                 {view.canSubmitEvidence &&

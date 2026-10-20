@@ -3,22 +3,19 @@ import {
   Features,
   Hero,
   HowItWorks,
-  PlatformStats,
 } from '@/components/marketing/landing-sections';
-import { PLATFORM_STATS } from '@/data/activity';
 
 /**
  * Landing page.
  *
- * Structure is established here; copy and sections are refined in later
- * milestones. Figures come from `@/data` fixtures and are passed down as props
- * — when a public stats endpoint exists, only this file changes.
+ * No platform figures are shown (Prompt 30): the earlier stats band displayed
+ * fixture numbers as if they were real. `PlatformStats` can return once a
+ * public statistics endpoint provides measured figures.
  */
 export default function LandingPage() {
   return (
     <>
       <Hero />
-      <PlatformStats stats={PLATFORM_STATS} />
       <HowItWorks />
       <Features />
       <CallToAction />

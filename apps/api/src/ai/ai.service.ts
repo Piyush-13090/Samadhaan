@@ -541,6 +541,51 @@ export class AiService {
     return parseSearchUnderstanding(result.value);
   }
 
+  /**
+   * Asks the AI service to load and check a registry artifact (Prompt 28):
+   * present, sha256 matching, schema versions supported. Used before every
+   * activation and rollback. Returns the service's report, or the failure code.
+   */
+  async verifyModelArtifact(
+    ref: { task: string; version: string; sha256: string },
+    requestId?: string,
+  ): Promise<
+    | { ok: true; report: Record<string, unknown> }
+    | { ok: false; code: string; status: number | null }
+  > {
+    const result = await this.client.post<Record<string, unknown>>(
+      '/models/verify',
+      ref,
+      {
+        requestId,
+        timeoutMs: 15_000,
+      },
+    );
+    if (result.ok) return { ok: true, report: result.value };
+    return { ok: false, ...modelFailure(result.error) };
+  }
+
+  /**
+   * One prediction from an exact registry artifact (Prompt 28). The raw body is
+   * returned for the caller to validate against the task; failures carry a code
+   * (`INPUT_SCHEMA`, `ARTIFACT_*`, `TIMEOUT`, `UNAVAILABLE`) for monitoring.
+   */
+  async predictWithModel(
+    ref: { task: string; version: string; sha256: string },
+    input: Record<string, unknown>,
+    options: { timeoutMs: number; requestId?: string },
+  ): Promise<
+    { ok: true; body: unknown } | { ok: false; code: string; status: number | null }
+  > {
+    const result = await this.client.post<unknown>(
+      '/models/predict',
+      { ...ref, input },
+      options,
+    );
+    if (result.ok) return { ok: true, body: result.value };
+    return { ok: false, ...modelFailure(result.error) };
+  }
+
   /** Maps a transport or HTTP failure onto the structured failure shape. */
   private toFailure(error: Error): AiAnalysisFailure {
     if (error instanceof AiRequestError) {
@@ -584,4 +629,17 @@ export class AiService {
     });
     return result.ok ? result.value : null;
   }
+}
+
+/** Failure code for a model call: the AI service's own code when it sent one. */
+function modelFailure(error: Error): { code: string; status: number | null } {
+  if (error instanceof AiRequestError) {
+    const body = error.body as { code?: unknown } | null;
+    const code = typeof body?.code === 'string' ? body.code.slice(0, 40) : 'ERROR';
+    return { code, status: error.status };
+  }
+  return {
+    code: /timed out/.test(error.message) ? 'TIMEOUT' : 'UNAVAILABLE',
+    status: null,
+  };
 }

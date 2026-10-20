@@ -4,7 +4,10 @@ import { ArrowRight, CheckCircle2, Plus } from 'lucide-react';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import type { ProblemView } from '@samadhaan/shared';
-import { AnalysisFailed, ProblemIntelligence } from '@/components/ai/problem-intelligence';
+import {
+  AnalysisFailed,
+  ProblemIntelligence,
+} from '@/components/ai/problem-intelligence';
 import { AnalysisProcessing } from '@/components/ai/analysis-processing';
 import { SimilarProblemsPanel } from '@/components/ai/similar-problems-panel';
 import { Button } from '@/components/ui/button';
@@ -51,8 +54,8 @@ export function ReportSuccess({ problem }: { problem: ProblemView }) {
           <p className="mt-1 font-mono type-h3 tabular text-ink">{problem.publicId}</p>
 
           <p className="mt-5 type-body text-ink-muted">
-            Samadhaan will review your report and help route it to the right people.
-            You can follow its progress at any time using the reference above.
+            Samadhaan will review your report and help route it to the right people. You
+            can follow its progress at any time using the reference above.
           </p>
         </CardBody>
       </Card>

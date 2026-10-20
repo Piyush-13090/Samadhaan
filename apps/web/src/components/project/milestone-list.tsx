@@ -9,7 +9,7 @@ import { Field } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
 import { Modal, ModalClose, ModalContent } from '@/components/ui/modal';
 import { ProgressBar } from '@/components/ui/progress-bar';
-import { EmptyState } from '@/components/ui/states';
+import { EmptyState, ErrorState } from '@/components/ui/states';
 import { Textarea } from '@/components/ui/textarea';
 import { ApiError } from '@/lib/api-error';
 import { formatDay } from '@/lib/project';
@@ -26,8 +26,13 @@ export function MilestoneList({
   minDate,
   onCreate,
   onToggle,
+  loadFailed = false,
+  onRetry,
 }: {
   milestones: MilestoneView[] | null;
+  /** The list could not be loaded (Prompt 30): show it, instead of loading forever. */
+  loadFailed?: boolean;
+  onRetry?: () => void;
   canManage: boolean;
   minDate: string | null;
   onCreate: (input: {
@@ -59,7 +64,13 @@ export function MilestoneList({
         }
       />
       <CardBody>
-        {milestones === null ? (
+        {milestones === null && loadFailed ? (
+          <ErrorState
+            size="sm"
+            title="Milestones could not be loaded"
+            onRetry={onRetry}
+          />
+        ) : milestones === null ? (
           <p className="type-body-sm text-ink-muted">Loading milestones…</p>
         ) : milestones.length === 0 ? (
           <EmptyState

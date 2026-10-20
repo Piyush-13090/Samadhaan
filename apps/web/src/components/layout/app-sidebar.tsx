@@ -96,16 +96,18 @@ export function AppSidebar({
       </nav>
 
       <div className="shrink-0 border-t border-border px-2.5 py-3">
-        <ul className="space-y-0.5">
-          {SECONDARY_NAV.map((item) => (
-            <SidebarLink
-              key={item.href}
-              item={item}
-              collapsed={collapsed}
-              active={isActivePath(pathname, item.href)}
-            />
-          ))}
-        </ul>
+        {SECONDARY_NAV.length > 0 && (
+          <ul className="space-y-0.5">
+            {SECONDARY_NAV.map((item) => (
+              <SidebarLink
+                key={item.href}
+                item={item}
+                collapsed={collapsed}
+                active={isActivePath(pathname, item.href)}
+              />
+            ))}
+          </ul>
+        )}
 
         <button
           type="button"

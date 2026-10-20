@@ -7,7 +7,11 @@
       "type": "NGO",
       "description": "Road safety advocacy, pothole reporting drives and safer streets for two-wheeler riders and pedestrians.",
       "expertise": [
-        { "category": "ROADS", "subcategory": "Road infrastructure", "level": "SPECIALIST" },
+        {
+          "category": "ROADS",
+          "subcategory": "Road infrastructure",
+          "level": "SPECIALIST"
+        },
         { "category": "POTHOLES", "subcategory": null, "level": "EXPERIENCED" },
         { "category": "TRAFFIC", "subcategory": "Urban safety", "level": "EXPERIENCED" }
       ],
@@ -21,7 +25,11 @@
       "description": "University transport research lab studying urban mobility and monitoring road surface condition with computer vision.",
       "expertise": [
         { "category": "TRAFFIC", "subcategory": "Smart mobility", "level": "SPECIALIST" },
-        { "category": "ROADS", "subcategory": "Infrastructure research", "level": "INTERESTED" }
+        {
+          "category": "ROADS",
+          "subcategory": "Infrastructure research",
+          "level": "INTERESTED"
+        }
       ],
       "location": [28.4721, 77.0891],
       "city": "Gurugram"
@@ -32,8 +40,16 @@
       "type": "NGO",
       "description": "Waste management and community development: door-to-door collection, segregation awareness and neighbourhood clean-up drives.",
       "expertise": [
-        { "category": "GARBAGE", "subcategory": "Waste management", "level": "SPECIALIST" },
-        { "category": "SANITATION", "subcategory": "Community development", "level": "EXPERIENCED" }
+        {
+          "category": "GARBAGE",
+          "subcategory": "Waste management",
+          "level": "SPECIALIST"
+        },
+        {
+          "category": "SANITATION",
+          "subcategory": "Community development",
+          "level": "EXPERIENCED"
+        }
       ],
       "location": [28.4652, 77.0412],
       "city": "Gurugram"
@@ -45,7 +61,11 @@
       "description": "Water supply engineering contractor: pipeline repair, leak detection and drain desilting.",
       "expertise": [
         { "category": "WATER", "subcategory": "Pipeline repair", "level": "SPECIALIST" },
-        { "category": "DRAINAGE", "subcategory": "Drain desilting", "level": "EXPERIENCED" }
+        {
+          "category": "DRAINAGE",
+          "subcategory": "Drain desilting",
+          "level": "EXPERIENCED"
+        }
       ],
       "location": [28.4402, 77.0512],
       "city": "Gurugram"
@@ -57,7 +77,11 @@
       "description": "Hydrology research on urban flooding, stormwater modelling and flood risk mapping.",
       "expertise": [
         { "category": "DRAINAGE", "subcategory": "Flood mapping", "level": "SPECIALIST" },
-        { "category": "WATER", "subcategory": "Urban water systems", "level": "EXPERIENCED" }
+        {
+          "category": "WATER",
+          "subcategory": "Urban water systems",
+          "level": "EXPERIENCED"
+        }
       ],
       "location": [28.5011, 77.0802],
       "city": "Gurugram"
@@ -68,7 +92,11 @@
       "type": "INDUSTRY",
       "description": "Street lighting contractor installing and maintaining LED street lights and electrical poles.",
       "expertise": [
-        { "category": "STREETLIGHTS", "subcategory": "LED retrofits", "level": "SPECIALIST" },
+        {
+          "category": "STREETLIGHTS",
+          "subcategory": "LED retrofits",
+          "level": "SPECIALIST"
+        },
         { "category": "ELECTRICITY", "subcategory": null, "level": "EXPERIENCED" }
       ],
       "location": [28.4489, 77.0623],

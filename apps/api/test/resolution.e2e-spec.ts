@@ -69,7 +69,9 @@ describe('Resolution rooms (e2e)', () => {
     await app.init();
     registerNotFoundHandler(app);
     server = app.getHttpServer();
-    await new Promise<void>((resolve) => server.listen(0, resolve));
+    // Bound to 127.0.0.1, the address the stream requests below connect to
+    // (see the loopback note in setup-e2e.ts).
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
     port = (server.address() as AddressInfo).port;
 
     prisma = app.get(PrismaService);
@@ -685,6 +687,42 @@ describe('Resolution rooms (e2e)', () => {
       await upload('owner').expect(400);
     });
 
+    it('strips EXIF (including GPS) from room images before storing them (Prompt 29)', async () => {
+      const tagged = await sharp({
+        create: {
+          width: 64,
+          height: 48,
+          channels: 3,
+          background: { r: 10, g: 120, b: 60 },
+        },
+      })
+        .jpeg()
+        .withExif({
+          IFD0: { Make: 'TestCam' },
+          IFD3: { GPSLatitudeRef: 'N', GPSLatitude: '18/1 31/1 12/1' },
+        })
+        .toBuffer();
+      // The fixture really carries GPS, so the assertion below is meaningful.
+      expect((await sharp(tagged).metadata()).exif).toBeDefined();
+
+      const uploaded = await upload('owner')
+        .attach('file', tagged, 'site.jpg')
+        .expect(201);
+      // Unsent, so only its uploader may fetch it.
+      const file = await api('owner')
+        .get(room(`/attachments/${uploaded.body.data.id}/file`))
+        .buffer(true)
+        .parse((res, done) => {
+          const chunks: Buffer[] = [];
+          res.on('data', (c: Buffer) => chunks.push(c));
+          res.on('end', () => done(null, Buffer.concat(chunks)));
+        })
+        .expect(200);
+      const stored = await sharp(file.body as Buffer).metadata();
+      expect(stored.exif).toBeUndefined();
+      expect(stored.width).toBe(64);
+    });
+
     it('refuses uploads from non-participants', async () => {
       await upload('other')
         .attach('file', await png(), 'x.png')
@@ -910,15 +948,46 @@ describe('Resolution rooms (e2e)', () => {
   // ================================================================== close
 
   describe('closing', () => {
-    it('is for the allocating office, with a reason', async () => {
+    it('refuses to close while the problem is still being worked on (Prompt 30)', async () => {
+      const view = await api('official').get(room('')).expect(200);
+      expect(view.body.data.viewer.canClose).toBe(false);
+      const refused = await api('official')
+        .post(room('/close'), { reason: 'Work handed over to the ward team.' })
+        .expect(409);
+      expect(refused.body.error.message).toMatch(/withdraw the allocation/i);
+      const roomRow = await prisma.resolutionRoom.findUniqueOrThrow({
+        where: { id: roomId },
+      });
+      expect(roomRow.status).toBe('OPEN');
+      expect(
+        await prisma.auditLog.count({
+          where: { entityId: roomId, action: 'RESOLUTION_ROOM_CLOSED' },
+        }),
+      ).toBe(0);
+      const problem = await prisma.problem.findUniqueOrThrow({
+        where: { id: problems.room!.id },
+      });
+      expect(problem.status).toBe('IN_PROGRESS');
+    });
+
+    it('closes once the work is over, for the allocating office, with a reason', async () => {
+      // The approval workflow that resolves a problem is exercised end to end in
+      // verification.e2e and journeys.e2e; here the room only needs the outcome.
+      await prisma.problem.update({
+        where: { id: problems.room!.id },
+        data: { status: 'RESOLVED', resolvedAt: new Date() },
+      });
+      expect(
+        (await api('official').get(room('')).expect(200)).body.data.viewer.canClose,
+      ).toBe(true);
       await api('owner').post(room('/close'), { reason: 'Done' }).expect(403);
       await api('official').post(room('/close'), {}).expect(400);
       const response = await api('official')
-        .post(room('/close'), { reason: 'Work handed over to the ward team.' })
+        .post(room('/close'), { reason: 'Resolution approved; room archived.' })
         .expect(200);
       expect(response.body.data).toMatchObject({
         status: 'CLOSED',
-        closeReason: 'Work handed over to the ward team.',
+        closeReason: 'Resolution approved; room archived.',
         viewer: { canPost: false, canClose: false },
       });
       expect(
@@ -935,7 +1004,7 @@ describe('Resolution rooms (e2e)', () => {
       await api('official').post(room('/close'), { reason: 'Again' }).expect(409);
     });
 
-    it('tells the other participants, and the problem stays in progress', async () => {
+    it('tells the other participants, and leaves the resolved problem resolved', async () => {
       await bus.drain();
       const recipients = (
         await prisma.notification.findMany({
@@ -948,7 +1017,7 @@ describe('Resolution rooms (e2e)', () => {
       const problem = await prisma.problem.findUniqueOrThrow({
         where: { id: problems.room!.id },
       });
-      expect(problem.status).toBe('IN_PROGRESS');
+      expect(problem.status).toBe('RESOLVED');
     });
   });
 });

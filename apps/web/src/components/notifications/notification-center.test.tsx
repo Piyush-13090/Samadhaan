@@ -186,9 +186,10 @@ describe('NotificationCenter', () => {
     });
     await user.click(dismiss);
 
+    // Shown, and announced through the toast live region (Prompt 30).
     expect(
-      await screen.findByText("Couldn't dismiss the notification"),
-    ).toBeInTheDocument();
+      (await screen.findAllByText("Couldn't dismiss the notification")).length,
+    ).toBeGreaterThan(0);
     expect(
       screen.getByRole('link', { name: /New reply to your comment/ }),
     ).toBeInTheDocument();

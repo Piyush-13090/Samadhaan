@@ -25,14 +25,6 @@ export const MY_IMPACT: ImpactStat[] = [
   },
 ];
 
-/** City-wide figures for the landing page. */
-export const PLATFORM_STATS: ImpactStat[] = [
-  { id: 'reported', label: 'Problems reported', value: 12480 },
-  { id: 'resolved', label: 'Problems resolved', value: 8912 },
-  { id: 'orgs', label: 'Partner organisations', value: 164 },
-  { id: 'citizens', label: 'Active citizens', value: 31200 },
-];
-
 export const SUGGESTIONS: SuggestionSummary[] = [
   {
     id: 'sug-1',

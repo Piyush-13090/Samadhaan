@@ -26,10 +26,7 @@ export function AnalysisProcessing({
   elapsedMs: number;
   className?: string;
 }) {
-  const activeStage = Math.min(
-    Math.floor(elapsedMs / 1600),
-    ANALYSIS_STAGES.length - 1,
-  );
+  const activeStage = Math.min(Math.floor(elapsedMs / 1600), ANALYSIS_STAGES.length - 1);
 
   return (
     <section
@@ -42,9 +39,7 @@ export function AnalysisProcessing({
         <Spinner className="size-4 text-ai" label={null} />
       </div>
 
-      <h3 className="mt-4 type-h4 text-ink">
-        Samadhaan AI is analysing your report
-      </h3>
+      <h3 className="mt-4 type-h4 text-ink">Samadhaan AI is analysing your report</h3>
       <p className="mt-1 type-body-sm text-ink-muted">
         This usually takes a few seconds.
       </p>
@@ -66,7 +61,9 @@ export function AnalysisProcessing({
                 )}
               >
                 {done && <Check className="size-3" strokeWidth={3} />}
-                {active && <span className="size-1.5 animate-shimmer rounded-full bg-ai" />}
+                {active && (
+                  <span className="size-1.5 animate-shimmer rounded-full bg-ai" />
+                )}
               </span>
 
               <span

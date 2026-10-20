@@ -56,6 +56,9 @@ interface CandidateRow {
  * action, in `confirm()` below.
  */
 /** Statuses from which a reporter may confirm their report as a duplicate. */
+/** Pair statuses a person has not ruled on: the only ones a verdict or a re-score may replace. */
+const UNREVIEWED_PAIR_STATUSES = ['PENDING', 'LIKELY_DUPLICATE'] as const;
+
 const DUPLICATE_CONFIRMABLE_STATUSES: readonly ProblemStatus[] = [
   'SUBMITTED',
   'UNDER_REVIEW',
@@ -409,16 +412,26 @@ export class DuplicateDetectionService {
             : ('PENDING' as const),
       };
 
-      await this.prisma.problemDuplicateCandidate.upsert({
-        where: {
-          problemId_candidateProblemId: {
-            problemId,
-            candidateProblemId: entry.candidate.id,
-          },
-        },
-        update: signals,
-        create: { problemId, candidateProblemId: entry.candidate.id, ...signals },
-      });
+      // Never overwrite a human verdict (Prompt 29). The check above is a
+      // read; a person may rule between it and this write, so the update is
+      // conditional on the pair still being unreviewed.
+      if (existing) {
+        const { count } = await this.prisma.problemDuplicateCandidate.updateMany({
+          where: { id: existing.id, status: { in: [...UNREVIEWED_PAIR_STATUSES] } },
+          data: signals,
+        });
+        if (count === 0) continue;
+      } else {
+        try {
+          await this.prisma.problemDuplicateCandidate.create({
+            data: { problemId, candidateProblemId: entry.candidate.id, ...signals },
+          });
+        } catch (error) {
+          // Another run created the pair first; its row stands.
+          if ((error as { code?: string }).code === 'P2002') continue;
+          throw error;
+        }
+      }
 
       stored += 1;
     }
@@ -521,14 +534,20 @@ export class DuplicateDetectionService {
     }
 
     const changeId = await this.prisma.$transaction(async (tx) => {
-      await tx.problemDuplicateCandidate.update({
-        where: { id: candidate.id },
+      // Conditional (Prompt 29): a verdict is recorded once. A concurrent
+      // reject that committed first makes this a 409, never a pair marked
+      // NOT_DUPLICATE on a problem merged as its duplicate.
+      const verdict = await tx.problemDuplicateCandidate.updateMany({
+        where: { id: candidate.id, status: { in: [...UNREVIEWED_PAIR_STATUSES] } },
         data: {
           status: 'CONFIRMED_DUPLICATE',
           reviewedById: reviewer.id,
           reviewedAt: new Date(),
         },
       });
+      if (verdict.count !== 1) {
+        throw AppException.conflict('This pair has already been reviewed.');
+      }
 
       // Conditional on the status read above, so a concurrent review wins.
       const moved = await tx.problem.updateMany({
@@ -594,14 +613,18 @@ export class DuplicateDetectionService {
   ): Promise<void> {
     const candidate = await this.loadPair(candidateId, problemId);
 
-    await this.prisma.problemDuplicateCandidate.update({
-      where: { id: candidate.id },
+    // Conditional, like `confirm` (Prompt 29): the first verdict stands.
+    const verdict = await this.prisma.problemDuplicateCandidate.updateMany({
+      where: { id: candidate.id, status: { in: [...UNREVIEWED_PAIR_STATUSES] } },
       data: {
         status: 'NOT_DUPLICATE',
         reviewedById: reviewer.id,
         reviewedAt: new Date(),
       },
     });
+    if (verdict.count !== 1) {
+      throw AppException.conflict('This pair has already been reviewed.');
+    }
 
     this.logger.log(
       `Duplicate pair ${candidate.id} marked not-a-duplicate by ${reviewer.id}`,

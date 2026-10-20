@@ -16,6 +16,7 @@ from app.api.routes import (
     insights,
     knowledge,
     matching,
+    models,
     priority,
     search,
     verification,
@@ -32,3 +33,4 @@ api_router.include_router(priority.router)
 api_router.include_router(verification.router)
 api_router.include_router(insights.router)
 api_router.include_router(search.router)
+api_router.include_router(models.router)

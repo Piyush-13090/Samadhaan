@@ -47,6 +47,10 @@ class Settings(BaseSettings):
     llm_api_key: str | None = Field(default=None, alias="LLM_API_KEY")
     llm_model: str | None = Field(default=None, alias="LLM_MODEL")
     llm_timeout_seconds: float = Field(default=60.0, alias="LLM_TIMEOUT_SECONDS")
+    # Upper bound on one provider call including the SDK's retries (Prompt 29).
+    # Kept below the API's shortest LLM timeout (60 s); a caller that sends
+    # `x-deadline-ms` gets the tighter of the two. See app/core/deadline.py.
+    llm_deadline_seconds: float = Field(default=55.0, gt=0, alias="LLM_DEADLINE_SECONDS")
 
     @property
     def default_llm_model(self) -> str:
@@ -87,6 +91,12 @@ class Settings(BaseSettings):
     matching_weight_capability: float = Field(default=0.05, alias="MATCHING_WEIGHT_CAPABILITY")
     matching_weight_activity: float = Field(default=0.05, alias="MATCHING_WEIGHT_ACTIVITY")
 
+    # --- Locally trained models (Prompt 28) -----------------------------------
+    # Directory holding registry artifacts (<task>/<version>/model.json and
+    # manifest.json). Never committed. Only versions the API's registry has
+    # approved and activated are ever requested, by exact sha256.
+    ml_artifact_dir: str = Field(default="./ml_artifacts", alias="ML_ARTIFACT_DIR")
+
     @model_validator(mode="after")
     def _production_safety(self) -> Settings:
         """Refuse to start in production with an unauthenticated or open service.
@@ -99,6 +109,9 @@ class Settings(BaseSettings):
                 raise ValueError("AI_INTERNAL_TOKEN must be set (32+ characters) in production")
             if "*" in self.cors_origins:
                 raise ValueError("AI_CORS_ORIGINS may not contain '*' in production")
+            # Prompt 30: debug logging can include request detail.
+            if self.log_level.lower() in {"debug", "trace"}:
+                raise ValueError("AI_LOG_LEVEL must not be debug or trace in production")
         return self
 
     @property

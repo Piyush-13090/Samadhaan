@@ -72,6 +72,13 @@ export class AppConfig {
     return this.get('AI_SERVICE_URL').replace(/\/+$/, '');
   }
 
+  get aiCircuit(): { failureThreshold: number; resetMs: number } {
+    return {
+      failureThreshold: this.get('AI_CIRCUIT_FAILURE_THRESHOLD'),
+      resetMs: this.get('AI_CIRCUIT_RESET_SECONDS') * 1000,
+    };
+  }
+
   get aiServiceTimeoutMs(): number {
     return this.get('AI_SERVICE_TIMEOUT_MS');
   }
@@ -118,6 +125,31 @@ export class AppConfig {
 
   get storageProvider(): Env['STORAGE_PROVIDER'] {
     return this.get('STORAGE_PROVIDER');
+  }
+
+  get metricsToken(): string | undefined {
+    return this.get('METRICS_TOKEN');
+  }
+
+  /** S3-compatible storage settings, or null when the local driver is used. */
+  get s3Storage(): {
+    bucket: string;
+    region: string;
+    accessKeyId: string;
+    secretAccessKey: string;
+    endpoint: string | undefined;
+    forcePathStyle: boolean;
+  } | null {
+    if (this.get('STORAGE_PROVIDER') !== 's3') return null;
+    return {
+      // Presence is guaranteed by storageIssues() at startup.
+      bucket: this.get('STORAGE_BUCKET') ?? '',
+      region: this.get('STORAGE_REGION') ?? '',
+      accessKeyId: this.get('STORAGE_ACCESS_KEY_ID') ?? '',
+      secretAccessKey: this.get('STORAGE_SECRET_ACCESS_KEY') ?? '',
+      endpoint: this.get('STORAGE_ENDPOINT'),
+      forcePathStyle: this.get('STORAGE_FORCE_PATH_STYLE'),
+    };
   }
 
   get storageLocalRoot(): string {
@@ -281,6 +313,19 @@ export class AppConfig {
     };
   }
 
+  /** Registry-backed model inference and monitoring (Prompt 28). */
+  get ml(): MlConfig {
+    return {
+      inferenceEnabled: this.get('ML_INFERENCE_ENABLED'),
+      inferenceTimeoutMs: this.get('ML_INFERENCE_TIMEOUT_MS'),
+      activeCacheSeconds:
+        this.nodeEnv === 'test' ? 0 : this.get('ML_ACTIVE_CACHE_SECONDS'),
+      retentionDays: this.get('ML_MONITORING_RETENTION_DAYS'),
+      driftPsiWarn: this.get('ML_DRIFT_PSI_WARN'),
+      minSamples: this.get('ML_MONITORING_MIN_SAMPLES'),
+    };
+  }
+
   get search(): SearchConfig {
     const test = this.nodeEnv === 'test';
     return {
@@ -438,6 +483,15 @@ export interface RagConfig {
   queryCacheSeconds: number;
   coordinatorTopK: number;
   sweepOnStartup: boolean;
+}
+
+export interface MlConfig {
+  inferenceEnabled: boolean;
+  inferenceTimeoutMs: number;
+  activeCacheSeconds: number;
+  retentionDays: number;
+  driftPsiWarn: number;
+  minSamples: number;
 }
 
 export interface SearchConfig {

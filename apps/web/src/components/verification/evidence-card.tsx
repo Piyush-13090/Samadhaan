@@ -2,9 +2,11 @@
 
 import { FileText, Film, MapPin, RefreshCw, Undo2 } from 'lucide-react';
 import type { EvidenceView } from '@samadhaan/shared';
+import { useState } from 'react';
 import { Alert } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Modal, ModalContent } from '@/components/ui/modal';
 import { formatDateTime, formatRelativeTime } from '@/lib/format';
 import {
   EVIDENCE_STATUS_DISPLAY,
@@ -24,9 +26,26 @@ export function EvidenceCard({
   onAnalyze,
 }: {
   evidence: EvidenceView;
-  onWithdraw?: () => void;
-  onAnalyze?: () => void;
+  onWithdraw?: () => void | Promise<unknown>;
+  onAnalyze?: () => void | Promise<unknown>;
 }) {
+  // Prompt 30: withdrawal is confirmed, and both actions show progress and
+  // ignore repeat clicks while a request is in flight.
+  const [busy, setBusy] = useState<'withdraw' | 'analyze' | null>(null);
+  const [confirming, setConfirming] = useState(false);
+  async function run(
+    kind: 'withdraw' | 'analyze',
+    action: () => void | Promise<unknown>,
+  ) {
+    if (busy) return;
+    setBusy(kind);
+    try {
+      await action();
+    } finally {
+      setBusy(null);
+    }
+  }
+
   const status = EVIDENCE_STATUS_DISPLAY[evidence.status];
   const aiRunning = evidence.aiStatus === 'PENDING' || evidence.aiStatus === 'PROCESSING';
   return (
@@ -138,20 +157,47 @@ export function EvidenceCard({
               size="sm"
               variant="ghost"
               leadingIcon={<RefreshCw />}
-              onClick={onAnalyze}
+              loading={busy === 'analyze'}
+              disabled={busy !== null}
+              onClick={() => void run('analyze', onAnalyze)}
             >
               Run AI review again
             </Button>
           )}
           {onWithdraw && evidence.permissions.canWithdraw && (
-            <Button
-              size="sm"
-              variant="ghost"
-              leadingIcon={<Undo2 />}
-              onClick={onWithdraw}
-            >
-              Withdraw
-            </Button>
+            <Modal open={confirming} onOpenChange={setConfirming}>
+              <Button
+                size="sm"
+                variant="ghost"
+                leadingIcon={<Undo2 />}
+                disabled={busy !== null}
+                onClick={() => setConfirming(true)}
+              >
+                Withdraw
+              </Button>
+              <ModalContent
+                title="Withdraw this evidence?"
+                description="It will no longer be considered for verification. You can submit new evidence afterwards."
+                size="sm"
+                footer={
+                  <>
+                    <Button variant="secondary" onClick={() => setConfirming(false)}>
+                      Keep it
+                    </Button>
+                    <Button
+                      variant="danger"
+                      loading={busy === 'withdraw'}
+                      onClick={async () => {
+                        await run('withdraw', onWithdraw);
+                        setConfirming(false);
+                      }}
+                    >
+                      Withdraw evidence
+                    </Button>
+                  </>
+                }
+              />
+            </Modal>
           )}
         </div>
       )}

@@ -7,6 +7,19 @@
 > Duplicate detection has its own detailed document:
 > [`ML_DUPLICATE_DETECTION.md`](./ML_DUPLICATE_DETECTION.md).
 >
+> **Prompt 28 — model lifecycle.** The "Later" items below that call for a
+> trained model now have the infrastructure they need: a validated dataset
+> pipeline, leakage-aware splits, evaluation, a controlled training CLI, a
+> model registry with approval, activation and rollback, advisory serving and
+> monitoring. **No model has been trained on real data**, because no
+> human-reviewed labelled dataset exists yet; every "Later" remains later. The
+> current state of each capability is in
+> [`ML_CAPABILITY_INVENTORY.md`](./ML_CAPABILITY_INVENTORY.md). See also
+> [`ML_DATASETS.md`](./ML_DATASETS.md), [`ML_EVALUATION.md`](./ML_EVALUATION.md),
+> [`ML_TRAINING.md`](./ML_TRAINING.md), [`MODEL_REGISTRY.md`](./MODEL_REGISTRY.md),
+> [`MODEL_LIFECYCLE.md`](./MODEL_LIFECYCLE.md) and
+> [`MODEL_MONITORING.md`](./MODEL_MONITORING.md).
+>
 > There are no placeholder classifiers and no random scores anywhere in this
 > repository. A fabricated AI response is worse than an absent one — it is
 > indistinguishable from a broken real one, it invites UI to be built on a
@@ -403,7 +416,9 @@ never auto-closes; and a sample of closures is audited regardless of score.
 | Vision-language provider interface | `services/ai/app/providers/base.py` |
 | Provider factory with production guards | `services/ai/app/providers/factory.py` |
 | Canonical taxonomy and normalisation | `services/ai/app/core/taxonomy.py` |
-| Model wrapper location | `services/ai/app/models/` (empty by design) |
+| Registry-backed model serving (JSON artifacts, sha256-verified) | `services/ai/app/models/` (Prompt 28) |
+| Dataset pipeline, splits, metrics, training CLI | `services/ai/ml/` (Prompt 28) |
+| Model registry, lifecycle, advisory inference, monitoring | `apps/api/src/ml/` (Prompt 28) |
 | Typed client from NestJS | `apps/api/src/ai/ai.client.ts` |
 | Application-facing AI entry point | `apps/api/src/ai/ai.service.ts` |
 | Analysis lifecycle and retry policy | `apps/api/src/problems/services/problem-analysis.service.ts` |

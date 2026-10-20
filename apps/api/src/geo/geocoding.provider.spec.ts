@@ -129,3 +129,28 @@ describe('NominatimGeocodingProvider', () => {
     vi.useRealTimers();
   });
 });
+
+describe('upstream rate gate (Prompt 29)', () => {
+  it('refuses lookups that would queue past the wait limit, without taking a slot', async () => {
+    vi.useFakeTimers();
+    try {
+      const fetchImpl = vi.fn(
+        async () => new Response(JSON.stringify([]), { status: 200 }),
+      ) as unknown as typeof fetch;
+      // One call per second upstream: the 12th caller would wait 11 s.
+      const provider = new NominatimGeocodingProvider(config, fetchImpl, 1000);
+      const calls = Array.from({ length: 12 }, () =>
+        provider.search('sector 12', 5).then(
+          () => 'ok',
+          (e: unknown) => (e instanceof GeocodingUnavailableError ? 'busy' : 'error'),
+        ),
+      );
+      await vi.advanceTimersByTimeAsync(15_000);
+      const results = await Promise.all(calls);
+      expect(results.filter((r) => r === 'ok')).toHaveLength(11);
+      expect(results.at(-1)).toBe('busy');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

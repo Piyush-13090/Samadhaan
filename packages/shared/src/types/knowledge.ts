@@ -22,7 +22,13 @@ export const KNOWLEDGE_SOURCE_TYPES = [
 ] as const;
 export type KnowledgeSourceType = (typeof KNOWLEDGE_SOURCE_TYPES)[number];
 
-export const KNOWLEDGE_VISIBILITIES = ['PUBLIC', 'GOVERNMENT', 'ORGANIZATION', 'PROJECT', 'PRIVATE'] as const;
+export const KNOWLEDGE_VISIBILITIES = [
+  'PUBLIC',
+  'GOVERNMENT',
+  'ORGANIZATION',
+  'PROJECT',
+  'PRIVATE',
+] as const;
 export type KnowledgeVisibility = (typeof KNOWLEDGE_VISIBILITIES)[number];
 
 export type KnowledgeIngestionStatus = 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED';
@@ -35,7 +41,12 @@ export const KNOWLEDGE_DESCRIPTION_MAX = 2000;
 export const KNOWLEDGE_INLINE_TEXT_MAX = 500_000;
 export const KNOWLEDGE_UPLOAD_MAX_BYTES = 10 * 1024 * 1024;
 export const KNOWLEDGE_QUESTION_MAX = 1000;
-export const KNOWLEDGE_UPLOAD_TYPES = ['text/plain', 'text/markdown', 'text/html', 'application/pdf'] as const;
+export const KNOWLEDGE_UPLOAD_TYPES = [
+  'text/plain',
+  'text/markdown',
+  'text/html',
+  'application/pdf',
+] as const;
 
 export interface KnowledgeSourceView {
   id: string;
@@ -122,7 +133,12 @@ export interface KnowledgeAnswerView {
   weakRetrieval: boolean;
   suggestions: string[];
   sources: KnowledgeCitation[];
-  model: { provider: string; name: string; version: string; promptVersion: string } | null;
+  model: {
+    provider: string;
+    name: string;
+    version: string;
+    promptVersion: string;
+  } | null;
   retrieval: {
     embeddingModel: string;
     embeddingVersion: string;

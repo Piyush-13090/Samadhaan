@@ -118,12 +118,7 @@ export function SimilarProblemCard({
       )}
 
       <div className="mt-4 flex flex-wrap items-center gap-2">
-        <Button
-          variant="secondary"
-          size="sm"
-          asChild
-          trailingIcon={<ArrowRight />}
-        >
+        <Button variant="secondary" size="sm" asChild trailingIcon={<ArrowRight />}>
           <Link href={`/problems/${candidate.problem.publicId}`}>View problem</Link>
         </Button>
 

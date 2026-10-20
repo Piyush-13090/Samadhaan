@@ -165,20 +165,47 @@ export class PendingUploadService
    * the user the real reason their report failed.
    */
   async discard(storageKeys: string[]): Promise<void> {
+    if (storageKeys.length === 0) return;
+    // Never delete a file a problem references (Prompt 29). A failed submit can
+    // carry keys that another request already attached — a double-clicked
+    // submit fails on the unique storage key — and deleting them would strip
+    // the photos from the report that did save. Same rule as `sweep`.
+    let referenced: Set<string>;
+    try {
+      referenced = new Set(
+        (
+          await this.prisma.problemImage.findMany({
+            where: { storageKey: { in: storageKeys } },
+            select: { storageKey: true },
+          })
+        ).map((image) => image.storageKey),
+      );
+    } catch (error) {
+      // Cannot tell which files are in use: keep them all. The sweep, which
+      // performs the same check, removes the unreferenced ones later.
+      this.logger.warn(
+        `Upload discard skipped (reference check failed): ${
+          error instanceof Error ? error.message : 'unknown error'
+        }`,
+      );
+      return;
+    }
     await Promise.all(
-      storageKeys.map(async (key) => {
-        try {
-          await this.storage.delete(key);
-          await this.redis.connection.del(this.key(key));
-          await this.redis.connection.zrem(INDEX_KEY, key);
-        } catch (error) {
-          this.logger.warn(
-            `Could not discard upload ${key}: ${
-              error instanceof Error ? error.message : 'unknown error'
-            }`,
-          );
-        }
-      }),
+      storageKeys
+        .filter((key) => !referenced.has(key))
+        .map(async (key) => {
+          try {
+            await this.storage.delete(key);
+            await this.redis.connection.del(this.key(key));
+            await this.redis.connection.zrem(INDEX_KEY, key);
+          } catch (error) {
+            this.logger.warn(
+              `Could not discard upload ${key}: ${
+                error instanceof Error ? error.message : 'unknown error'
+              }`,
+            );
+          }
+        }),
     );
   }
 }

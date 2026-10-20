@@ -104,10 +104,11 @@ function createFakePrisma(candidateRows: Array<Record<string, unknown>> = []) {
       findUnique: vi.fn(async () => null),
       findMany: vi.fn(async () => []),
       deleteMany: vi.fn(async () => ({ count: 0 })),
-      upsert: vi.fn(async ({ create }: { create: Record<string, unknown> }) => {
-        pairs.push(create);
-        return create;
+      create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
+        pairs.push(data);
+        return data;
       }),
+      updateMany: vi.fn(async () => ({ count: 1 })),
       update: vi.fn(async () => ({})),
     },
     auditLog: { create: vi.fn(async () => ({})) },
@@ -330,7 +331,32 @@ describe('DuplicateDetectionService', () => {
     await service.enqueue('prb-new');
     await settle();
 
-    expect(prisma.problemDuplicateCandidate.upsert).not.toHaveBeenCalled();
+    expect(prisma.problemDuplicateCandidate.create).not.toHaveBeenCalled();
+    expect(prisma.problemDuplicateCandidate.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('does not overwrite a verdict recorded between the check and the write (Prompt 29)', async () => {
+    const prisma = createFakePrisma([candidateRow()]);
+    // Unreviewed when read...
+    prisma.problemDuplicateCandidate.findUnique = vi.fn(async () => ({
+      id: 'pair-1',
+      status: 'PENDING',
+    })) as never;
+    // ...but a person ruled before the write: the conditional update matches nothing.
+    prisma.problemDuplicateCandidate.updateMany = vi.fn(async () => ({
+      count: 0,
+    })) as never;
+    const { service } = build(prisma, EMBEDDINGS);
+
+    await service.enqueue('prb-new');
+    await settle();
+
+    const [args] = (prisma.problemDuplicateCandidate.updateMany as any).mock.calls[0];
+    expect(args.where).toEqual({
+      id: 'pair-1',
+      status: { in: ['PENDING', 'LIKELY_DUPLICATE'] },
+    });
+    expect(prisma.problemDuplicateCandidate.create).not.toHaveBeenCalled();
   });
 
   // =============================================================== failures

@@ -1,5 +1,12 @@
-import type { OrganizationMemberRole, ProblemCategory, ProblemStatus } from './problem.js';
-import type { ResolutionAttachmentView, ResolutionParticipantSide } from './resolution.js';
+import type {
+  OrganizationMemberRole,
+  ProblemCategory,
+  ProblemStatus,
+} from './problem.js';
+import type {
+  ResolutionAttachmentView,
+  ResolutionParticipantSide,
+} from './resolution.js';
 
 /**
  * Resolution projects (Prompt 18): the deterministic plan inside a resolution
@@ -14,10 +21,18 @@ export const PROJECT_TIME_ZONE = 'Asia/Kolkata';
 
 // ---------------------------------------------------------------- project
 
-export const PROJECT_STATUSES = ['PLANNED', 'ACTIVE', 'PAUSED', 'COMPLETED', 'CANCELLED'] as const;
+export const PROJECT_STATUSES = [
+  'PLANNED',
+  'ACTIVE',
+  'PAUSED',
+  'COMPLETED',
+  'CANCELLED',
+] as const;
 export type ProjectStatus = (typeof PROJECT_STATUSES)[number];
 
-export const PROJECT_TRANSITIONS: Readonly<Record<ProjectStatus, readonly ProjectStatus[]>> = {
+export const PROJECT_TRANSITIONS: Readonly<
+  Record<ProjectStatus, readonly ProjectStatus[]>
+> = {
   PLANNED: ['ACTIVE', 'CANCELLED'],
   ACTIVE: ['PAUSED', 'COMPLETED', 'CANCELLED'],
   PAUSED: ['ACTIVE', 'CANCELLED'],
@@ -30,11 +45,21 @@ export function canTransitionProject(from: ProjectStatus, to: ProjectStatus): bo
 }
 
 /** Tasks and milestones can change only while the project is live. */
-export const PROJECT_EDITABLE_STATUSES: readonly ProjectStatus[] = ['PLANNED', 'ACTIVE', 'PAUSED'];
+export const PROJECT_EDITABLE_STATUSES: readonly ProjectStatus[] = [
+  'PLANNED',
+  'ACTIVE',
+  'PAUSED',
+];
 
 // ------------------------------------------------------------------- tasks
 
-export const TASK_STATUSES = ['TODO', 'IN_PROGRESS', 'BLOCKED', 'COMPLETED', 'CANCELLED'] as const;
+export const TASK_STATUSES = [
+  'TODO',
+  'IN_PROGRESS',
+  'BLOCKED',
+  'COMPLETED',
+  'CANCELLED',
+] as const;
 export type TaskStatus = (typeof TASK_STATUSES)[number];
 
 export const TASK_TRANSITIONS: Readonly<Record<TaskStatus, readonly TaskStatus[]>> = {
@@ -46,19 +71,30 @@ export const TASK_TRANSITIONS: Readonly<Record<TaskStatus, readonly TaskStatus[]
 };
 
 /** What a MEMBER may do to a task assigned to them. Never cancel. */
-export const TASK_ASSIGNEE_TRANSITIONS: readonly TaskStatus[] = ['IN_PROGRESS', 'BLOCKED', 'COMPLETED'];
+export const TASK_ASSIGNEE_TRANSITIONS: readonly TaskStatus[] = [
+  'IN_PROGRESS',
+  'BLOCKED',
+  'COMPLETED',
+];
 
 export function canTransitionTask(from: TaskStatus, to: TaskStatus): boolean {
   return TASK_TRANSITIONS[from].includes(to);
 }
 
-export const OPEN_TASK_STATUSES: readonly TaskStatus[] = ['TODO', 'IN_PROGRESS', 'BLOCKED'];
+export const OPEN_TASK_STATUSES: readonly TaskStatus[] = [
+  'TODO',
+  'IN_PROGRESS',
+  'BLOCKED',
+];
 
 export const TASK_PRIORITIES = ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'] as const;
 export type TaskPriority = (typeof TASK_PRIORITIES)[number];
 
 /** Organisation roles that manage the plan. MEMBERs update their own tasks. */
-export const PROJECT_MANAGER_ROLES = ['OWNER', 'ADMIN'] as const satisfies readonly OrganizationMemberRole[];
+export const PROJECT_MANAGER_ROLES = [
+  'OWNER',
+  'ADMIN',
+] as const satisfies readonly OrganizationMemberRole[];
 
 export const PROJECT_NAME_MAX_LENGTH = 200;
 export const PROJECT_DESCRIPTION_MAX_LENGTH = 2000;
@@ -119,7 +155,9 @@ export interface TaskCounts {
  * completed ÷ (all tasks − cancelled), floored to a whole percent so 99.6%
  * never reads as done. No tasks (or only cancelled ones) is 0%.
  */
-export function taskProgressPercent(counts: Pick<TaskCounts, 'total' | 'completed' | 'cancelled'>): number {
+export function taskProgressPercent(
+  counts: Pick<TaskCounts, 'total' | 'completed' | 'cancelled'>,
+): number {
   const counted = counts.total - counts.cancelled;
   if (counted <= 0) return 0;
   return Math.floor((counts.completed / counted) * 100);
@@ -174,7 +212,11 @@ export interface ProjectView {
   government: { name: string };
   organization: { name: string; slug: string };
   overview: ProjectOverview;
-  viewer: { userId: string; side: ResolutionParticipantSide; role: OrganizationMemberRole };
+  viewer: {
+    userId: string;
+    side: ResolutionParticipantSide;
+    role: OrganizationMemberRole;
+  };
   permissions: ProjectPermissions;
   /** `YYYY-MM-DD` the server used for overdue — the client uses the same. */
   today: string;

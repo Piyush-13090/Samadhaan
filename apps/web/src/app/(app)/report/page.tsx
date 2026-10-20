@@ -28,7 +28,9 @@ export default async function ReportPage() {
         description="Help your community identify and solve problems faster."
       />
 
-      {user.status === 'PENDING_VERIFICATION' && (
+      {/* Email verification is separate from account status: new citizens
+          are ACTIVE with an unverified email (release blocker B1). */}
+      {user.emailVerifiedAt === null && (
         <Alert tone="info" title="Your email is not verified yet" className="mt-6">
           You can still report problems. Verifying your email helps local bodies trust
           your reports.

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import type { PublicPriorityView } from '@samadhaan/shared';
+import { AiBadge } from '@/components/ai/ai-badge';
 import { Badge, StatusDot } from '@/components/ui/badge';
 import { Card, CardBody } from '@/components/ui/card';
 import { PRIORITY_TIER_DISPLAY } from '@/lib/domain-display';
@@ -36,6 +37,8 @@ export function PublicPriorityCard({ publicId }: { publicId: string }) {
           <Badge tone={display.tone} size="sm" icon={<StatusDot tone={display.tone} />}>
             {display.label}
           </Badge>
+          {/* Disclosed as automated, as the government view does (Prompt 30). */}
+          <AiBadge label="Automated estimate" />
         </p>
         {view.reasons.length > 0 && (
           <ul className="list-disc space-y-0.5 pl-5 type-body-sm text-ink-muted">

@@ -5,6 +5,7 @@ import type {
   AiService,
   AnalyzeProblemInput,
 } from '../../ai/ai.service.js';
+import type { ModelInferenceService } from '../../ml/model-inference.service.js';
 import type { PrismaService } from '../../database/prisma.service.js';
 import type { DomainEventBus } from '../../events/domain-event-bus.js';
 import type { StorageService } from '../../storage/storage.types.js';
@@ -128,6 +129,7 @@ function build(
   const storage = { get: vi.fn(async () => storageBytes) } as unknown as StorageService;
 
   const events = fakeEvents();
+  const ml = noModels();
 
   return {
     analyzeProblem,
@@ -138,8 +140,21 @@ function build(
       ai,
       storage,
       events,
+      ml,
     ),
+    ml,
   };
+}
+
+/** Registry inference with nothing active (the default deployment). */
+function noModels() {
+  const annotateAnalysis = vi.fn(
+    async (_id: string, _problem: Record<string, string>, _requestId?: string) =>
+      undefined,
+  );
+  return Object.assign({ annotateAnalysis } as unknown as ModelInferenceService, {
+    annotateAnalysis,
+  });
 }
 
 /** A bus that records what was published. */
@@ -175,6 +190,7 @@ describe('ProblemAnalysisService', () => {
       ai,
       storage,
       fakeEvents(),
+      noModels(),
     ).enqueue('prb-1');
     await settle();
 
@@ -255,6 +271,38 @@ describe('ProblemAnalysisService', () => {
     // The fake exposes no `update` at all, so any write would have thrown.
     expect(prisma.problem).not.toHaveProperty('update');
     expect(PROBLEM.category).toBe('POTHOLES');
+  });
+
+  it('asks for advisory registry predictions once, after the result is stored (Prompt 28)', async () => {
+    const prisma = createFakePrisma(PROBLEM);
+    const { service, ml } = build(prisma, [{ ok: true, analysis: ANALYSIS }]);
+
+    await service.enqueue('prb-1');
+    await settle();
+
+    expect(ml.annotateAnalysis).toHaveBeenCalledTimes(1);
+    expect(ml.annotateAnalysis.mock.calls[0]?.[1]).toEqual({
+      title: PROBLEM.title,
+      description: PROBLEM.description,
+      category: PROBLEM.category,
+    });
+    // The provider's result is what was stored, whatever a registry model says.
+    expect(prisma.rows[0]).toMatchObject({
+      processingStatus: 'COMPLETED',
+      category: 'POTHOLES',
+    });
+  });
+
+  it('does not ask a registry model when the analysis failed', async () => {
+    const prisma = createFakePrisma(PROBLEM);
+    const { service, ml } = build(prisma, [
+      { ok: false, failure: { code: 'INVALID_INPUT', message: 'x', retryable: false } },
+    ]);
+
+    await service.enqueue('prb-1');
+    await settle();
+
+    expect(ml.annotateAnalysis).not.toHaveBeenCalled();
   });
 
   it('marks a permanent failure FAILED after a single attempt', async () => {
@@ -413,6 +461,7 @@ describe('ProblemAnalysisService', () => {
         ai,
         storage,
         fakeEvents(),
+        noModels(),
       );
 
       await service.enqueue('prb-1');

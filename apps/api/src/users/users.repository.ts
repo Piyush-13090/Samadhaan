@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import type { ProfileActivity } from '@samadhaan/shared';
-import type { Prisma, User, UserRole } from '../generated/prisma/client.js';
+import type { Prisma, User, UserRole, UserStatus } from '../generated/prisma/client.js';
 import { PrismaService } from '../database/prisma.service.js';
 
 /**
@@ -64,13 +64,17 @@ export class UsersRepository {
    * `role` is a required explicit argument rather than an optional field on a
    * spread object: every call site has to state the role it is creating, so a
    * privileged account can never be produced by an object that happened to
-   * carry a `role` key.
+   * carry a `role` key. `status` is explicit for the same reason: the schema
+   * default (PENDING_VERIFICATION) can't sign in, so each caller states which
+   * one it means. Email verification is separate (`emailVerifiedAt`), and
+   * nothing here sets it.
    */
   create(input: {
     email: string;
     passwordHash: string;
     fullName: string;
     role: UserRole;
+    status: UserStatus;
   }): Promise<User> {
     return this.prisma.user.create({
       data: {
@@ -78,6 +82,7 @@ export class UsersRepository {
         passwordHash: input.passwordHash,
         fullName: input.fullName,
         role: input.role,
+        status: input.status,
       },
     });
   }
@@ -156,7 +161,12 @@ export class UsersRepository {
       problemsResolved,
       stats,
     ] = await this.prisma.$transaction([
-      this.prisma.problem.count({ where: { reporterId: userId, deletedAt: null } }),
+      // Drafts are unpublished, so they are not civic activity — and counting
+      // them on a public profile disclosed that unpublished reports exist
+      // (Prompt 29).
+      this.prisma.problem.count({
+        where: { reporterId: userId, deletedAt: null, status: { not: 'DRAFT' } },
+      }),
       this.prisma.problemVote.count({ where: { userId } }),
       this.prisma.problemFollow.count({ where: { userId } }),
       this.prisma.problemComment.count({ where: { userId, deletedAt: null } }),

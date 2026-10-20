@@ -51,7 +51,9 @@ describe('ProblemIntelligencePanel', () => {
       <ProblemIntelligencePanel publicId="SAM-1" initial={null} canRetry={false} />,
     );
 
-    expect(container.querySelector('[data-slot="skeleton"], .animate-shimmer')).not.toBeNull();
+    expect(
+      container.querySelector('[data-slot="skeleton"], .animate-shimmer'),
+    ).not.toBeNull();
   });
 
   /**

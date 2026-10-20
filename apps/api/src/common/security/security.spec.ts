@@ -1,6 +1,6 @@
 import type { Request, Response } from 'express';
 import { describe, expect, it, vi } from 'vitest';
-import { envSchema, productionIssues } from '../../config/env.schema.js';
+import { envSchema, productionIssues, storageIssues } from '../../config/env.schema.js';
 import { cleanFileName } from '../file-name.js';
 import { serializeRequest } from '../logger/logger.config.js';
 import { resolveRequestId } from '../request-context.js';
@@ -98,6 +98,12 @@ describe('production configuration', () => {
     AI_SERVICE_TOKEN: 'a'.repeat(16) + 'b'.repeat(16) + 'c'.repeat(8),
     AUTH_COOKIE_SECURE: 'true',
     CORS_ORIGINS: 'https://app.samadhaan.in',
+    PUBLIC_API_URL: 'https://api.samadhaan.in',
+    STORAGE_PROVIDER: 's3',
+    STORAGE_BUCKET: 'samadhaan-media',
+    STORAGE_REGION: 'ap-south-1',
+    STORAGE_ACCESS_KEY_ID: 'AKIATESTONLY',
+    STORAGE_SECRET_ACCESS_KEY: 'test-only-secret',
   };
   const issues = (overrides: Record<string, string> = {}) =>
     productionIssues(envSchema.parse({ ...base, ...overrides }));
@@ -125,6 +131,40 @@ describe('production configuration', () => {
       expect.stringContaining('CORS_ORIGINS'),
     ]);
     expect(issues({ CORS_ORIGINS: 'http://app.samadhaan.in' })).toHaveLength(1);
+  });
+
+  it('refuses unsafe storage, plain-http public URLs and verbose logs (Prompt 30)', () => {
+    expect(issues({ STORAGE_PROVIDER: 'local' })).toEqual([
+      expect.stringContaining('STORAGE_PROVIDER=local'),
+    ]);
+    // A single host with a backed-up volume is an explicit, accepted choice.
+    expect(
+      issues({ STORAGE_PROVIDER: 'local', STORAGE_ALLOW_LOCAL_IN_PRODUCTION: 'true' }),
+    ).toEqual([]);
+    expect(issues({ PUBLIC_API_URL: 'http://api.samadhaan.in' })).toEqual([
+      expect.stringContaining('PUBLIC_API_URL'),
+    ]);
+    expect(issues({ LOG_LEVEL: 'debug' })).toEqual([
+      expect.stringContaining('LOG_LEVEL'),
+    ]);
+    expect(issues({ REDIS_URL: 'redis://redis:6379' })).toEqual([
+      expect.stringContaining('REDIS_URL'),
+    ]);
+    expect(issues({ REDIS_URL: 'rediss://redis.internal:6380' })).toEqual([]);
+    expect(issues({ STORAGE_ENDPOINT: 'http://minio:9000' })).toEqual([
+      expect.stringContaining('STORAGE_ENDPOINT'),
+    ]);
+  });
+
+  it('requires complete S3 settings in every environment', () => {
+    expect(storageIssues(envSchema.parse({ ...base, NODE_ENV: 'development' }))).toEqual(
+      [],
+    );
+    expect(
+      storageIssues(
+        envSchema.parse({ ...base, NODE_ENV: 'development', STORAGE_BUCKET: '' }),
+      ),
+    ).toEqual(['STORAGE_BUCKET is required when STORAGE_PROVIDER=s3']);
   });
 
   it('does not apply to development', () => {

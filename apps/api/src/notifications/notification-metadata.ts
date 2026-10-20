@@ -112,7 +112,11 @@ function isStatus(value: unknown): value is ProblemStatus {
  */
 export function hrefFor(type: NotificationType, metadata: NotificationMetadata): string {
   // Impact (Prompt 23): the person's own impact page.
-  if (type === 'IMPACT_POINTS_AWARDED' || type === 'BADGE_EARNED' || type === 'REPUTATION_TIER_REACHED') {
+  if (
+    type === 'IMPACT_POINTS_AWARDED' ||
+    type === 'BADGE_EARNED' ||
+    type === 'REPUTATION_TIER_REACHED'
+  ) {
     return '/profile/impact';
   }
   // Resolution verification (Prompt 22): officials open their verification

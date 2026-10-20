@@ -215,8 +215,16 @@ per IP + email.
 
 `201` → `{ user, expiresIn }`, plus both auth cookies.
 
-**Role cannot be chosen.** The DTO has no `role` field and validation rejects
-unknown properties, so `{"role": "ADMIN"}` returns `400 VALIDATION_FAILED`.
+The account is created `ACTIVE` with `emailVerifiedAt: null`, so the session
+works immediately. Email verification is a separate state, and nothing sets it
+yet. Before 2026-10-19 accounts were created `PENDING_VERIFICATION`, which the
+access guard refuses: registration "succeeded" but every later request
+returned 401 (release blocker B1). Accounts still in `PENDING_VERIFICATION`
+remain unable to authenticate.
+
+**Role and status cannot be chosen.** The DTO has no `role`, `status` or
+`emailVerifiedAt` field, and validation rejects unknown properties. So
+`{"role": "ADMIN"}` returns `400 VALIDATION_FAILED`.
 Organisation and government accounts are created through verification and
 invitation flows in later milestones.
 
@@ -1937,7 +1945,7 @@ Author, room, organisation and side are never accepted from the client.
 | GET | `/resolution-rooms/:id/attachments` | Attachments on live messages (plus your unsent uploads) |
 | POST | `/resolution-rooms/:id/attachments` | Multipart `file`: JPEG/PNG/WebP/PDF by content, ≤ 10 MB, extension must match → `201`. 10 per 10 min |
 | GET | `/resolution-rooms/:id/attachments/:attachmentId/file` | The bytes, after the room check. `nosniff`, `CSP: sandbox`, `private` cache |
-| POST | `/resolution-rooms/:id/close` | `{ reason }` (3–1000). Allocating office only (`403` otherwise); `409` if already closed |
+| POST | `/resolution-rooms/:id/close` | `{ reason }` (3–1000). Allocating office only (`403` otherwise). `409` if already closed, or while the work is active (problem not final and allocation still ACCEPTED): withdraw the allocation instead |
 | GET | `/resolution-rooms/:id/stream` | `text/event-stream`: `message.created`, `message.updated`, `activity`, `room.closed`. Re-checks access every 60 s and ends after 15 min |
 
 | Error | HTTP | When |
@@ -1974,7 +1982,7 @@ official and the responding member always come from the session.
 | GET | `/government/:slug/problems/:publicId/allocations` | Official | `GovernmentAllocationPanel`: `canAllocate`, `blockedReason`, `active`, `history` (newest first), `candidates` (top 10 matches with eligibility), `verifiedAt`. Also embedded as `allocation` in the problem detail |
 | GET | `/government/:slug/problems/:publicId/allocation-candidates?q=` | Official | Up to 20 NGO/university/industry organisations by name (2–80 chars), with match evidence if any, `eligible`, `ineligibleReason`, `previouslyDeclined` |
 | POST | `/government/:slug/problems/:publicId/allocations` | Official | `{ organizationId, instructions?, internalReason? }` (notes ≤ 1000) → `201 GovernmentAllocationView`. Rate limit 60/min |
-| POST | `/government/:slug/allocations/:id/cancel` | Allocating office | `{ reason? }` → `200`; pending only |
+| POST | `/government/:slug/allocations/:id/cancel` | Allocating office | `{ reason? }` → `200`. PENDING: reason optional. ACCEPTED: reason ≥ 10 required; cancels the allocation, any unfinished project and the open room, and returns the problem to VERIFIED (never RESOLVED). `409` if a verification request is pending, the problem is no longer IN_PROGRESS, or another request won |
 | GET | `/organizations/:slug/allocations?view=pending\|active\|past\|all&page&limit` | Member | `OrganizationAllocationPage`; `pending` is the default |
 | GET | `/organizations/:slug/allocations/:id` | Member | `OrganizationAllocationDetail` — no `internalReason`; `canRespond` |
 | POST | `/organizations/:slug/allocations/:id/accept` | OWNER/ADMIN | `{ note? }` → `200`; problem becomes `IN_PROGRESS` in the same transaction |

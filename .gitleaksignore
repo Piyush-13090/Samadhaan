@@ -1,0 +1,24 @@
+# Gitleaks: individually reviewed false positives (2026-10-20).
+#
+# Each line is the exact fingerprint of one finding (commit:file:rule:line).
+# Only that finding in that commit is ignored. The rule stays enabled, every
+# file is still scanned, and the same value appearing anywhere else is
+# reported again. Never add a line without reviewing the finding, and record
+# why here.
+#
+# JWT_ACCESS_SECRET test fixture in two production-configuration unit tests.
+# The tests need a value that passes the production strength rules (32 or
+# more characters, 16 or more distinct). The value exists only in these two
+# test files, differs from every development secret, and has never been
+# configured in any environment (nothing has been deployed). It must never be
+# used as a real secret: it's public in this repository.
+4973322aef8f90fe947429290c34b4f80974c481:apps/api/src/config/app.config.spec.ts:generic-api-key:52
+4973322aef8f90fe947429290c34b4f80974c481:apps/api/src/common/security/security.spec.ts:generic-api-key:97
+#
+# A deliberately wrong password sent by the security e2e tests: the
+# "unknown email and wrong password look identical" check, and the
+# password-spray rate-limit check (expects 401, then 429). It isn't the
+# password of any account.
+4973322aef8f90fe947429290c34b4f80974c481:apps/api/test/security.e2e-spec.ts:generic-api-key:287
+4973322aef8f90fe947429290c34b4f80974c481:apps/api/test/security.e2e-spec.ts:generic-api-key:290
+4973322aef8f90fe947429290c34b4f80974c481:apps/api/test/security.e2e-spec.ts:generic-api-key:332

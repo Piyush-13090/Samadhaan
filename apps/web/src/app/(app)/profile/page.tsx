@@ -94,10 +94,22 @@ async function ProfileContent() {
           description="Problems you reported, supported and commented on."
         />
         <CardBody className="p-0">
+          {/* Prompt 30: was a stale "coming soon" placeholder. The real lists
+              live on their own pages. */}
           <EmptyState
             size="sm"
-            title="Activity feed coming soon"
-            description="Your reports and contributions will be listed here once problem reporting is live."
+            title="Your activity has its own pages"
+            description="Your reports, with their status and history, and your impact points and badges."
+            action={
+              <div className="flex flex-wrap justify-center gap-2">
+                <Button asChild size="sm" variant="secondary">
+                  <Link href="/my-problems">My reports</Link>
+                </Button>
+                <Button asChild size="sm" variant="secondary">
+                  <Link href="/profile/impact">My impact</Link>
+                </Button>
+              </div>
+            }
           />
         </CardBody>
       </Card>

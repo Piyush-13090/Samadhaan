@@ -45,7 +45,9 @@ export type EvidenceStatus = (typeof EVIDENCE_STATUSES)[number];
  * Re-running the AI review later changes the evidence's AI status only, never
  * this lifecycle — evidence under government review stays under review.
  */
-export const EVIDENCE_TRANSITIONS: Readonly<Record<EvidenceStatus, readonly EvidenceStatus[]>> = {
+export const EVIDENCE_TRANSITIONS: Readonly<
+  Record<EvidenceStatus, readonly EvidenceStatus[]>
+> = {
   DRAFT: ['SUBMITTED', 'WITHDRAWN'],
   SUBMITTED: ['PROCESSING', 'WITHDRAWN'],
   // Back to SUBMITTED when an attempt fails and will be retried.
@@ -74,10 +76,7 @@ export const VERIFICATION_RECOMMENDATIONS = [
 export type VerificationRecommendation = (typeof VERIFICATION_RECOMMENDATIONS)[number];
 
 export type VerificationRequestStatus =
-  | 'PENDING'
-  | 'APPROVED'
-  | 'REJECTED'
-  | 'MORE_EVIDENCE_REQUESTED';
+  'PENDING' | 'APPROVED' | 'REJECTED' | 'MORE_EVIDENCE_REQUESTED';
 
 export const EVIDENCE_UPLOAD_TYPES = [
   'image/jpeg',
@@ -110,7 +109,8 @@ export const VERIFICATION_LIMITATIONS = [
 // Expected evidence, by category
 // ---------------------------------------------------------------------------
 
-export type ExpectedEvidenceKind = 'BEFORE_IMAGE' | 'AFTER_IMAGE' | 'LOCATION' | 'DOCUMENT';
+export type ExpectedEvidenceKind =
+  'BEFORE_IMAGE' | 'AFTER_IMAGE' | 'LOCATION' | 'DOCUMENT';
 
 export interface ExpectedEvidence {
   kind: ExpectedEvidenceKind;
@@ -119,8 +119,16 @@ export interface ExpectedEvidence {
   required: boolean;
 }
 
-const AFTER: ExpectedEvidence = { kind: 'AFTER_IMAGE', label: 'After photo', required: true };
-const BEFORE: ExpectedEvidence = { kind: 'BEFORE_IMAGE', label: 'Before photo', required: false };
+const AFTER: ExpectedEvidence = {
+  kind: 'AFTER_IMAGE',
+  label: 'After photo',
+  required: true,
+};
+const BEFORE: ExpectedEvidence = {
+  kind: 'BEFORE_IMAGE',
+  label: 'Before photo',
+  required: false,
+};
 const LOCATION: ExpectedEvidence = {
   kind: 'LOCATION',
   label: 'Location proof (photo GPS near the reported place)',
