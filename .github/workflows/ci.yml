@@ -120,6 +120,17 @@ jobs:
           cache-dependency-path: services/ai/requirements*.txt
       - name: Start PostgreSQL and Redis (documented docker-compose setup)
         run: docker compose up -d --wait
+
+      # check-migrations.sh and post-migrate.sh run psql on the runner. Don't
+      # rely on the runner image shipping a client (ubuntu-latest moved to
+      # Ubuntu 26 on 2026-10-19); install it if it's missing.
+      - name: PostgreSQL client
+        run: |
+          if ! command -v psql >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y --no-install-recommends postgresql-client
+          fi
+          psql --version
       - name: Install
         run: |
           npm ci

@@ -20,12 +20,11 @@ capability, documented honestly).
 
 ## Risks (accepted, mitigated)
 
-- **Intermittent e2e failures (2 of 6 full runs, 2026-10-19).** Mid-file
-  unexpected 404s, then 401s, on authenticated requests: `notifications` and
-  `ml` once, `projects` once. Each passes alone and on a full rerun. The
-  second occurrence happened with the development API stopped, so it isn't
-  that process. Cause unknown; see `STAGING_PREFLIGHT.md` § Known issues.
-  Owner: engineering.
+- ~~**Intermittent e2e failures.**~~ Root cause found and fixed on 2026-10-20.
+  On macOS, supertest's test servers bound `::` on a port that a VS Code
+  helper owned on 127.0.0.1, so requests went to VS Code (401/404). The fix
+  is in `test/setup-e2e.ts`, guarded by `test/supertest-loopback.e2e-spec.ts`.
+  After it: 5 consecutive full runs, all 778 passed.
 - **Session refresh in browsers without Web Locks** (very old browsers) is
   still unserialised. Tabs refreshing at the same moment there can trigger
   replay detection and sign the user out. Every current major browser

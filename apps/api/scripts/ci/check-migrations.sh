@@ -29,12 +29,19 @@ echo "==> prisma migrate deploy"
 DATABASE_URL="$URL" npx prisma migrate deploy
 
 echo "==> post-migrate.sql (twice: must be idempotent)"
-psql "$URL" -v ON_ERROR_STOP=1 -q -f prisma/sql/post-migrate.sql 2>&1 | grep -v NOTICE || true
-psql "$URL" -v ON_ERROR_STOP=1 -q -f prisma/sql/post-migrate.sql 2>&1 | grep -v NOTICE || true
+# NOTICEs ("already exists, skipping") are silenced at the server, not
+# filtered with grep: a filter plus `|| true` hid real failures.
+PGOPTIONS='-c client_min_messages=warning' psql "$URL" -v ON_ERROR_STOP=1 -q -f prisma/sql/post-migrate.sql
+PGOPTIONS='-c client_min_messages=warning' psql "$URL" -v ON_ERROR_STOP=1 -q -f prisma/sql/post-migrate.sql
 
 echo "==> drift check (database vs schema.prisma)"
-DIFF="$(DATABASE_URL="$URL" npx prisma migrate diff --from-config-datasource --to-schema prisma/schema.prisma --script 2>/dev/null \
-  | grep -v '^Loaded Prisma config' || true)"
+# A failed diff must fail the check: an empty result would otherwise read as
+# "no drift".
+if ! DIFF_RAW="$(DATABASE_URL="$URL" npx prisma migrate diff --from-config-datasource --to-schema prisma/schema.prisma --script)"; then
+  echo "prisma migrate diff failed; drift could not be checked." >&2
+  exit 1
+fi
+DIFF="$(printf '%s\n' "$DIFF_RAW" | grep -v '^Loaded Prisma config' || true)"
 UNEXPECTED="$(printf '%s\n' "$DIFF" \
   | grep -vE '^\s*$|^-- (DropIndex|This is an empty migration)' \
   | grep -vE '^DROP INDEX "(problem_embeddings_vector_hnsw|organization_embeddings_vector_hnsw|knowledge_chunks_embedding_hnsw)";$' || true)"

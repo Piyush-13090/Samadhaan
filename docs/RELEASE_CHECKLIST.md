@@ -34,7 +34,7 @@ Redis 8, Node 22, Python 3.14). "CI" means the GitHub Actions workflow, which
 | --- | --- | --- |
 | ☐ | `node-quality` green | GitHub Actions run URL |
 | ☐ | `ai-service` green | run URL |
-| ☐ | `database-and-e2e` green. This is the first time the documented `docker compose` PostgreSQL image (PostGIS 3.4 + pgvector) is exercised from a clean checkout. | run URL |
+| ☐ | `database-and-e2e` green. This is the first time the documented `docker compose` PostgreSQL image (PostgreSQL 16, PostGIS 3.6, pgvector 0.8) is exercised from a clean checkout. | run URL |
 | ☐ | `security` green (npm audit, pip-audit, gitleaks) | run URL. Gitleaks may need allow-list entries for test fixtures. |
 | ☐ | Branch protection requires all four jobs | repository settings |
 | ☑ | Workflow needs no secrets (fork PRs run it) | `ci.yml`: generated JWT secret, throwaway CI database password |

@@ -69,7 +69,9 @@ describe('Resolution rooms (e2e)', () => {
     await app.init();
     registerNotFoundHandler(app);
     server = app.getHttpServer();
-    await new Promise<void>((resolve) => server.listen(0, resolve));
+    // Bound to 127.0.0.1, the address the stream requests below connect to
+    // (see the loopback note in setup-e2e.ts).
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
     port = (server.address() as AddressInfo).port;
 
     prisma = app.get(PrismaService);

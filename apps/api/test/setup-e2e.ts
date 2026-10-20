@@ -1,7 +1,36 @@
+import type { AddressInfo, Server } from 'node:net';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { config as loadEnv } from 'dotenv';
+import supertest from 'supertest';
 import { afterAll, beforeAll } from 'vitest';
 import { PrismaClient } from '../src/generated/prisma/client.js';
+
+/**
+ * Point supertest at the loopback address its server actually owns.
+ *
+ * supertest starts the app with `server.listen(0)` (no host), then connects
+ * to `127.0.0.1:<port>`. Without a host, Node binds the IPv6 wildcard `::`,
+ * and the kernel only guarantees the port is free for that socket. On macOS a
+ * different process can still own the same port on 127.0.0.1 (VS Code helpers
+ * listen in the ephemeral range), and a connection to 127.0.0.1 then reaches
+ * that process instead of the app under test. That caused the intermittent
+ * "impossible" 401s and 404s in local e2e runs (diagnosed 2026-10-20).
+ *
+ * When the server is bound to `::`, connect to `[::1]` instead: that address
+ * is covered by the server's own socket. Where IPv6 is unavailable, Node binds
+ * IPv4 and the URL is left unchanged. The bind stays synchronous, which
+ * supertest relies on.
+ */
+type ServerAddress = (this: unknown, app: Server, path: string) => string;
+const proto = supertest.Test.prototype as unknown as { serverAddress: ServerAddress };
+const serverAddress = proto.serverAddress;
+proto.serverAddress = function (app, path) {
+  const url = serverAddress.call(this, app, path);
+  const address = app.address() as AddressInfo | null;
+  return address?.family === 'IPv6' && address.address === '::'
+    ? url.replace('://127.0.0.1:', '://[::1]:')
+    : url;
+};
 
 /**
  * Keeps e2e runs from leaving notifications behind in the development database.

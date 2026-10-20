@@ -39,7 +39,7 @@ and verified locally.
 | A9 | Lint | `npm run lint --workspace @samadhaan/api`; `… @samadhaan/web`; `ruff check .` | exit 0 | PASS (oxlint: 3 warnings, none blocking) |
 | A10 | Types | `npm run typecheck` | exit 0 | PASS |
 | A11 | API unit / web / AI tests | `npm test` (api, web); `pytest -q` | 548 / 495 / 234 + 2 skipped | PASS (2026-10-19, after B1/B4) |
-| A12 | API e2e | `npm run test:e2e --workspace @samadhaan/api` | 777 passed | PASS on rerun. The intermittent flake recurred once (6 tests in `projects.e2e`, unexpected 404 then 401) and passed in isolation and on a full rerun. It has failed in 2 of 6 full runs on 2026-10-19; cause unknown. See § Known issues. |
+| A12 | API e2e | `npm run test:e2e --workspace @samadhaan/api` | 778 passed | PASS: 5 consecutive full runs (4 on a fresh, seeded CI-like database), after fixing the intermittent-failure root cause (§ Known issues) and a test that depended on non-seeded state (`database.e2e`) |
 | A13 | Builds | `npm run build` (root) | exit 0 | PASS |
 | A14 | Migrations on a clean database | `CHECK_DATABASE_URL=…/samadhaan_migration_check apps/api/scripts/ci/check-migrations.sh` | 22 migrations, idempotent, no drift | PASS (PostgreSQL 17 locally; 16 in CI is NOT RUN) |
 | A15 | Dependency audit | `npm audit --omit=dev --audit-level=high` | 0 vulnerabilities | PASS |
@@ -77,9 +77,9 @@ Static review results:
 
 | Component | Local development | CI (`docker-compose.yml`) | Staging | Requirement | Status |
 | --- | --- | --- | --- | --- | --- |
-| PostgreSQL | 17.11 | 16 (`postgis/postgis:16-3.4`) | DECISION | 16+ | PASS locally; CI NOT RUN |
-| PostGIS | 3.6.4 | 3.4 | DECISION | 3.x | PASS locally |
-| pgvector | 0.8.6 | `postgresql-16-pgvector`, **unpinned** (PGDG) | DECISION | **≥ 0.8** (`hnsw.iterative_scan` in search and RAG) | Local PASS; CI version NOT RUN. Confirm with `SELECT extversion FROM pg_extension WHERE extname='vector'`. |
+| PostgreSQL | 17.11 | 16 (`postgis/postgis:16-3.6`, Debian trixie; was `16-3.4` on bullseye, whose PGDG repository is gone) | DECISION | 16+ | PASS locally; CI NOT RUN |
+| PostGIS | 3.6.4 | 3.6 | DECISION | 3.x | PASS locally |
+| pgvector | 0.8.6 | `postgresql-16-pgvector=0.8.*` (trixie-pgdg; 0.8.6/0.8.7 available) | DECISION | **≥ 0.8** (`hnsw.iterative_scan` in search and RAG) | Local PASS; CI version NOT RUN. Confirm with `SELECT extversion FROM pg_extension WHERE extname='vector'`. |
 | pg_trgm | 1.6 | bundled | DECISION | any | PASS locally |
 | Redis | 8.10.1 | 7 (`redis:7-alpine`) | DECISION | ≥ 7.0 | PASS |
 | Node.js | 25.1 | 22 | 22 (images) | 22 (`.nvmrc`) | Local differs from CI and images; CI is authoritative |
@@ -213,13 +213,15 @@ signed off.
 
 ## Known issues
 
-- **Intermittent e2e failures.** Seen in 2 of 6 full local runs on
-  2026-10-19: unexpected 404 and then 401 on authenticated requests partway
-  through one file (`notifications`/`ml` once, `projects` once). The file
-  passes alone, and the full suite passes on rerun. The development API was
-  down during the last occurrence, so it isn't interference from that
-  process. Cause unknown. In CI, keep `--reporter=verbose` output on failure
-  so the file order and the failing request are captured. Owner: engineering.
+- ~~**Intermittent e2e failures.**~~ **Fixed 2026-10-20.** Proven root cause:
+  on macOS, a supertest server bound to `::` can share its port number with
+  another process bound to 127.0.0.1 (VS Code helpers listen in the ephemeral
+  range). supertest's requests to 127.0.0.1 then reached that process, which
+  answered 401/404. The fix (`test/setup-e2e.ts`) makes supertest connect to
+  `[::1]` when the server is bound to `::`; `resolution.e2e` binds 127.0.0.1
+  explicitly. A regression test recreates the collision; without the fix it
+  fails. After the fix: 5 consecutive full runs, 778/778 each. Linux refuses
+  the overlapping bind, so CI was never exposed.
 
 ## Synthetic users in the local development database
 

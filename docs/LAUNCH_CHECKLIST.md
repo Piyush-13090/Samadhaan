@@ -35,7 +35,7 @@ deployed. The items below are what the staging pass actually established.
 | Multi-tab sessions | **Reproduced and fixed.** Headless Chrome on the development stack: before the fix, 1 tab (development double mount) and 4 simultaneous tabs both ended with 0 active sessions (the user was signed out). After `6397b1a`, 1, 4 and 8 tabs all stay signed in with exactly 1 active session. Replay detection on the server is unchanged. A production-build browser run is still to do in staging. |
 | Backup restore | Local drill **PASS** (`RECOVERY_RUNBOOK.md` § Drill record). It found a runbook gap: client tools must match the server's major version. Staging-sized drill **NOT RUN.** |
 | Manual accessibility | **NOT RUN.** Needs a person with real devices and screen readers (§ 5). |
-| e2e flake (2026-10-19) | Failed 2 of 6 full runs: unexpected 404, then 401, on authenticated requests partway through one file (`notifications`/`ml`, later `projects`). Passes alone and on rerun. The second occurrence happened with the development API stopped. Cause unknown. Owner: engineering; capture verbose output in CI. |
+| e2e flake | **Fixed 2026-10-20**: a macOS loopback port collision in the test harness (supertest vs VS Code helper ports), not an application defect. 5 consecutive clean full runs afterwards. |
 | Registration (B1) | Fixed: new accounts are `ACTIVE` CITIZENs with an unverified email. `registration.e2e-spec.ts`: 15 tests, 6 of which failed before the fix; all pass now. Full e2e 777 passed. |
 | Staging fixtures (B4) | `staging-fixtures` script with an environment guard, a database marker and ownership checks. Locally: all refusal cases, idempotency, rotation, retire, and the smoke test 26/26 on fixture accounts. Staging: NOT RUN. |
 
