@@ -18,7 +18,7 @@ anthropic>=1.5.0
 # deduplication needs no API key and no per-report cost. Pulls in torch and
 # transformers, which dominate the image size — the trade accepted in
 # docs/ML_DUPLICATE_DETECTION.md.
-sentence-transformers>=6.0.0
+sentence-transformers>=6.1.0
 
 # Knowledge ingestion (RAG): text extraction from uploaded PDFs. Pure Python.
 pypdf>=6.0.0
